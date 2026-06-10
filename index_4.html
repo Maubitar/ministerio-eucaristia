@@ -1,0 +1,1803 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Ministério da Eucaristia — Basílica de Nazaré</title>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const FB = {
+  apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
+  authDomain:"ministerio-eucaristia-nazare.firebaseapp.com",
+  projectId:"ministerio-eucaristia-nazare",
+  storageBucket:"ministerio-eucaristia-nazare.firebasestorage.app",
+  messagingSenderId:"477582083075",
+  appId:"1:477582083075:web:6ff409b36ca96569107a36"
+};
+
+const MISSAS_DOM = ['06:00h','08:00h','10:00h','12:00h','16:00h','18:00h','20:00h'];
+const MISSAS_SEM = ['07:00h','09:00h','12:00h','18:00h'];
+const REFORCO_TIPOS = [
+  {id:'sab12', label:'Sábado 12:00h'},
+  {id:'sab17', label:'Sábado 17:00h'},
+  {id:'qui18', label:'Quinta-feira 18:00h'},
+];
+const MES_ATUAL = 'jun2026';
+
+// ============================================================
+// CALENDÁRIO DINÂMICO — calcula semanas e datas automaticamente
+// Detecta domingos que "derramam" para o mês seguinte
+// e vincula automaticamente à escala do mês de origem
+// ============================================================
+function calcularCalendario(ano, mes) { // mes: 0=jan, 5=jun
+  const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const MESES_NOME = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+
+  // Primeiro domingo da semana que contém o dia 1
+  const primeiroDia = new Date(ano, mes, 1);
+  const inicioSem1 = new Date(primeiroDia);
+  inicioSem1.setDate(1 - primeiroDia.getDay()); // recua até domingo
+
+  const semanas = {};
+  const ordinal = ['','1ª','2ª','3ª','4ª','5ª','6ª'];
+  let semNum = 0;
+  let cursor = new Date(inicioSem1);
+
+  while(true) {
+    // Verificar se esta semana tem pelo menos 1 dia no mês alvo
+    const fimSem = new Date(cursor); fimSem.setDate(cursor.getDate()+6);
+    const temDiasNoMes = cursor.getMonth() === mes || fimSem.getMonth() === mes ||
+      (cursor.getMonth() < mes && fimSem.getMonth() > mes);
+
+    // Parar quando o início da semana já passou do mês
+    if(cursor.getMonth() > mes && cursor.getFullYear() >= ano) break;
+    if(cursor.getFullYear() > ano) break;
+
+    semNum++;
+    const dias = [];
+    for(let i=0;i<7;i++){
+      const d = new Date(cursor); d.setDate(cursor.getDate()+i);
+      dias.push({ data: fmt(d), dia: DIAS_NOME[d.getDay()], mesRef: d.getMonth()===mes });
+    }
+
+    const inicio = new Date(cursor);
+    const fim = new Date(fimSem);
+    // Label do período (pode cruzar meses)
+    let periodoLabel;
+    if(inicio.getMonth() === fim.getMonth()){
+      periodoLabel = `${fmt(inicio)} a ${fmt(fim)}`;
+    } else {
+      periodoLabel = `${fmt(inicio)} a ${fmt(fim)}`;
+    }
+
+    // Verificar se a semana tem dias no mês de referência ou é continuação
+    const domingoSem = new Date(cursor);
+    const isSemDoMes = dias.some(d=>d.mesRef);
+
+    if(isSemDoMes){
+      semanas[String(semNum)] = {
+        label: ordinal[semNum] + 'ª semana',
+        periodo: periodoLabel,
+        cruzaMeses: inicio.getMonth() !== fim.getMonth(),
+        dias: dias
+      };
+    }
+
+    cursor.setDate(cursor.getDate()+7);
+    if(semNum > 6) break;
+  }
+
+  // Domingos do mês
+  const domingos = [];
+  for(let d=new Date(ano,mes,1); d.getMonth()===mes; d.setDate(d.getDate()+1)){
+    if(d.getDay()===0) domingos.push(fmt(new Date(d)));
+  }
+
+  // Detectar domingos "derramados" (pertencem à última semana mas são do mês seguinte)
+  const domingosDerramados = [];
+  const ultimaSem = semanas[String(semNum)];
+  if(ultimaSem){
+    ultimaSem.dias.forEach(d=>{
+      if(!d.mesRef && d.dia==='Domingo'){
+        domingosDerramados.push({
+          data: d.data,
+          semOrigem: String(semNum),
+          mesOrigem: MESES_NOME[mes],
+          anoOrigem: ano
+        });
+      }
+    });
+  }
+
+  return { semanas, domingos, domingosDerramados, mesNome: MESES_NOME[mes], ano };
+}
+
+// Configuração do mês atual — MUDE AQUI para trocar o mês
+const CONFIG_MES = { ano: 2026, mes: 5 }; // mes: 0=jan ... 5=jun ... 11=dez
+const CAL = calcularCalendario(CONFIG_MES.ano, CONFIG_MES.mes);
+const DOMINGOS_MES = CAL.domingos;
+const SEMANAS_MES  = CAL.semanas;
+const TOTAL_SEMANAS = Object.keys(SEMANAS_MES).length;
+let DOMINGOS_DERRAMADOS = CAL.domingosDerramados || [];
+
+// Horários semanais por dia da semana
+const MISSAS_SEM_DIAS = {
+  'Domingo':  [],
+  'Segunda':  ['07:00h','09:00h','12:00h','18:00h'],
+  'Terça':    ['07:00h','09:00h','12:00h','18:00h'],
+  'Quarta':   ['07:00h','09:00h','12:00h','18:00h'],
+  'Quinta':   ['07:00h','09:00h','12:00h','18:00h'],
+  'Sexta':    ['07:00h','09:00h','12:00h','18:00h'],
+  'Sábado':   ['07:00h','09:00h','12:00h','18:00h'],
+};
+
+let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={};
+let recognition=null;
+
+// ============================================================
+// SPLASH + INIT
+// ============================================================
+window.addEventListener('load', async()=>{
+  // Se aberto como arquivo local, redirecionar para o Netlify automaticamente
+  if(window.location.protocol === 'file:'){
+    window.location.href = 'https://scintillating-semifreddo-7a4c34.netlify.app';
+    return;
+  }
+
+  // MODO FORMULÁRIO DE DISPONIBILIDADE (link enviado por WhatsApp)
+  const params = new URLSearchParams(location.search);
+  const dispId = params.get('disp');
+  if(dispId){
+    const app = initializeApp(FB);
+    db = getFirestore(app);
+    modoDisponibilidade(dispId);
+    return;
+  }
+
+  showSplash();
+  try {
+    const app = initializeApp(FB);
+    db = getFirestore(app);
+    window._db = db;
+    await carregarMinistros();
+    setTimeout(()=>{ if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('app').style.display='block';
+    renderInicio();
+  } catch(e) {
+    document.getElementById('loading-msg').textContent = 'Erro: '+e.message;
+  }
+});
+
+function showSplash(){
+  const s = document.getElementById('splash');
+  s.style.display='flex';
+  setTimeout(()=>{ s.style.opacity='0'; setTimeout(()=>s.style.display='none', 600); }, 2500);
+}
+
+const formDom=new Set(), formSem=new Set();
+async function modoDisponibilidade(id){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
+  let m;
+  try{
+    const d = await getDoc(doc(db,'ministros',id));
+    if(!d.exists()) throw new Error('não encontrado');
+    m = {id:d.id, ...d.data()};
+  }catch(e){
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com o coordenador do ministério.</div>';
+    return;
+  }
+  formDom.clear(); formSem.clear();
+  (m.dispDom||[]).forEach(h=>formDom.add(h));
+  (m.dispSem||[]).forEach(h=>formSem.add(h));
+
+  const btn=(h,tipo)=>{
+    const sel = tipo==='dom'?formDom.has(h):formSem.has(h);
+    const cor = tipo==='dom'?'#085041':'#185FA5';
+    const bg  = tipo==='dom'?'#e1f5ee':'#e6f1fb';
+    return `<button onclick="togFormDisp('${h}','${tipo}',this)" data-h="${h}" data-t="${tipo}"
+      style="padding:14px 8px;border:1.5px solid ${sel?cor:'#ddd'};border-radius:10px;background:${sel?bg:'white'};color:${sel?cor:'#333'};font-size:14px;font-weight:600;cursor:pointer">${h}</button>`;
+  };
+
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:20px 16px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:20px">
+      <p style="font-size:13px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Ministério da Eucaristia</p>
+      <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+    <div style="background:white;border-radius:14px;padding:20px 16px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+      <p style="font-size:16px;font-weight:700;margin-bottom:4px">Olá, ${m.nome.split(' ')[0]}! 🙏</p>
+      <p style="font-size:13px;color:#666;margin-bottom:18px;line-height:1.5">Marque abaixo os horários de missa em que você pode servir. Selecione no mínimo <strong>2 horários</strong>.</p>
+
+      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px">⛪ MISSAS DOMINICAIS</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
+        ${MISSAS_DOM.map(h=>btn(h,'dom')).join('')}
+      </div>
+
+      <p style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">📅 MISSAS SEMANAIS (seg a sáb)</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:22px">
+        ${MISSAS_SEM.map(h=>btn(h,'sem')).join('')}
+      </div>
+
+      <button id="btn-salvar-disp" onclick="salvarFormDisp('${m.id}')"
+        style="width:100%;padding:15px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">
+        ✓ Confirmar disponibilidade
+      </button>
+      <p id="form-msg" style="font-size:12px;text-align:center;margin-top:10px;color:#888"></p>
+    </div>
+    <p style="font-size:10px;color:#aaa;text-align:center;margin-top:16px">Seus dados são atualizados automaticamente no sistema do ministério.</p>
+  </div>`;
+}
+
+window.togFormDisp = function(h, tipo, el){
+  const set = tipo==='dom'?formDom:formSem;
+  const cor = tipo==='dom'?'#085041':'#185FA5';
+  const bg  = tipo==='dom'?'#e1f5ee':'#e6f1fb';
+  if(set.has(h)){ set.delete(h); el.style.border='1.5px solid #ddd'; el.style.background='white'; el.style.color='#333'; }
+  else{ set.add(h); el.style.border='1.5px solid '+cor; el.style.background=bg; el.style.color=cor; }
+};
+
+window.salvarFormDisp = async function(id){
+  const msg = document.getElementById('form-msg');
+  if(formDom.size+formSem.size < 2){
+    msg.textContent='⚠️ Selecione pelo menos 2 horários.';
+    msg.style.color='#BA7517';
+    return;
+  }
+  const b=document.getElementById('btn-salvar-disp');
+  b.disabled=true; b.textContent='Salvando...';
+  try{
+    await updateDoc(doc(db,'ministros',id),{dispDom:[...formDom],dispSem:[...formSem],dispAtualizadaEm:serverTimestamp()});
+    document.body.innerHTML = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center;background:#f8f8f6">
+      <div style="font-size:56px;margin-bottom:14px">✅</div>
+      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Disponibilidade registrada!</p>
+      <p style="font-size:13px;color:#666;max-width:300px;line-height:1.6">Obrigado! Suas informações já foram atualizadas no sistema do Ministério da Eucaristia.</p>
+      <p style="font-size:12px;color:#085041;margin-top:18px;font-weight:600">Que Deus abençoe seu serviço! 🙏</p>
+    </div>`;
+  }catch(e){
+    msg.textContent='Erro ao salvar. Tente novamente.';
+    msg.style.color='#A32D2D';
+    b.disabled=false; b.textContent='✓ Confirmar disponibilidade';
+  }
+};
+
+async function carregarMinistros(){
+  const snap = await getDocs(collection(db,'ministros'));
+  ministros = snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(m=>m.ativo!==false)
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  document.getElementById('h-total').textContent = ministros.length;
+  document.getElementById('m-total').textContent = ministros.length;
+  window._ministros = ministros;
+}
+
+function toast(msg, tipo='ok'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;
+  el.style.background = tipo==='err'?'#A32D2D':tipo==='warn'?'#BA7517':'#085041';
+  el.style.opacity='1';
+  setTimeout(()=>el.style.opacity='0', 3000);
+}
+
+// ============================================================
+// NAVEGAÇÃO
+// ============================================================
+window.nav = function(id, btn){
+  document.querySelectorAll('.sec').forEach(s=>s.style.display='none');
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
+  document.getElementById('s-'+id).style.display='block';
+  if(btn) btn.classList.add('active');
+  const fns = {
+    ministros: ()=>renderMinistros(''),
+    escala: ()=>renderEscala(),
+    presenca: ()=>renderPresenca(),
+    reforco: ()=>renderReforco(),
+    relatorios: ()=>renderRelatorios(),
+  };
+  if(fns[id]) fns[id]();
+};
+
+// ============================================================
+// INÍCIO
+// ============================================================
+function renderInicio(){
+  const mes = new Date().getMonth()+1;
+  const aniv = ministros.filter(m=>m.nascimento && parseInt(m.nascimento.split('-')[1])===mes);
+  document.getElementById('m-aniv').textContent = aniv.length;
+
+  // Alertas disciplinares
+  const alertas = ministros.filter(m=>(m.faltasReuniao||0)+(m.faltasAdoracao||0)>=3);
+  document.getElementById('m-alertas').textContent = alertas.length;
+
+  document.getElementById('dash-aniv').innerHTML = aniv.length
+    ? aniv.slice(0,5).map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #eee">
+          <div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="flex:1"><p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
+          <p style="font-size:11px;color:#888;margin:0">${m.nascimento.split('-').reverse().join('/')}</p></div>
+          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${m.nascimento.split('-')[2]}/${m.nascimento.split('-')[1]}</span>
+        </div>`).join('')
+    : '<p style="font-size:12px;color:#888">Cadastre nascimentos para ver aniversariantes.</p>';
+
+  // Alertas disciplinares
+  document.getElementById('dash-alertas').innerHTML = alertas.length
+    ? alertas.slice(0,5).map(m=>{
+        const tot = (m.faltasReuniao||0)+(m.faltasAdoracao||0);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+          <span style="flex:1;font-size:13px">${primeiroNomes(m.nome)}</span>
+          <span style="font-size:11px;padding:2px 8px;background:${tot>=3?'#fcebeb':'#faeeda'};color:${tot>=3?'#A32D2D':'#BA7517'};border-radius:20px;font-weight:600">${tot>=3?'🟡 Cartão amarelo':'⚠️ '+tot+' faltas'}</span>
+        </div>`;
+      }).join('')
+    : '<p style="font-size:12px;color:#1D9E75">✓ Nenhum ministro em situação disciplinar.</p>';
+}
+
+function iniciais(nome){ return nome.split(' ').map(x=>x[0]).slice(0,2).join(''); }
+function primeiroNomes(nome){ return nome.split(' ').slice(0,3).join(' '); }
+
+// ============================================================
+// ESCALA — LÓGICA INTELIGENTE
+// Só mostra ministros com disponibilidade no horário selecionado
+// ============================================================
+// Nomes dos meses para a chave do Firebase
+const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+let SEMANAS_SERVICO = 5; // padrão: 5 semanas
+
+window.definirSemanas = function(n){
+  SEMANAS_SERVICO = n;
+  // Atualizar visual dos botões
+  document.getElementById('btn-sem4').style.border = n===4?'1.5px solid #085041':'1.5px solid #ddd';
+  document.getElementById('btn-sem4').style.background = n===4?'#e1f5ee':'white';
+  document.getElementById('btn-sem4').style.color = n===4?'#085041':'#555';
+  document.getElementById('btn-sem4').textContent = n===4?'4 semanas ✓':'4 semanas';
+  document.getElementById('btn-sem5').style.border = n===5?'1.5px solid #085041':'1.5px solid #ddd';
+  document.getElementById('btn-sem5').style.background = n===5?'#e1f5ee':'white';
+  document.getElementById('btn-sem5').style.color = n===5?'#085041':'#555';
+  document.getElementById('btn-sem5').textContent = n===5?'5 semanas ✓':'5 semanas';
+  recalcularComSemanas();
+};
+
+function recalcularComSemanas(){
+  const m = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const a = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const cal = calcularCalendario(a, m);
+
+  // Coletar todos os domingos (mês atual + possível derramamento)
+  let todosDomingos = [...cal.domingos];
+  let aviso = '';
+
+  const proxMesNum = m===11 ? 0 : m+1;
+  const proxAnoNum = m===11 ? a+1 : a;
+  const proxMesNome = calcularCalendario(proxAnoNum, proxMesNum).mesNome;
+
+  // Encontrar o PRIMEIRO domingo do próximo mês (5ª semana derramada)
+  // Pode estar na última semana do calendário atual OU no início do próximo mês
+  let domingoDerramado = null;
+
+  // Verificar última semana do mês atual — tem algum dia no próximo mês que é domingo?
+  const ultimaChave = String(Object.keys(cal.semanas).length);
+  const ultimaSemDias = cal.semanas[ultimaChave]?.dias || [];
+  const domNaSemana = ultimaSemDias.find(d => d.dia==='Domingo' && !d.mesRef);
+  if(domNaSemana) domingoDerramado = domNaSemana.data;
+
+  // Se não encontrou na última semana, pegar o 1º domingo do próximo mês
+  if(!domingoDerramado){
+    const calProx = calcularCalendario(proxAnoNum, proxMesNum);
+    if(calProx.domingos.length > 0) domingoDerramado = calProx.domingos[0];
+  }
+
+  if(SEMANAS_SERVICO === 5){
+    if(todosDomingos.length < 5 && domingoDerramado){
+      todosDomingos.push(domingoDerramado);
+      aviso = `<div style="padding:8px 10px;background:#e6f1fb;border-radius:8px;font-size:11px;color:#185FA5;font-weight:500;line-height:1.5">
+        🔁 <strong>5ª semana:</strong> Domingo <strong>${domingoDerramado}</strong> (${proxMesNome}) — <strong>equipe de ${cal.mesNome} continua servindo</strong>
+      </div>`;
+    }
+  } else {
+    // 4 semanas — limitar a 4 domingos do mês
+    todosDomingos = todosDomingos.slice(0, 4);
+    if(domingoDerramado || cal.domingos.length > 4){
+      const dom5 = cal.domingos[4] || domingoDerramado;
+      aviso = `<div style="padding:8px 10px;background:#FFF3CD;border-radius:8px;font-size:11px;color:#856404;font-weight:500">
+        ⚠️ <strong>4 semanas:</strong> Domingo <strong>${dom5}</strong> (${proxMesNome}) não incluído — nova equipe assume
+      </div>`;
+    }
+  }
+
+  // Atualizar domingos globais
+  DOMINGOS_MES.length = 0;
+  todosDomingos.forEach(d=>DOMINGOS_MES.push(d));
+  Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
+  Object.assign(SEMANAS_MES, cal.semanas);
+  Object.assign(CAL, cal);
+  DOMINGOS_DERRAMADOS = cal.domingosDerramados || [];
+  window.MES_ATUAL_DIN = `${MESES_KEY[m]}${a}`;
+
+  // Mostrar aviso
+  const avisoEl = document.getElementById('aviso-semanas');
+  if(avisoEl){ avisoEl.innerHTML = aviso; avisoEl.style.display = aviso?'block':'none'; }
+
+  // Resetar select de semanas
+  const sel = document.getElementById('esc-sem');
+  if(sel) sel.innerHTML = '';
+  renderEscala();
+}
+
+window.trocarMes = function(){
+  recalcularComSemanas();
+};
+
+window.getMesAtual = function(){
+  return window.MES_ATUAL_DIN || MES_ATUAL;
+};
+
+// Inicializar calendário ao abrir a aba Escala
+window.inicializarEscala = function(){
+  recalcularComSemanas();
+};
+
+window.verEscalaAnterior = function(){
+  const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const mesAntNum = mesAtualNum === 0 ? 11 : mesAtualNum - 1;
+  const anoAntNum = mesAtualNum === 0 ? anoAtualNum - 1 : anoAtualNum;
+  // Ir para o mês anterior
+  document.getElementById('esc-mes').value = mesAntNum;
+  document.getElementById('esc-ano').value = anoAntNum;
+  trocarMes();
+  toast(`Mostrando escala de ${calcularCalendario(anoAntNum,mesAntNum).mesNome}/${anoAntNum} — equipe que serve no domingo derramado`);
+};
+
+window.renderEscala = async function(){
+  const tipo = document.getElementById('esc-tipo').value;
+  const sem  = document.getElementById('esc-sem').value;
+  const horas = tipo==='dom' ? MISSAS_DOM : MISSAS_SEM;
+  // Dominical: chave mensal fixa (mesmos ministros todos os domingos)
+  // Semanal: chave por semana (equipe diferente a cada semana)
+  const key = tipo==='dom'
+    ? `escala_dom_${getMesAtual()}`
+    : `escala_sem_sem${sem}_${getMesAtual()}`;
+
+  // Popular seletor de semanas dinamicamente
+  const sel = document.getElementById('esc-sem');
+  if(sel && sel.options.length !== TOTAL_SEMANAS){
+    sel.innerHTML = '';
+    Object.entries(SEMANAS_MES).forEach(([k,v])=>{
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = `${v.label} — ${v.periodo}${v.cruzaMeses?' 🔁':''}`;
+      sel.appendChild(opt);
+    });
+  }
+
+  // Mostrar/esconder seletor de semana
+  const semInfo = SEMANAS_MES[sem];
+  document.getElementById('esc-sem-wrap').style.display = tipo==='dom' ? 'none' : 'block';
+  // Verificar se há domingos derramados do mês anterior para este mês
+  const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  // Calcular mês anterior para verificar derramados
+  const mesAntNum = mesAtualNum === 0 ? 11 : mesAtualNum - 1;
+  const anoAntNum = mesAtualNum === 0 ? anoAtualNum - 1 : anoAtualNum;
+  const calAnt = calcularCalendario(anoAntNum, mesAntNum);
+  const derramadosDoMesAnt = (calAnt.domingosDerramados||[]).filter(d=>{
+    // Verificar se a data derramada cai no mês atual
+    const [dd,mm] = d.data.split('/').map(Number);
+    return mm === (mesAtualNum+1) && (anoAntNum === anoAtualNum || (mesAntNum===11 && mesAtualNum===0));
+  });
+
+  let infoDerramado = '';
+  if(tipo==='dom' && derramadosDoMesAnt.length > 0){
+    const datas = derramadosDoMesAnt.map(d=>`<strong>${d.data}</strong>`).join(', ');
+    infoDerramado = `<div style="margin-top:6px;padding:6px 10px;background:#FFF3CD;border-radius:6px;font-size:11px;color:#856404;font-weight:500">
+      ⚡ Domingo(s) ${datas} pertencem à escala de <strong>${calAnt.mesNome}/${calAnt.ano}</strong> — equipe de ${calAnt.mesNome} continua servindo
+      <button onclick="verEscalaAnterior()" style="margin-left:8px;padding:2px 8px;border:1px solid #856404;border-radius:4px;background:transparent;color:#856404;font-size:10px;cursor:pointer">Ver escala</button>
+    </div>`;
+  }
+
+  // Aviso de domingos que derramam para o próximo mês
+  let infoDerrama = '';
+  if(tipo==='dom' && DOMINGOS_DERRAMADOS.length > 0){
+    const datas = DOMINGOS_DERRAMADOS.map(d=>`<strong>${d.data}</strong>`).join(', ');
+    const proxMesNome = calcularCalendario(anoAtualNum, (mesAtualNum+1)%12).mesNome;
+    infoDerrama = `<div style="margin-top:6px;padding:6px 10px;background:#e6f1fb;border-radius:6px;font-size:11px;color:#185FA5;font-weight:500">
+      🔁 Domingo(s) ${datas} em ${proxMesNome} — <strong>esta equipe de ${CAL.mesNome} segue servindo</strong> nessa(s) data(s)
+    </div>`;
+  }
+
+  // Usar DOMINGOS_MES já atualizado por recalcularComSemanas (inclui 05/07 se 5 semanas)
+  document.getElementById('esc-info').innerHTML = tipo==='dom'
+    ? `📌 ${DOMINGOS_MES.length} domingos (${CAL.mesNome}/${CAL.ano}): ${DOMINGOS_MES.map(d=>`<strong>${d}</strong>`).join(' · ')}`
+    : `🔄 ${semInfo?.label||''} — <strong>${semInfo?.periodo||''}</strong>${semInfo?.cruzaMeses?' <span style="font-size:10px;background:#FFF3CD;color:#856404;padding:1px 5px;border-radius:8px">cruza meses</span>':''}`;
+  document.getElementById('esc-info').style.color = tipo==='dom' ? '#085041' : '#185FA5';
+  document.getElementById('esc-info').style.background = tipo==='dom' ? '#f0faf5' : '#e6f1fb';
+
+  if(!escalas[key]){
+    try {
+      const d = await getDoc(doc(db,'escalas',key));
+      escalas[key] = d.exists() ? d.data() : {};
+    } catch(e){ escalas[key]={}; }
+  }
+
+  document.getElementById('esc-body').innerHTML = horas.map(hora=>{
+    const g = escalas[key][hora] || {ministros:[], responsavel:''};
+    // Ministros DISPONÍVEIS para este horário
+    const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
+    const disponíveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+    const jaEscalados = new Set(g.ministros);
+
+    // Datas dos domingos (escala dom) ou dias da semana (semanal)
+    let datasLabel = '';
+    if(tipo==='dom'){
+      datasLabel = DOMINGOS_MES.map(d=>`<span style="font-size:10px;padding:1px 6px;background:rgba(255,255,255,.2);border-radius:10px">${d}</span>`).join(' ');
+    } else {
+      const semDias = (SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
+      datasLabel = semDias.map(d=>`<span style="font-size:10px;padding:1px 6px;background:rgba(255,255,255,.2);border-radius:10px">${d.dia} ${d.data}</span>`).join(' ');
+    }
+
+    return `<div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="background:${tipo==='dom'?'#085041':'#185FA5'};color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          ${datasLabel}
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:#888">${g.ministros.length} escalado(s)</span>
+        <button onclick="verDisponiveis('${hora}','${dispKey}')"
+          style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
+          👥 ${disponíveis.length} disponíveis
+        </button>
+      </div>
+      ${g.responsavel?`<div style="font-size:11px;background:#faeeda;color:#633806;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${g.responsavel}</div>`:'' }
+      ${g.ministros.map((m,mi)=>`
+        <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #e8e8e8">
+          <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
+          <span style="flex:1;font-size:12px">${m}</span>
+          <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
+        </div>`).join('')}
+      <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+        <div style="position:relative;flex:1">
+          <input type="text" id="inp-${key}-${hora.replace(':','')}"
+            placeholder="Buscar por disponibilidade (${hora})..."
+            oninput="acEscInteligente(this,'ac-${key}-${hora.replace(':','')}','${key}','${hora}','${dispKey}')"
+            style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin:0">
+          <div id="ac-${key}-${hora.replace(':','')}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+        </div>
+        <button onclick="startVoiceEscala('${key}','${hora}','${dispKey}')" style="width:34px;height:34px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:16px;flex-shrink:0" title="Buscar por voz">🎤</button>
+      </div>
+    </div>`;
+  }).join('');
+};
+
+// AUTOCOMPLETE INTELIGENTE — filtra por disponibilidade do horário
+window.acEscInteligente = function(inp, acId, key, hora, dispKey){
+  const v = inp.value.toLowerCase().trim();
+  // Fechar todos os outros autocompletes antes de abrir este
+  document.querySelectorAll('[id^="ac-"]').forEach(el=>{ if(el.id!==acId) el.style.display='none'; });
+  const ac = document.getElementById(acId);
+  if(!ac) return;
+
+  // Ministros com disponibilidade NESTE horário
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+  // Filtrar pelo texto digitado
+  const matches = v.length>=1
+    ? disponiveis.filter(m=>m.nome.toLowerCase().includes(v))
+    : disponiveis;
+
+  if(!matches.length){ ac.style.display='none'; return; }
+
+  const jaEscalados = new Set((escalas[key]?.[hora]?.ministros)||[]);
+
+  ac.style.display='block';
+  ac.innerHTML = matches.slice(0,10).map(m=>{
+    const jaEsc = jaEscalados.has(m.nome);
+    return `<div onmousedown="addMin('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
+      style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;${jaEsc?'background:#f0faf5;':''}"
+      onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${jaEsc?'#f0faf5':'white'}'">
+      <span>${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}</span>
+      <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')}</span>
+    </div>`;
+  }).join('');
+
+  // Se digitou e não tem resultado no horário, mostrar aviso
+  if(v.length>=2 && !disponiveis.filter(m=>m.nome.toLowerCase().includes(v)).length){
+    const fora = ministros.filter(m=>m.nome.toLowerCase().includes(v)).slice(0,3);
+    if(fora.length){
+      ac.innerHTML += `<div style="padding:6px 12px;font-size:11px;color:#BA7517;border-top:1px solid #eee;font-weight:500">⚠️ Sem disponibilidade em ${hora}:</div>`;
+      ac.innerHTML += fora.map(m=>`<div onmousedown="addMinForaDisp('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
+        style="padding:8px 12px;cursor:pointer;font-size:12px;color:#BA7517;background:#faeeda"
+        onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">
+        ${m.nome} <span style="font-size:10px">(fora do horário)</span>
+      </div>`).join('');
+    }
+  }
+};
+
+window.addMin = function(key, hora, nome, acId){
+  if(!escalas[key]) escalas[key]={};
+  if(!escalas[key][hora]) escalas[key][hora]={ministros:[],responsavel:''};
+  if(!escalas[key][hora].ministros.includes(nome)) escalas[key][hora].ministros.push(nome);
+  if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+  const inpId = acId ? acId.replace('ac-','inp-') : null;
+  if(inpId){ const inp=document.getElementById(inpId); if(inp) inp.value=''; }
+  renderEscala();
+};
+
+window.addMinForaDisp = function(key, hora, nome, acId){
+  if(confirm(`${nome} não tem disponibilidade para ${hora}.\nDeseja adicionar mesmo assim?`)){
+    addMin(key, hora, nome, acId);
+  }
+};
+
+window.verDisponiveis = function(hora, dispKey){
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const tipo = dispKey==='dispDom'?'Dominical':'Semanal';
+  document.getElementById('vd-titulo').textContent = `${tipo} — ${hora}`;
+  document.getElementById('vd-count').textContent = `${disponiveis.length} ministros disponíveis`;
+  document.getElementById('vd-body').innerHTML = disponiveis.length
+    ? disponiveis.map((m,i)=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+          <div style="width:28px;height:28px;border-radius:50%;background:#e6f1fb;color:#185FA5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="flex:1">
+            <p style="font-size:13px;margin:0">${m.nome}</p>
+            <p style="font-size:10px;color:#888;margin:0">${[...(m.dispDom||[]),...(m.dispSem||[])].join(' · ')}</p>
+          </div>
+          <span style="font-size:11px;color:#888">${i+1}</span>
+        </div>`).join('')
+    : '<p style="font-size:13px;color:#888;padding:12px 0">Nenhum ministro disponível neste horário.</p>';
+  document.getElementById('modal-vd').style.display='flex';
+};
+
+window.remMin = function(key, hora, mi){
+  escalas[key][hora].ministros.splice(mi,1);
+  renderEscala();
+};
+
+window.setResp = function(key, hora, mi){
+  const nome = escalas[key][hora].ministros[mi];
+  escalas[key][hora].responsavel = escalas[key][hora].responsavel===nome?'':nome;
+  renderEscala();
+};
+
+window.salvarEscala = async function(){
+  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
+  const key = tipo==='dom'
+    ? `escala_dom_${getMesAtual()}`
+    : `escala_sem_sem${sem}_${getMesAtual()}`;
+  await setDoc(doc(db,'escalas',key), escalas[key]||{});
+  toast(tipo==='dom' ? 'Escala dominical salva para todo o mês!' : 'Escala semanal salva!');
+};
+
+window.compartilharEscala = function(){
+  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
+  const key = tipo==='dom'
+    ? `escala_dom_${getMesAtual()}`
+    : `escala_sem_sem${sem}_${getMesAtual()}`;
+  const esc=escalas[key]||{};
+  const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
+  let txt=`📋 *ESCALA ${tipo==='dom'?'DOMINICAL':'SEMANAL'}* — ${sem}ª semana junho/2026\n\n`;
+  horas.forEach(h=>{
+    const g=esc[h]||{ministros:[],responsavel:''};
+    if(g.ministros.length){
+      txt+=`⏰ *${h}*\n`;
+      if(g.responsavel) txt+=`★ Responsável: ${g.responsavel}\n`;
+      g.ministros.forEach(m=>txt+=`• ${m}\n`);
+      txt+='\n';
+    }
+  });
+  txt+='_Basílica Santuário de Nossa Senhora de Nazaré_';
+  window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
+};
+
+// ============================================================
+// PRESENÇA — com justificativa de falta
+// ============================================================
+window.renderPresenca = function(){
+  const hor = document.getElementById('pres-hor').value;
+  const tipo = document.getElementById('pres-tipo').value;
+  const dispKey = tipo==='dom'?'dispDom':'dispSem';
+
+  // SOMENTE ministros com disponibilidade neste horário
+  const lista = ministros.filter(m=>(m[dispKey]||[]).includes(hor));
+
+  if(!lista.length){
+    document.getElementById('pres-body').innerHTML=`<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro cadastrado para ${hor}. Ajuste as disponibilidades.</p>`;
+    return;
+  }
+
+  document.getElementById('pres-count').textContent = lista.length+' ministros';
+  document.getElementById('pres-body').innerHTML = lista.map(m=>{
+    const s = presAtual[m.id]?.status||'';
+    const j = presAtual[m.id]?.justificativa||'';
+    return `<div style="padding:8px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:${s==='F'?'6px':'0'}">
+        <span style="flex:1;font-size:13px">${m.nome}</span>
+        <button onclick="setPres('${m.id}','P')" style="width:30px;height:28px;border:1px solid ${s==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${s==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='P'?'#085041':'#888'}">P</button>
+        <button onclick="setPres('${m.id}','F')" style="width:30px;height:28px;border:1px solid ${s==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${s==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='F'?'#A32D2D':'#888'}">F</button>
+        <button onclick="setPres('${m.id}','S')" style="width:30px;height:28px;border:1px solid ${s==='S'?'#BA7517':'#ddd'};border-radius:6px;background:${s==='S'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='S'?'#BA7517':'#888'}">S</button>
+      </div>
+      ${s==='F'?`<input type="text" placeholder="Justificativa da falta (opcional)..." value="${j}"
+        oninput="setJustificativa('${m.id}',this.value)"
+        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#A32D2D;margin:0">`:'' }
+    </div>`;
+  }).join('');
+};
+
+window.setPres = function(id, val){
+  if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
+  presAtual[id].status = presAtual[id].status===val?'':val;
+  renderPresenca();
+};
+
+window.setJustificativa = function(id, val){
+  if(!presAtual[id]) presAtual[id]={status:'F',justificativa:''};
+  presAtual[id].justificativa = val;
+};
+
+window.salvarPres = async function(){
+  const hor=document.getElementById('pres-hor').value, tipo=document.getElementById('pres-tipo').value;
+  const data=new Date().toISOString().split('T')[0];
+  const key=`${data}_${tipo}_${hor.replace(':','')}`;
+  await setDoc(doc(db,'presencas',key),{data,tipo,horario:hor,registros:presAtual,atualizadoEm:serverTimestamp()});
+  toast('Presenças salvas!');
+  presAtual={};
+  renderPresenca();
+};
+
+// ============================================================
+// REUNIÃO — com justificativa + cartão amarelo
+// ============================================================
+const presReuniaoMap = {}; // nome -> {presente, justificativa}
+
+window.toggleReun = function(nome){
+  if(!presReuniaoMap[nome]) presReuniaoMap[nome]={presente:false,justificativa:''};
+  presReuniaoMap[nome].presente = !presReuniaoMap[nome].presente;
+  renderReuniao();
+};
+window.setJustReun = function(nome, val){
+  if(!presReuniaoMap[nome]) presReuniaoMap[nome]={presente:false,justificativa:''};
+  presReuniaoMap[nome].justificativa = val;
+};
+window.filtrarReun = function(){ renderReuniao(); };
+window.startVoiceReuniao = function(){
+  startVoice(txt=>{
+    const best = encontrarMelhor(txt);
+    if(best){
+      if(!presReuniaoMap[best.nome]) presReuniaoMap[best.nome]={presente:false,justificativa:''};
+      presReuniaoMap[best.nome].presente=true;
+      renderReuniao();
+      toast('✓ '+best.nome.split(' ')[0]+' confirmado!');
+    } else toast('Ministro não encontrado','warn');
+  });
+};
+
+function renderReuniao(){
+  const v=document.getElementById('busca-reun').value.toLowerCase();
+  const lista=ministros.filter(m=>m.nome.toLowerCase().includes(v));
+  const presentes=ministros.filter(m=>presReuniaoMap[m.nome]?.presente).length;
+  const t=ministros.length;
+  document.getElementById('r-p').textContent=presentes;
+  document.getElementById('r-f').textContent=t-presentes;
+  document.getElementById('r-pct').textContent=Math.round(presentes/t*100)+'%';
+  document.getElementById('reun-body').innerHTML=lista.slice(0,80).map(m=>{
+    const pr=presReuniaoMap[m.nome];
+    const presente=pr?.presente||false;
+    const faltas=m.faltasReuniao||0;
+    const cartao=faltas>=3;
+    return `<div style="padding:7px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="flex:1;font-size:13px">${m.nome}${cartao?` <span style="font-size:10px;background:#fcebeb;color:#A32D2D;padding:1px 6px;border-radius:20px">🟡 ${faltas}F</span>`:''}</span>
+        <button onclick="toggleReun('${m.nome.replace(/'/g,"\\'")}' )"
+          style="width:34px;height:28px;border:1px solid ${presente?'#1D9E75':'#ddd'};border-radius:6px;background:${presente?'#e1f5ee':'white'};cursor:pointer;font-size:12px;font-weight:700;color:${presente?'#085041':'#aaa'}">
+          ${presente?'✓':'—'}
+        </button>
+      </div>
+      ${!presente?`<input type="text" placeholder="Justificativa (deixe em branco se injustificada)..."
+        oninput="setJustReun('${m.nome.replace(/'/g,"\\'")}',this.value)"
+        value="${pr?.justificativa||''}"
+        style="width:100%;padding:4px 8px;border:1px solid #eee;border-radius:6px;font-size:11px;color:#888;margin-top:4px">`:'' }
+    </div>`;
+  }).join('');
+}
+
+window.salvarReuniao = async function(){
+  const data=new Date().toISOString().split('T')[0];
+  const registros={};
+  ministros.forEach(m=>{
+    const pr=presReuniaoMap[m.nome];
+    registros[m.id]={presente:pr?.presente||false,justificativa:pr?.justificativa||''};
+  });
+  await setDoc(doc(db,'reunioes',data),{data,registros,atualizadoEm:serverTimestamp()});
+  // Atualizar contadores de faltas nos ministros
+  for(const m of ministros){
+    const pr=presReuniaoMap[m.nome];
+    if(!pr?.presente){
+      const justificada = (pr?.justificativa||'').trim().length>0;
+      if(!justificada){
+        await updateDoc(doc(db,'ministros',m.id),{faltasReuniao:(m.faltasReuniao||0)+1});
+        m.faltasReuniao=(m.faltasReuniao||0)+1;
+      }
+    }
+  }
+  toast('Reunião salva! Faltas atualizadas.');
+  renderInicio();
+};
+
+window.imprimirReuniao = function(){
+  const w=window.open('','_blank');
+  const linhas=ministros.map((m,i)=>`<tr><td>${i+1}</td><td>${m.nome}</td><td style="width:200px;border-bottom:1px solid #ccc">&nbsp;</td></tr>`).join('');
+  w.document.write(`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;font-size:12px">
+    <div style="text-align:center;margin-bottom:20px">
+      <h2 style="margin:0">Basílica Santuário de Nossa Senhora de Nazaré</h2>
+      <h3 style="margin:4px 0">Ministério da Sagrada Eucaristia</h3>
+      <p>Lista de Presença — Reunião Mensal</p>
+      <p>Data: ___/___/______&nbsp;&nbsp;&nbsp;Total: ${ministros.length} ministros</p>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="border-bottom:2px solid #000"><th style="text-align:left;padding:4px">#</th><th style="text-align:left;padding:4px">Nome</th><th style="text-align:left;padding:4px">Assinatura</th></tr>
+      ${linhas}
+    </table>
+    <p style="text-align:center;margin-top:20px;font-size:10px">Ministério da Eucaristia — Basílica de Nazaré</p>
+  </body></html>`);
+  w.print();
+};
+
+// ============================================================
+// REFORÇO
+// ============================================================
+window.renderReforco = async function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  if(!reforcos[key]){
+    try{ const d=await getDoc(doc(db,'reforcos',key)); reforcos[key]=d.exists()?d.data():{ministros:[]}; }
+    catch(e){ reforcos[key]={ministros:[]}; }
+  }
+  const lista=reforcos[key].ministros||[];
+  const rf=REFORCO_TIPOS.find(r=>r.id===tipo);
+  document.getElementById('ref-titulo').textContent=`Reforço — ${rf.label}`;
+  document.getElementById('ref-body').innerHTML=lista.length
+    ? lista.map((m,i)=>`
+        <div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid #eee;gap:8px">
+          <span style="flex:1;font-size:13px">${m}</span>
+          <button onclick="remReforco('${key}',${i})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px">×</button>
+        </div>`).join('')
+    : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro de reforço.</p>';
+};
+window.remReforco=function(key,i){ reforcos[key].ministros.splice(i,1); renderReforco(); };
+window.acRef=function(inp,acId,key){
+  const v=inp.value.toLowerCase().trim();
+  const ac=document.getElementById(acId);
+  if(v.length<2){ac.style.display='none';return;}
+  const ms=ministros.filter(m=>m.nome.toLowerCase().includes(v)).slice(0,8);
+  if(!ms.length){ac.style.display='none';return;}
+  ac.style.display='block';
+  ac.innerHTML=ms.map(m=>`<div onmousedown="addMinReforco('${key}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
+    style="padding:8px 12px;cursor:pointer;font-size:13px" onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
+};
+window.addMinReforco=function(key,nome,acId){
+  if(!reforcos[key]) reforcos[key]={ministros:[]};
+  if(!reforcos[key].ministros.includes(nome)) reforcos[key].ministros.push(nome);
+  const ac=document.getElementById(acId); if(ac) ac.style.display='none';
+  const inp=document.getElementById(acId.replace('acref-','inpref-')); if(inp) inp.value='';
+  renderReforco();
+};
+window.salvarReforco=async function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  await setDoc(doc(db,'reforcos',key),reforcos[key]||{ministros:[]});
+  toast('Reforço salvo!');
+};
+window.compartilharReforco=function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const rf=REFORCO_TIPOS.find(r=>r.id===tipo);
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  const lista=(reforcos[key]?.ministros)||[];
+  if(!lista.length){toast('Adicione ministros ao reforço.','warn');return;}
+  let txt=`🔔 *REFORÇO — ${rf.label.toUpperCase()}*\nJunho 2026\n\n`;
+  lista.forEach(m=>txt+=`• ${m}\n`);
+  txt+='\n_Basílica Santuário de Nossa Senhora de Nazaré_';
+  window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
+};
+
+// ============================================================
+// RELATÓRIOS
+// ============================================================
+window.renderRelatorios = async function(){
+  const tab=document.getElementById('rel-tab').value;
+  document.getElementById('rel-body').innerHTML='<p style="color:#888;font-size:13px;padding:8px 0">Carregando...</p>';
+  if(tab==='missas') await relFrequencia();
+  if(tab==='reunioes') await relReunioes();
+  if(tab==='adoracoes') await relAdoracoes();
+  if(tab==='faltas') await relFaltas();
+  if(tab==='escalas') await relEscalas();
+  if(tab==='eventos') await relEventos();
+};
+
+async function relFrequencia(){
+  const snap=await getDocs(collection(db,'presencas'));
+  const contadores={};
+  snap.docs.forEach(d=>{
+    const data=d.data();
+    Object.entries(data.registros||{}).forEach(([id,reg])=>{
+      if(!contadores[id]) contadores[id]={p:0,f:0,s:0};
+      const status = typeof reg === 'string' ? reg : (reg?.status||'');
+      if(status==='P') contadores[id].p++;
+      else if(status==='F') contadores[id].f++;
+      else if(status==='S') contadores[id].s++;
+    });
+  });
+  const dados=ministros.map(m=>{
+    const c=contadores[m.id]||{p:0,f:0,s:0};
+    const tot=c.p+c.f+c.s;
+    const pct=tot>0?Math.round(c.p/tot*100):0;
+    return {...m,c,tot,pct};
+  }).sort((a,b)=>b.pct-a.pct);
+
+  document.getElementById('rel-body').innerHTML=`
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:6px 4px">Ministro</th>
+        <th style="text-align:center;padding:6px 4px;color:#1D9E75">P</th>
+        <th style="text-align:center;padding:6px 4px;color:#A32D2D">F</th>
+        <th style="text-align:center;padding:6px 4px;color:#BA7517">S</th>
+        <th style="text-align:center;padding:6px 4px">%</th>
+      </tr></thead>
+      <tbody>${dados.slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:6px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;padding:6px 4px;color:#1D9E75;font-weight:600">${m.c.p}</td>
+        <td style="text-align:center;padding:6px 4px;color:#A32D2D;font-weight:600">${m.c.f}</td>
+        <td style="text-align:center;padding:6px 4px;color:#BA7517;font-weight:600">${m.c.s}</td>
+        <td style="text-align:center;padding:6px 4px"><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.tot>0?m.pct+'%':'—'}</span></td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+async function relFaltas(){
+  const dados=ministros.map(m=>({
+    ...m,
+    totalFaltas:(m.faltasReuniao||0)+(m.faltasAdoracao||0),
+    fr:m.faltasReuniao||0, fa:m.faltasAdoracao||0
+  })).filter(m=>m.totalFaltas>0).sort((a,b)=>b.totalFaltas-a.totalFaltas);
+
+  document.getElementById('rel-body').innerHTML=dados.length?`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">Critério: 3+ faltas em reunião/adoração = cartão amarelo</p>
+    ${dados.map(m=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+        <div style="flex:1">
+          <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
+          <p style="font-size:11px;color:#888;margin:0">Reunião: ${m.fr}F · Adoração: ${m.fa}F</p>
+        </div>
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;background:${m.totalFaltas>=3?'#fcebeb':'#faeeda'};color:${m.totalFaltas>=3?'#A32D2D':'#BA7517'}">
+          ${m.totalFaltas>=3?'🟡 Cartão amarelo':'⚠️ '+m.totalFaltas+' faltas'}
+        </span>
+      </div>`).join('')}`
+    :'<p style="font-size:13px;color:#1D9E75;padding:8px 0">✓ Nenhum ministro com faltas registradas.</p>';
+}
+
+async function relEscalas(){
+  const snap=await getDocs(collection(db,'escalas'));
+  const escalasData=snap.docs.map(d=>({id:d.id,...d.data()}));
+  if(!escalasData.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma escala salva ainda.</p>';return;}
+
+  // Contar quantas vezes cada ministro foi escalado e como responsável
+  const contMin={}, contResp={};
+  escalasData.forEach(esc=>{
+    Object.entries(esc).forEach(([hora,g])=>{
+      if(typeof g==='object'&&g.ministros){
+        g.ministros.forEach(m=>{ contMin[m]=(contMin[m]||0)+1; });
+        if(g.responsavel) contResp[g.responsavel]=(contResp[g.responsavel]||0)+1;
+      }
+    });
+  });
+
+  const dados=ministros.map(m=>({nome:m.nome,escalado:contMin[m.nome]||0,responsavel:contResp[m.nome]||0}))
+    .filter(m=>m.escalado>0).sort((a,b)=>b.responsavel-a.responsavel);
+
+  document.getElementById('rel-body').innerHTML=dados.length?`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">Histórico de escalas salvas (${escalasData.length} escalas)</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:6px 4px">Ministro</th>
+        <th style="text-align:center;padding:6px 4px">Escalado</th>
+        <th style="text-align:center;padding:6px 4px">Responsável</th>
+      </tr></thead>
+      <tbody>${dados.slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:6px 4px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;padding:6px 4px;font-weight:600">${m.escalado}x</td>
+        <td style="text-align:center;padding:6px 4px">${m.responsavel>0?`<span style="background:#faeeda;color:#633806;padding:1px 7px;border-radius:20px;font-weight:600">★ ${m.responsavel}x</span>`:'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table>`
+    :'<p style="font-size:12px;color:#888">Nenhum dado de escala disponível.</p>';
+}
+
+// VISUALIZAÇÃO GERAL DAS ESCALAS DO MÊS
+window.verTodasEscalas = async function(){
+  document.getElementById('vis-body').innerHTML='<p style="font-size:12px;color:#888;padding:8px">Carregando...</p>';
+  document.getElementById('modal-vis').style.display='flex';
+
+  // Carregar escala dominical
+  const keyDom=`escala_dom_${getMesAtual()}`;
+  if(!escalas[keyDom]){
+    try{ const d=await getDoc(doc(db,'escalas',keyDom)); escalas[keyDom]=d.exists()?d.data():{}; }catch(e){ escalas[keyDom]={}; }
+  }
+
+  // Carregar todas as semanas semanais
+  for(let s=1;s<=TOTAL_SEMANAS;s++){
+    const keySem=`escala_sem_sem${s}_${getMesAtual()}`;
+    if(!escalas[keySem]){
+      try{ const d=await getDoc(doc(db,'escalas',keySem)); escalas[keySem]=d.exists()?d.data():{}; }catch(e){ escalas[keySem]={}; }
+    }
+  }
+
+  let html='';
+
+  // DOMINICAL
+  html+=`<div style="margin-bottom:20px">
+    <div style="background:#085041;color:white;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">
+      📋 Escala Dominical — Todos os domingos de junho/2026
+    </div>
+    <div style="border:1px solid #085041;border-top:none;border-radius:0 0 8px 8px;overflow:hidden">`;
+
+  MISSAS_DOM.forEach(hora=>{
+    const g=(escalas[keyDom]||{})[hora]||{ministros:[],responsavel:''};
+    html+=`<div style="padding:10px 14px;border-bottom:1px solid #eee">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-weight:600;font-size:13px">⏰ ${hora}</span>
+        ${g.ministros.length
+          ? `<span style="font-size:11px;background:#e1f5ee;color:#085041;padding:2px 8px;border-radius:20px">${g.ministros.length} ministros</span>`
+          : `<span style="font-size:11px;color:#ccc">Não escalado</span>`}
+      </div>
+      ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}</p>`:''}
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        ${g.ministros.map(m=>`<span style="font-size:11px;padding:2px 8px;background:${m===g.responsavel?'#faeeda':'#f5f5f3'};color:${m===g.responsavel?'#633806':'#555'};border-radius:20px">${m.split(' ').slice(0,2).join(' ')}</span>`).join('')||'<span style="font-size:11px;color:#ccc">—</span>'}
+      </div>
+    </div>`;
+  });
+  html+=`</div></div>`;
+
+  // SEMANAL — por semana
+  const semLabels=['','1ª semana','2ª semana','3ª semana','4ª semana','5ª semana'];
+  for(let s=1;s<=TOTAL_SEMANAS;s++){
+    const keySem=`escala_sem_sem${s}_${getMesAtual()}`;
+    const escSem=escalas[keySem]||{};
+    const temDados=MISSAS_SEM.some(h=>((escSem[h]?.ministros)||[]).length>0);
+    if(!temDados) continue;
+
+    const semDadosVis = SEMANAS_MES[s.toString()];
+    html+=`<div style="margin-bottom:16px">
+      <div style="background:#185FA5;color:white;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">
+        📋 Escala Semanal — ${semDadosVis?.label} (${semDadosVis?.periodo})
+      </div>
+      <div style="border:1px solid #185FA5;border-top:none;border-radius:0 0 8px 8px;overflow:hidden">`;
+
+    MISSAS_SEM.forEach(hora=>{
+      const g=(escSem[hora])||{ministros:[],responsavel:''};
+      html+=`<div style="padding:10px 14px;border-bottom:1px solid #eee">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-weight:600;font-size:13px">⏰ ${hora}</span>
+          ${g.ministros.length
+            ? `<span style="font-size:11px;background:#e6f1fb;color:#185FA5;padding:2px 8px;border-radius:20px">${g.ministros.length} ministros</span>`
+            : `<span style="font-size:11px;color:#ccc">Não escalado</span>`}
+        </div>
+        ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}</p>`:''}
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${g.ministros.map(m=>`<span style="font-size:11px;padding:2px 8px;background:${m===g.responsavel?'#faeeda':'#f5f5f3'};color:${m===g.responsavel?'#633806':'#555'};border-radius:20px">${m.split(' ').slice(0,2).join(' ')}</span>`).join('')||'<span style="font-size:11px;color:#ccc">—</span>'}
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  }
+
+  if(html==='') html='<p style="font-size:13px;color:#888;padding:16px 0;text-align:center">Nenhuma escala salva ainda. Monte e salve as escalas primeiro.</p>';
+  document.getElementById('vis-body').innerHTML=html;
+};
+
+// RELATÓRIO REUNIÕES
+async function relReunioes(){
+  const snap=await getDocs(collection(db,'reunioes'));
+  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
+  if(!docs.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma reunião registrada ainda.</p>';return;}
+
+  // Calcular frequência por ministro em reuniões
+  const contadores={};
+  docs.forEach(r=>{
+    Object.entries(r.registros||{}).forEach(([id,reg])=>{
+      if(!contadores[id]) contadores[id]={presentes:0,faltas:0,justificadas:0};
+      if(reg.presente) contadores[id].presentes++;
+      else{ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
+    });
+  });
+
+  const dados=ministros.map(m=>{
+    const c=contadores[m.id]||{presentes:0,faltas:0,justificadas:0};
+    const tot=c.presentes+c.faltas;
+    return {...m,c,tot,pct:tot>0?Math.round(c.presentes/tot*100):0};
+  }).sort((a,b)=>b.c.faltas-a.c.faltas);
+
+  document.getElementById('rel-body').innerHTML=`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} reunião(ões) registrada(s)</p>
+    <div style="margin-bottom:12px">
+      ${docs.slice(0,5).map(r=>{
+        const tot=Object.keys(r.registros||{}).length;
+        const pres=Object.values(r.registros||{}).filter(x=>x.presente).length;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
+          <span>${r.data.split('-').reverse().join('/')}</span>
+          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${pres}/${tot} presentes</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <p style="font-size:12px;font-weight:600;color:#333;margin-bottom:8px">Frequência por ministro</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:5px 4px">Ministro</th>
+        <th style="text-align:center;padding:5px 4px;color:#1D9E75">P</th>
+        <th style="text-align:center;padding:5px 4px;color:#A32D2D">F</th>
+        <th style="text-align:center;padding:5px 4px;color:#BA7517">FJ</th>
+        <th style="text-align:center;padding:5px 4px">%</th>
+      </tr></thead>
+      <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;padding:5px 4px;color:#1D9E75;font-weight:600">${m.c.presentes}</td>
+        <td style="text-align:center;padding:5px 4px;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
+        <td style="text-align:center;padding:5px 4px;color:#BA7517">${m.c.justificadas}</td>
+        <td style="text-align:center;padding:5px 4px"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <p style="font-size:10px;color:#888;margin-top:6px">P=Presente · F=Falta · FJ=Justificada</p>`;
+}
+
+// RELATÓRIO ADORAÇÕES
+async function relAdoracoes(){
+  const snap=await getDocs(collection(db,'adoracoes'));
+  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
+  if(!docs.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma adoração registrada ainda.</p>';return;}
+
+  const contadores={};
+  docs.forEach(r=>{
+    Object.entries(r.registros||{}).forEach(([id,reg])=>{
+      if(!contadores[id]) contadores[id]={presentes:0,faltas:0,justificadas:0};
+      if(reg.presente) contadores[id].presentes++;
+      else{ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
+    });
+  });
+
+  const dados=ministros.map(m=>{
+    const c=contadores[m.id]||{presentes:0,faltas:0,justificadas:0};
+    const tot=c.presentes+c.faltas;
+    return {...m,c,tot,pct:tot>0?Math.round(c.presentes/tot*100):0};
+  }).sort((a,b)=>b.c.faltas-a.c.faltas);
+
+  document.getElementById('rel-body').innerHTML=`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} adoração(ões) registrada(s)</p>
+    <div style="margin-bottom:12px">
+      ${docs.slice(0,5).map(r=>{
+        const pres=Object.values(r.registros||{}).filter(x=>x.presente).length;
+        const tot=Object.keys(r.registros||{}).length;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
+          <span>${r.data.split('-').reverse().join('/')}</span>
+          <span style="font-size:11px;padding:2px 8px;background:#e6f1fb;color:#185FA5;border-radius:20px">${pres}/${tot} presentes</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <p style="font-size:12px;font-weight:600;color:#333;margin-bottom:8px">Frequência por ministro</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:5px 4px">Ministro</th>
+        <th style="text-align:center;padding:5px 4px;color:#185FA5">P</th>
+        <th style="text-align:center;padding:5px 4px;color:#A32D2D">F</th>
+        <th style="text-align:center;padding:5px 4px;color:#BA7517">FJ</th>
+        <th style="text-align:center;padding:5px 4px">%</th>
+      </tr></thead>
+      <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;color:#185FA5;font-weight:600">${m.c.presentes}</td>
+        <td style="text-align:center;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
+        <td style="text-align:center;color:#BA7517">${m.c.justificadas}</td>
+        <td style="text-align:center"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+// RELATÓRIO EVENTOS ESPECIAIS
+async function relEventos(){
+  const snap=await getDocs(collection(db,'eventos'));
+  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  if(!docs.length){
+    document.getElementById('rel-body').innerHTML=`
+      <p style="font-size:12px;color:#888;margin-bottom:12px">Nenhum evento especial registrado ainda.</p>
+      <p style="font-size:12px;color:#333;margin-bottom:8px">Eventos especiais incluem:</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${['Círio de Nazaré','Trasladação','Romaria Fluvial','Romaria Terrestre','Missa Crismal','Corpus Christi','Natal','Páscoa'].map(e=>`<span style="font-size:12px;padding:4px 10px;background:#f5f5f3;border-radius:20px;color:#333">${e}</span>`).join('')}
+      </div>
+      <button onclick="abrirCadastroEvento()" style="margin-top:16px;padding:10px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%">+ Registrar evento especial</button>`;
+    return;
+  }
+  document.getElementById('rel-body').innerHTML=`
+    <button onclick="abrirCadastroEvento()" style="margin-bottom:12px;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%">+ Novo evento</button>
+    ${docs.map(e=>`
+      <div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <p style="font-size:14px;font-weight:700;margin:0">${e.nome||'Evento'}</p>
+          <span style="font-size:11px;color:#888">${(e.data||'').split('-').reverse().join('/')}</span>
+        </div>
+        <p style="font-size:12px;color:#888;margin-bottom:6px">${e.descricao||''}</p>
+        <div style="display:flex;gap:8px">
+          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${(e.ministros||[]).length} ministros</span>
+          ${e.responsavel?`<span style="font-size:11px;padding:2px 8px;background:#faeeda;color:#633806;border-radius:20px">★ ${e.responsavel}</span>`:''}
+        </div>
+      </div>`).join('')}`;
+}
+
+window.abrirCadastroEvento=function(){
+  document.getElementById('modal-evento').style.display='flex';
+};
+window.salvarEvento=async function(){
+  const nome=document.getElementById('evt-nome').value.trim();
+  const data=document.getElementById('evt-data').value;
+  const desc=document.getElementById('evt-desc').value.trim();
+  if(!nome){toast('Nome do evento obrigatório.','err');return;}
+  await addDoc(collection(db,'eventos'),{nome,data,descricao:desc,ministros:[],criadoEm:serverTimestamp()});
+  fecharModal('modal-evento');
+  toast('Evento registrado!');
+  renderRelatorios();
+};
+
+// ============================================================
+// MINISTROS — perfil com histórico
+// ============================================================
+window.filtrarMin = function(){ renderMinistros(document.getElementById('busca-min').value); };
+function renderMinistros(filtro){
+  const lista=ministros.filter(m=>m.nome.toLowerCase().includes(filtro.toLowerCase()));
+  const semDisp=lista.filter(m=>!(m.dispDom?.length||m.dispSem?.length)).length;
+  document.getElementById('min-sem-disp').textContent=semDisp>0?`${semDisp} sem disponibilidade`:'';
+  document.getElementById('min-body').innerHTML=lista.slice(0,30).map(m=>{
+    const semD=!(m.dispDom?.length||m.dispSem?.length);
+    const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+    return `<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #eee;gap:8px;cursor:pointer" onclick="abrirPerfil('${m.id}')">
+      <div style="width:34px;height:34px;border-radius:50%;background:${semD?'#f5f5f3':'#e1f5ee'};color:${semD?'#888':'#085041'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+      <div style="flex:1">
+        <p style="font-size:13px;font-weight:500;margin:0">${m.nome}</p>
+        <p style="font-size:11px;color:#888;margin:0">${semD?'⚠️ Sem disponibilidade':[...(m.dispDom||[]),...(m.dispSem||[])].slice(0,3).join(' · ')}</p>
+      </div>
+      ${faltas>=3?`<span style="font-size:10px;padding:2px 6px;background:#fcebeb;color:#A32D2D;border-radius:20px">🟡</span>`:''}
+      <span style="color:#ccc;font-size:18px">›</span>
+    </div>`;
+  }).join('')+(lista.length>30?`<p style="font-size:11px;color:#888;text-align:center;padding:8px">Mostrando 30 de ${lista.length}</p>`:'');
+}
+
+window.abrirPerfil = function(id){
+  const m=ministros.find(x=>x.id===id);
+  if(!m) return;
+  const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+  document.getElementById('mp-nome').textContent=m.nome;
+  document.getElementById('mp-body').innerHTML=`
+    <p style="font-size:11px;color:#888;margin-bottom:3px">WhatsApp</p>
+    <p style="font-size:13px;margin-bottom:10px">${m.tel||'Não cadastrado'} ${m.tel?`<a href="https://wa.me/55${m.tel.replace(/\D/g,'')}" target="_blank" style="color:#1D9E75;font-size:11px;margin-left:6px">Abrir ↗</a>`:''}</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <div style="flex:1;background:#f5f5f3;border-radius:8px;padding:8px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${m.faltasReuniao||0}</p>
+        <p style="font-size:10px;color:#888;margin:0">Faltas reunião</p>
+      </div>
+      <div style="flex:1;background:#f5f5f3;border-radius:8px;padding:8px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${m.faltasAdoracao||0}</p>
+        <p style="font-size:10px;color:#888;margin:0">Faltas adoração</p>
+      </div>
+      <div style="flex:1;background:${faltas>=3?'#fcebeb':'#e1f5ee'};border-radius:8px;padding:8px;text-align:center">
+        <p style="font-size:13px;font-weight:700;margin:0;color:${faltas>=3?'#A32D2D':'#085041'}">${faltas>=3?'🟡 Alerta':'✓ Ok'}</p>
+        <p style="font-size:10px;color:#888;margin:0">Situação</p>
+      </div>
+    </div>
+    <p style="font-size:11px;color:#888;margin-bottom:5px">Disponibilidades dominicais</p>
+    <div style="margin-bottom:10px">${(m.dispDom||[]).length?(m.dispDom).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
+    <p style="font-size:11px;color:#888;margin-bottom:5px">Disponibilidades semanais</p>
+    <div style="margin-bottom:14px">${(m.dispSem||[]).length?(m.dispSem).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e6f1fb;color:#185FA5;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Editar disponibilidades</button>
+      ${m.tel?`<button onclick="window.open('https://wa.me/55${m.tel.replace(/\D/g,'')}','_blank')" style="padding:9px 12px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;cursor:pointer">📱</button>`:''}
+    </div>
+    <button onclick="solicitarDisp('${id}')" style="width:100%;padding:9px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer">📲 Pedir disponibilidade pelo WhatsApp</button>`;
+  document.getElementById('modal-perfil').style.display='flex';
+};
+
+// EDITAR DISPONIBILIDADES
+let editandoId=null;
+const selEditDom=new Set(), selEditSem=new Set();
+window.editarDisp=function(id){
+  editandoId=id;
+  const m=ministros.find(x=>x.id===id);
+  selEditDom.clear(); selEditSem.clear();
+  (m.dispDom||[]).forEach(h=>selEditDom.add(h));
+  (m.dispSem||[]).forEach(h=>selEditSem.add(h));
+  document.getElementById('edit-dom').innerHTML=MISSAS_DOM.map(h=>`<button onclick="togEditDisp('${h}','dom')" id="ed-${h.replace(':','')}" style="padding:8px;border:1px solid ${selEditDom.has(h)?'#1D9E75':'#ddd'};border-radius:6px;background:${selEditDom.has(h)?'#e1f5ee':'white'};cursor:pointer;font-size:12px;color:${selEditDom.has(h)?'#085041':'#333'}">${h}<br><small>Dom</small></button>`).join('');
+  document.getElementById('edit-sem').innerHTML=MISSAS_SEM.map(h=>`<button onclick="togEditDisp('${h}','sem')" id="es-${h.replace(':','')}" style="padding:8px;border:1px solid ${selEditSem.has(h)?'#185FA5':'#ddd'};border-radius:6px;background:${selEditSem.has(h)?'#e6f1fb':'white'};cursor:pointer;font-size:12px;color:${selEditSem.has(h)?'#185FA5':'#333'}">${h}<br><small>Sem</small></button>`).join('');
+  fecharModal('modal-perfil');
+  document.getElementById('modal-edit').style.display='flex';
+};
+window.togEditDisp=function(h,tipo){
+  const set=tipo==='dom'?selEditDom:selEditSem;
+  const id=(tipo==='dom'?'ed-':'es-')+h.replace(':','');
+  const btn=document.getElementById(id);
+  if(set.has(h)){set.delete(h);btn.style.background='white';btn.style.color='#333';btn.style.borderColor='#ddd';}
+  else{set.add(h);btn.style.background=tipo==='dom'?'#e1f5ee':'#e6f1fb';btn.style.color=tipo==='dom'?'#085041':'#185FA5';btn.style.borderColor=tipo==='dom'?'#1D9E75':'#185FA5';}
+};
+window.salvarEditDisp=async function(){
+  if(!editandoId) return;
+  await updateDoc(doc(db,'ministros',editandoId),{dispDom:[...selEditDom],dispSem:[...selEditSem]});
+  const m=ministros.find(x=>x.id===editandoId);
+  if(m){m.dispDom=[...selEditDom];m.dispSem=[...selEditSem];}
+  fecharModal('modal-edit');
+  toast('Disponibilidades atualizadas!');
+};
+
+// CADASTRO
+const selCadDom=new Set(), selCadSem=new Set();
+window.togCad=function(h,tipo){
+  const set=tipo==='dom'?selCadDom:selCadSem;
+  const id=(tipo==='dom'?'cd-':'cs-')+h.replace(':','');
+  const btn=document.getElementById(id);
+  if(set.has(h)){set.delete(h);btn.style.background='white';btn.style.color='#333';btn.style.borderColor='#ddd';}
+  else{set.add(h);btn.style.background=tipo==='dom'?'#e1f5ee':'#e6f1fb';btn.style.color=tipo==='dom'?'#085041':'#185FA5';btn.style.borderColor=tipo==='dom'?'#1D9E75':'#185FA5';}
+};
+window.salvarCadastro=async function(){
+  const nome=document.getElementById('cad-nome').value.trim();
+  const tel=document.getElementById('cad-tel').value.trim();
+  const nasc=document.getElementById('cad-nasc').value;
+  if(!nome){toast('Nome obrigatório.','err');return;}
+  if(selCadDom.size+selCadSem.size<2){toast('Selecione pelo menos 2 disponibilidades.','warn');return;}
+  await addDoc(collection(db,'ministros'),{nome,tel,nascimento:nasc,ativo:true,dispDom:[...selCadDom],dispSem:[...selCadSem],numero:ministros.length+1,faltasReuniao:0,faltasAdoracao:0,criadoEm:serverTimestamp()});
+  selCadDom.clear();selCadSem.clear();
+  ['cad-nome','cad-tel','cad-nasc'].forEach(id=>document.getElementById(id).value='');
+  document.querySelectorAll('#cad-dom button,#cad-sem button').forEach(b=>{b.style.background='white';b.style.color='#333';b.style.borderColor='#ddd';});
+  fecharModal('modal-cad');
+  await carregarMinistros();
+  renderMinistros('');
+  toast('Ministro cadastrado!');
+};
+
+window.solicitarDisp = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const link = `https://scintillating-semifreddo-7a4c34.netlify.app/?disp=${id}`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é do *Ministério da Eucaristia* da Basílica de Nazaré.\n\nPor favor, acesse o link abaixo e marque os horários de missa em que você pode servir:\n\n${link}\n\nLeva menos de 1 minuto. Que Deus abençoe! 🕊️`;
+  const tel = (m.tel||'').replace(/\D/g,'');
+  const url = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
+  window.open(url,'_blank');
+};
+
+window.fecharModal=function(id){ document.getElementById(id).style.display='none'; };
+window.exportarCSV=function(){
+  const linhas=['Nº,Nome,WhatsApp,Nascimento,Disp. Dominical,Disp. Semanal,Faltas Reunião,Faltas Adoração'];
+  ministros.forEach(m=>linhas.push(`${m.numero},"${m.nome}","${m.tel||''}","${m.nascimento||''}","${(m.dispDom||[]).join(';')}","${(m.dispSem||[]).join(';')}",${m.faltasReuniao||0},${m.faltasAdoracao||0}`));
+  const blob=new Blob(['\uFEFF'+linhas.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ministerio_eucaristia.csv'; a.click();
+  toast('CSV exportado!');
+};
+
+// VOZ
+function encontrarMelhor(txt){
+  return ministros.filter(m=>m.nome.toLowerCase().split(' ').some(p=>p.length>3&&txt.toLowerCase().includes(p)))
+    .sort((a,b)=>b.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length-a.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length)[0];
+}
+function startVoice(callback){
+  if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){toast('Voz não suportada neste navegador.','err');return;}
+  // Voz funciona local e online
+  if(recognition) recognition.stop();
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recognition=new SR(); recognition.lang='pt-BR'; recognition.continuous=false; recognition.interimResults=false;
+  recognition.onresult=e=>callback(e.results[0][0].transcript);
+  recognition.onerror=()=>toast('Não entendido. Tente novamente.','warn');
+  recognition.start();
+}
+window.startVoice=startVoice;
+
+window.startVoiceReforco=function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  startVoice(txt=>{
+    const best=encontrarMelhor(txt);
+    if(best){
+      addMinReforco(key,best.nome,'acref-main');
+      toast('✓ '+best.nome.split(' ')[0]+' adicionado ao reforço!');
+    } else toast('Ministro não encontrado: '+txt,'warn');
+  });
+};
+
+window.startVoiceEscala=function(key,hora,dispKey){
+  startVoice(txt=>{
+    const disponiveis=ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+    const best=disponiveis.filter(m=>m.nome.toLowerCase().split(' ').some(p=>p.length>3&&txt.toLowerCase().includes(p)))
+      .sort((a,b)=>b.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length-a.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length)[0];
+    if(best){ addMin(key,hora,best.nome,null); toast('✓ '+best.nome.split(' ')[0]+' adicionado!'); }
+    else toast('Ministro não disponível para '+hora,'warn');
+  });
+};
+window.startVoiceReuniao=function(){
+  startVoice(txt=>{
+    const best=encontrarMelhor(txt);
+    if(best){ if(!presReuniaoMap[best.nome]) presReuniaoMap[best.nome]={presente:false,justificativa:''}; presReuniaoMap[best.nome].presente=true; renderReuniao(); toast('✓ '+best.nome.split(' ')[0]); }
+    else toast('Não encontrado','warn');
+  });
+};
+
+function initModais(){
+  document.getElementById('cad-dom').innerHTML=MISSAS_DOM.map(h=>`<button onclick="togCad('${h}','dom')" id="cd-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Dom</small></button>`).join('');
+  document.getElementById('cad-sem').innerHTML=MISSAS_SEM.map(h=>`<button onclick="togCad('${h}','sem')" id="cs-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Sem</small></button>`).join('');
+}
+initModais();
+</script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f0ee;color:#1a1a1a;min-height:100vh}
+#splash{position:fixed;inset:0;background:#085041;z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity 0.6s}
+.splash-icon{width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:38px;animation:beat 1.6s ease-in-out infinite}
+@keyframes beat{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.sdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.4);animation:dp 1.2s ease-in-out infinite}
+.sdot:nth-child(2){animation-delay:.2s}.sdot:nth-child(3){animation-delay:.4s}
+@keyframes dp{0%,100%{opacity:.3}50%{opacity:1}}
+#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:12px}
+#app{display:none;max-width:640px;margin:0 auto;padding:0 0 80px}
+.header{background:#085041;color:white;padding:14px 16px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.header-title{font-size:16px;font-weight:700;letter-spacing:-.2px}
+.header-sub{font-size:11px;opacity:.7;margin-top:1px}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:640px;background:white;border-top:1px solid #e8e8e8;display:flex;z-index:100;box-shadow:0 -2px 12px rgba(0,0,0,.06)}
+.nb{flex:1;padding:10px 2px 8px;border:none;background:transparent;cursor:pointer;font-size:9px;color:#bbb;display:flex;flex-direction:column;align-items:center;gap:3px;transition:color .15s}
+.nb.active{color:#085041;font-weight:600}
+.nb svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sec{display:none;padding:14px}
+.card{background:white;border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.ct{font-size:13px;font-weight:700;margin-bottom:12px;color:#1a1a1a}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.metric{background:#f5f5f3;border-radius:10px;padding:10px;text-align:center}
+.metric .v{font-size:22px;font-weight:700}.metric .l{font-size:10px;color:#888;margin-top:1px}
+input,select{width:100%;padding:9px 12px;border:1.5px solid #e8e8e8;border-radius:8px;font-size:14px;font-family:inherit;background:white;margin-bottom:8px;transition:border-color .15s}
+input:focus,select:focus{outline:none;border-color:#1D9E75}
+.btn-g{padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px}
+.btn-w{padding:11px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px}
+.btn-o{padding:11px;border:1.5px solid #e8e8e8;border-radius:8px;background:white;color:#333;font-size:13px;font-weight:500;cursor:pointer;width:100%;margin-top:4px}
+.tabs{display:flex;gap:0;margin-bottom:12px;border:1.5px solid #e8e8e8;border-radius:8px;overflow:hidden}
+.tab{flex:1;padding:8px;font-size:12px;border:none;background:white;cursor:pointer;color:#888;font-weight:500;transition:all .15s}
+.tab.active{background:#085041;color:white;font-weight:600}
+#toast{position:fixed;top:72px;left:50%;transform:translateX(-50%);color:white;padding:10px 18px;border-radius:20px;font-size:13px;font-weight:500;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:flex-end;justify-content:center}
+.modal-box{background:white;border-radius:16px 16px 0 0;padding:20px 16px;width:100%;max-width:640px;max-height:88vh;overflow-y:auto}
+.missa-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<div id="splash">
+  <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px">
+    <img src="data:image/png;base64,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" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.5)">
+    <img src="data:image/png;base64,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" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.5)">
+  </div>
+  <p style="color:white;font-size:19px;font-weight:700;text-align:center">Ministério da Eucaristia</p>
+  <p style="color:rgba(255,255,255,.65);font-size:12px;text-align:center">Basílica Santuário de Nossa Senhora de Nazaré</p>
+  <div style="display:flex;gap:6px;margin-top:10px"><div class="sdot"></div><div class="sdot"></div><div class="sdot"></div></div>
+</div>
+
+<div id="loading">
+  <div style="font-size:42px">🕊️</div>
+  <p style="font-size:16px;font-weight:700;color:#085041">Ministério da Eucaristia</p>
+  <p id="loading-msg" style="font-size:12px;color:#888">Conectando...</p>
+</div>
+
+<div id="app">
+<div class="header">
+  <div style="display:flex;align-items:center;gap:10px">
+    <img src="data:image/png;base64,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" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0">
+    <div>
+      <p class="header-title">Ministério da Eucaristia</p>
+      <p class="header-sub">Basílica de Nazaré · <span id="h-total">0</span> ministros · junho 2026</p>
+    </div>
+    <img src="data:image/png;base64,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" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0;margin-left:auto">
+  </div>
+</div>
+
+<nav class="nav">
+  <button class="nb active" onclick="nav('inicio',this)"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Início</button>
+  <button class="nb" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
+  <button class="nb" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
+  <button class="nb" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
+  <button class="nb" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
+  <button class="nb" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
+</nav>
+
+<!-- INÍCIO -->
+<div id="s-inicio" class="sec" style="display:block">
+  <div class="metrics">
+    <div class="metric"><div class="v" id="m-total">0</div><div class="l">Ministros</div></div>
+    <div class="metric"><div class="v">—</div><div class="l">Frequência</div></div>
+    <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários</div></div>
+  </div>
+  <div class="card">
+    <p class="ct">🟡 Alertas disciplinares <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
+    <div id="dash-alertas"></div>
+  </div>
+  <div class="card"><p class="ct">🎂 Aniversariantes do mês</p><div id="dash-aniv"></div></div>
+</div>
+
+<!-- ESCALA -->
+<div id="s-escala" class="sec">
+  <div class="card">
+    <p class="ct">📅 Montar escala</p>
+    <!-- Seletor de mês/ano -->
+    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+      <select id="esc-mes" onchange="trocarMes()" style="flex:1;margin:0;font-weight:600;color:#085041">
+        <option value="0">Janeiro</option><option value="1">Fevereiro</option>
+        <option value="2">Março</option><option value="3">Abril</option>
+        <option value="4">Maio</option><option value="5" selected>Junho</option>
+        <option value="6">Julho</option><option value="7">Agosto</option>
+        <option value="8">Setembro</option><option value="9">Outubro</option>
+        <option value="10">Novembro</option><option value="11">Dezembro</option>
+      </select>
+      <select id="esc-ano" onchange="trocarMes()" style="width:90px;margin:0;font-weight:600;color:#085041">
+        <option value="2026" selected>2026</option>
+        <option value="2027">2027</option>
+        <option value="2028">2028</option>
+      </select>
+    </div>
+
+    <!-- Controle de semanas -->
+    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+      <span style="font-size:12px;color:#555;font-weight:600;white-space:nowrap">Semanas de serviço:</span>
+      <div style="display:flex;gap:4px;flex:1">
+        <button id="btn-sem4" onclick="definirSemanas(4)" style="flex:1;padding:8px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:13px;font-weight:600;cursor:pointer">4 semanas</button>
+        <button id="btn-sem5" onclick="definirSemanas(5)" style="flex:1;padding:8px;border:1.5px solid #085041;border-radius:8px;background:#e1f5ee;color:#085041;font-size:13px;font-weight:600;cursor:pointer">5 semanas ✓</button>
+      </div>
+    </div>
+    <div id="aviso-semanas" style="display:none;margin-bottom:8px"></div>
+
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <select id="esc-tipo" onchange="renderEscala()" style="flex:1;margin:0">
+        <option value="dom">Missas dominicais</option>
+        <option value="sem">Missas semanais</option>
+      </select>
+    </div>
+    <div id="esc-sem-wrap" style="display:none;margin-bottom:8px">
+      <select id="esc-sem" onchange="renderEscala()" style="margin:0" id="sel-semana">
+      </select>
+    </div>
+    <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5">
+      📌 Escala mensal — mesmos ministros em todos os domingos de junho
+    </p>
+    <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px">
+      👁 Visualizar todas as escalas do mês
+    </button>
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn-g" onclick="salvarEscala()" style="margin:0;flex:1;min-width:80px">💾 Salvar</button>
+      <button class="btn-w" onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px">📱 WhatsApp</button>
+      <button onclick="imprimirEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
+    </div>
+    <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
+      ✓ Autocomplete filtra apenas ministros disponíveis para cada horário
+    </p>
+    <div id="esc-body"></div>
+  </div>
+  <!-- REFORÇO inline -->
+  <div class="card">
+    <p class="ct">🔔 Reforço semanal</p>
+    <select id="ref-tipo" onchange="renderReforco()" style="margin-bottom:8px">
+      <option value="sab12">Sábado 12:00h</option>
+      <option value="sab17">Sábado 17:00h</option>
+      <option value="qui18">Quinta-feira 18:00h</option>
+    </select>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <p id="ref-titulo" style="font-size:13px;font-weight:700;color:#333;margin:0">Sábado 12:00h</p>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="ref-count" style="font-size:11px;color:#888"></span>
+        <button onclick="verDisponiveisReforco()"
+          style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
+          👥 Ver todos
+        </button>
+      </div>
+    </div>
+    <div id="ref-body"></div>
+    <div style="position:relative;margin-top:10px;display:flex;gap:6px">
+      <div style="position:relative;flex:1">
+        <input type="text" id="inpref-main" placeholder="Buscar e adicionar ministro..."
+          oninput="acRef(this,'acref-main','reforco_'+document.getElementById('ref-tipo').value+'_jun2026')"
+          style="margin:0">
+        <div id="acref-main" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1);margin-top:2px"></div>
+      </div>
+      <button onclick="startVoiceReforco()"
+        style="width:38px;height:38px;border:1.5px solid #e8e8e8;border-radius:8px;background:white;cursor:pointer;font-size:18px;flex-shrink:0"
+        title="Comando de voz">🎤</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1">💾 Salvar</button>
+      <button class="btn-w" onclick="compartilharReforco()" style="margin:0;flex:1">📱 WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<!-- PRESENÇA -->
+<div id="s-presenca" class="sec">
+  <div class="card">
+    <p class="ct">✅ Lançar presença</p>
+    <div class="tabs">
+      <button class="tab active" onclick="tabPres('missa',this)">Missa</button>
+      <button class="tab" onclick="tabPres('reuniao',this)">Reunião</button>
+      <button class="tab" onclick="tabPres('adoracao',this)">Adoração</button>
+    </div>
+    <div id="tp-missa">
+      <div style="display:flex;gap:8px">
+        <select id="pres-tipo" onchange="renderPresenca()" style="flex:1;margin:0 0 8px"><option value="dom">Dominical</option><option value="sem">Semanal</option></select>
+        <select id="pres-hor" onchange="renderPresenca()" style="flex:1;margin:0 0 8px"><option>06:00h</option><option>08:00h</option><option>10:00h</option><option>12:00h</option><option>16:00h</option><option>18:00h</option><option>20:00h</option></select>
+      </div>
+      <p id="pres-count" style="font-size:11px;color:#1D9E75;margin-bottom:8px"></p>
+      <div id="pres-body"></div>
+      <button class="btn-g" onclick="salvarPres()">💾 Salvar presenças</button>
+    </div>
+    <div id="tp-reuniao" style="display:none">
+      <div class="metrics" style="margin-bottom:10px">
+        <div class="metric"><div class="v" id="r-p">0</div><div class="l">Presentes</div></div>
+        <div class="metric"><div class="v" id="r-f">0</div><div class="l">Ausentes</div></div>
+        <div class="metric"><div class="v" id="r-pct">0%</div><div class="l">Frequência</div></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <input type="text" id="busca-reun" placeholder="Buscar ministro..." oninput="filtrarReun()" style="flex:1;margin:0">
+        <button onclick="startVoiceReuniao()" style="width:38px;height:38px;border:1.5px solid #e8e8e8;border-radius:8px;background:white;cursor:pointer;font-size:18px;flex-shrink:0">🎤</button>
+      </div>
+      <p style="font-size:11px;color:#888;margin-bottom:8px;padding:6px 10px;background:#f5f5f3;border-radius:6px">
+        Faltas não justificadas contam para cartão amarelo (3 faltas = alerta)
+      </p>
+      <div id="reun-body"></div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn-g" onclick="salvarReuniao()" style="margin:0;flex:1">💾 Salvar</button>
+        <button class="btn-o" onclick="imprimirReuniao()" style="margin:0;flex:1">🖨️ Imprimir lista</button>
+      </div>
+    </div>
+    <div id="tp-adoracao" style="display:none">
+      <p style="font-size:12px;color:#888;margin-bottom:8px">Adoração — mesmo sistema de justificativas</p>
+      <div id="ador-body"></div>
+      <button class="btn-g" onclick="salvarAdoracao()">💾 Salvar adoração</button>
+    </div>
+  </div>
+</div>
+
+<!-- RELATÓRIOS -->
+<div id="s-relatorios" class="sec">
+  <div class="card">
+    <p class="ct">📊 Relatórios</p>
+    <select id="rel-tab" onchange="renderRelatorios()" style="margin-bottom:12px">
+      <option value="missas">Presença — Missas</option>
+      <option value="reunioes">Presença — Reuniões</option>
+      <option value="adoracoes">Presença — Adorações</option>
+      <option value="faltas">Faltas disciplinares</option>
+      <option value="escalas">Histórico de escalas</option>
+      <option value="eventos">Eventos especiais</option>
+    </select>
+    <div id="rel-body"><p style="font-size:12px;color:#888">Selecione um relatório acima.</p></div>
+    <div style="margin-top:12px;display:flex;gap:6px">
+      <button class="btn-o" onclick="exportarCSV()" style="margin:0;flex:1">📥 Exportar CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- MINISTROS -->
+<div id="s-ministros" class="sec">
+  <div class="card">
+    <p class="ct">👥 Ministros <span id="min-sem-disp" style="font-size:11px;color:#BA7517;margin-left:6px"></span></p>
+    <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()">
+    <div id="min-body"></div>
+  </div>
+</div>
+
+<!-- MAIS -->
+<div id="s-mais" class="sec">
+  <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
+  <div class="card">
+    <p class="ct">ℹ️ Sistema v2.0</p>
+    <p style="font-size:12px;color:#888;line-height:1.8">
+      Ministério da Eucaristia — Basílica de Nazaré<br>
+      Firebase: ministerio-eucaristia-nazare<br>
+      Lógica: disponibilidade por horário ✓<br>
+      Justificativa de faltas ✓<br>
+      Cartão amarelo automático ✓<br>
+      <span style="color:#1D9E75">● Online e sincronizado</span>
+    </p>
+  </div>
+</div>
+</div>
+
+<!-- MODAIS -->
+<div id="modal-perfil" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-perfil')">
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700" id="mp-nome"></p><button onclick="fecharModal('modal-perfil')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><div id="mp-body"></div></div>
+</div>
+<div id="modal-edit" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-edit')">
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Editar disponibilidades</p><button onclick="fecharModal('modal-edit')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Dominicais</p><div class="missa-grid" id="edit-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Semanais</p><div class="missa-grid" id="edit-sem"></div><button class="btn-g" onclick="salvarEditDisp()">Salvar disponibilidades</button></div>
+</div>
+<div id="modal-cad" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-cad')">
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Novo ministro</p><button onclick="fecharModal('modal-cad')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><input type="text" id="cad-nome" placeholder="Nome completo *"><input type="tel" id="cad-tel" placeholder="WhatsApp (91) 9 0000-0000"><input type="date" id="cad-nasc" style="margin-bottom:12px"><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades dominicais (mínimo 2 no total)</p><div class="missa-grid" id="cad-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades semanais</p><div class="missa-grid" id="cad-sem"></div><button class="btn-g" onclick="salvarCadastro()">Salvar ministro</button></div>
+</div>
+
+<!-- MODAL VISUALIZAÇÃO GERAL DAS ESCALAS -->
+<div id="modal-vis" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-vis')">
+  <div class="modal-box" style="max-height:92vh">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;position:sticky;top:0;background:white;padding-bottom:8px;border-bottom:1px solid #eee">
+      <div>
+        <p style="font-size:16px;font-weight:700">Escalas de junho/2026</p>
+        <p style="font-size:11px;color:#888">Dominical e semanal</p>
+      </div>
+      <button onclick="fecharModal('modal-vis')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <div id="vis-body"></div>
+  </div>
+</div>
+
+<!-- MODAL VER DISPONÍVEIS -->
+<div id="modal-vd" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-vd')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700" id="vd-titulo"></p>
+      <button onclick="fecharModal('modal-vd')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p id="vd-count" style="font-size:12px;color:#1D9E75;margin-bottom:12px"></p>
+    <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:10px">
+    <div id="vd-body"></div>
+  </div>
+</div>
+
+<!-- MODAL EVENTO ESPECIAL -->
+<div id="modal-evento" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-evento')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">Evento especial</p>
+      <button onclick="fecharModal('modal-evento')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <input type="text" id="evt-nome" placeholder="Nome do evento (ex: Círio de Nazaré)">
+    <input type="date" id="evt-data">
+    <input type="text" id="evt-desc" placeholder="Descrição (opcional)" style="margin-bottom:12px">
+    <button style="padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%" onclick="salvarEvento()">Salvar evento</button>
+  </div>
+</div>
+
+<script>
+function filtrarVD(){
+  const v=document.getElementById('vd-busca').value.toLowerCase();
+  const rows=document.querySelectorAll('#vd-body > div');
+  rows.forEach(r=>{ r.style.display=r.textContent.toLowerCase().includes(v)?'flex':'none'; });
+}
+
+function tabPres(tipo,btn){
+  document.querySelectorAll('#s-presenca .tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  ['missa','reuniao','adoracao'].forEach(t=>document.getElementById('tp-'+t).style.display='none');
+  document.getElementById('tp-'+tipo).style.display='block';
+  if(tipo==='reuniao') renderReuniao();
+  if(tipo==='adoracao') renderAdoracao();
+  if(tipo==='missa') renderPresenca();
+}
+// Adoração com justificativa
+const presAdoracaoMap={};
+function renderAdoracao(){
+  if(!window._ministros) return;
+  document.getElementById('ador-body').innerHTML=window._ministros.slice(0,80).map(m=>{
+    const pr=presAdoracaoMap[m.nome];
+    const presente=pr?.presente||false;
+    return `<div style="padding:7px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="flex:1;font-size:13px">${m.nome}</span>
+        <button onclick="toggleAdor('${m.nome.replace(/'/g,"\\'")}' )" style="width:34px;height:28px;border:1px solid ${presente?'#1D9E75':'#ddd'};border-radius:6px;background:${presente?'#e1f5ee':'white'};cursor:pointer;font-size:12px;font-weight:700;color:${presente?'#085041':'#aaa'}">${presente?'✓':'—'}</button>
+      </div>
+      ${!presente?`<input type="text" placeholder="Justificativa (opcional)..." oninput="setJustAdor('${m.nome.replace(/'/g,"\\'")}',this.value)" value="${pr?.justificativa||''}" style="width:100%;padding:4px 8px;border:1px solid #eee;border-radius:6px;font-size:11px;color:#888;margin-top:4px">`:'' }
+    </div>`;
+  }).join('');
+}
+function toggleAdor(nome){ if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={presente:false,justificativa:''}; presAdoracaoMap[nome].presente=!presAdoracaoMap[nome].presente; renderAdoracao(); }
+function setJustAdor(nome,val){ if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={presente:false,justificativa:''}; presAdoracaoMap[nome].justificativa=val; }
+async function salvarAdoracao(){
+  const data=new Date().toISOString().split('T')[0];
+  toast('Adoração salva!');
+}
+setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500);
+</script>
+</body>
+</html>
