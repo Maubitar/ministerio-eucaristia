@@ -26,103 +26,37 @@ const REFORCO_TIPOS = [
 ];
 const MES_ATUAL = 'jun2026';
 
-// ============================================================
-// CALENDÁRIO DINÂMICO — calcula semanas e datas automaticamente
-// Detecta domingos que "derramam" para o mês seguinte
-// e vincula automaticamente à escala do mês de origem
-// ============================================================
-function calcularCalendario(ano, mes) { // mes: 0=jan, 5=jun
-  const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
-  const MESES_NOME = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-
-  // Primeiro domingo da semana que contém o dia 1
-  const primeiroDia = new Date(ano, mes, 1);
-  const inicioSem1 = new Date(primeiroDia);
-  inicioSem1.setDate(1 - primeiroDia.getDay()); // recua até domingo
-
-  const semanas = {};
-  const ordinal = ['','1ª','2ª','3ª','4ª','5ª','6ª'];
-  let semNum = 0;
-  let cursor = new Date(inicioSem1);
-
-  while(true) {
-    // Verificar se esta semana tem pelo menos 1 dia no mês alvo
-    const fimSem = new Date(cursor); fimSem.setDate(cursor.getDate()+6);
-    const temDiasNoMes = cursor.getMonth() === mes || fimSem.getMonth() === mes ||
-      (cursor.getMonth() < mes && fimSem.getMonth() > mes);
-
-    // Parar quando o início da semana já passou do mês
-    if(cursor.getMonth() > mes && cursor.getFullYear() >= ano) break;
-    if(cursor.getFullYear() > ano) break;
-
-    semNum++;
-    const dias = [];
-    for(let i=0;i<7;i++){
-      const d = new Date(cursor); d.setDate(cursor.getDate()+i);
-      dias.push({ data: fmt(d), dia: DIAS_NOME[d.getDay()], mesRef: d.getMonth()===mes });
-    }
-
-    const inicio = new Date(cursor);
-    const fim = new Date(fimSem);
-    // Label do período (pode cruzar meses)
-    let periodoLabel;
-    if(inicio.getMonth() === fim.getMonth()){
-      periodoLabel = `${fmt(inicio)} a ${fmt(fim)}`;
-    } else {
-      periodoLabel = `${fmt(inicio)} a ${fmt(fim)}`;
-    }
-
-    // Verificar se a semana tem dias no mês de referência ou é continuação
-    const domingoSem = new Date(cursor);
-    const isSemDoMes = dias.some(d=>d.mesRef);
-
-    if(isSemDoMes){
-      semanas[String(semNum)] = {
-        label: ordinal[semNum] + 'ª semana',
-        periodo: periodoLabel,
-        cruzaMeses: inicio.getMonth() !== fim.getMonth(),
-        dias: dias
-      };
-    }
-
-    cursor.setDate(cursor.getDate()+7);
-    if(semNum > 6) break;
-  }
-
-  // Domingos do mês
-  const domingos = [];
-  for(let d=new Date(ano,mes,1); d.getMonth()===mes; d.setDate(d.getDate()+1)){
-    if(d.getDay()===0) domingos.push(fmt(new Date(d)));
-  }
-
-  // Detectar domingos "derramados" (pertencem à última semana mas são do mês seguinte)
-  const domingosDerramados = [];
-  const ultimaSem = semanas[String(semNum)];
-  if(ultimaSem){
-    ultimaSem.dias.forEach(d=>{
-      if(!d.mesRef && d.dia==='Domingo'){
-        domingosDerramados.push({
-          data: d.data,
-          semOrigem: String(semNum),
-          mesOrigem: MESES_NOME[mes],
-          anoOrigem: ano
-        });
-      }
-    });
-  }
-
-  return { semanas, domingos, domingosDerramados, mesNome: MESES_NOME[mes], ano };
-}
-
-// Configuração do mês atual — MUDE AQUI para trocar o mês
-const CONFIG_MES = { ano: 2026, mes: 5 }; // mes: 0=jan ... 5=jun ... 11=dez
-const CAL = calcularCalendario(CONFIG_MES.ano, CONFIG_MES.mes);
-const DOMINGOS_MES = CAL.domingos;
-const SEMANAS_MES  = CAL.semanas;
-const TOTAL_SEMANAS = Object.keys(SEMANAS_MES).length;
-let DOMINGOS_DERRAMADOS = CAL.domingosDerramados || [];
-
+// Datas reais de junho 2026
+const DOMINGOS_MES = ['07/06','14/06','21/06','28/06'];
+const SEMANAS_MES = {
+  '1': { label:'1ª semana', periodo:'01/06 a 07/06', dias:[
+    {data:'01/06',dia:'Domingo'},  {data:'02/06',dia:'Segunda'},
+    {data:'03/06',dia:'Terça'},    {data:'04/06',dia:'Quarta'},
+    {data:'05/06',dia:'Quinta'},   {data:'06/06',dia:'Sexta'},
+    {data:'07/06',dia:'Sábado'}
+  ]},
+  '2': { label:'2ª semana', periodo:'08/06 a 14/06', dias:[
+    {data:'08/06',dia:'Domingo'},  {data:'09/06',dia:'Segunda'},
+    {data:'10/06',dia:'Terça'},    {data:'11/06',dia:'Quarta'},
+    {data:'12/06',dia:'Quinta'},   {data:'13/06',dia:'Sexta'},
+    {data:'14/06',dia:'Sábado'}
+  ]},
+  '3': { label:'3ª semana', periodo:'15/06 a 21/06', dias:[
+    {data:'15/06',dia:'Domingo'},  {data:'16/06',dia:'Segunda'},
+    {data:'17/06',dia:'Terça'},    {data:'18/06',dia:'Quarta'},
+    {data:'19/06',dia:'Quinta'},   {data:'20/06',dia:'Sexta'},
+    {data:'21/06',dia:'Sábado'}
+  ]},
+  '4': { label:'4ª semana', periodo:'22/06 a 28/06', dias:[
+    {data:'22/06',dia:'Domingo'},  {data:'23/06',dia:'Segunda'},
+    {data:'24/06',dia:'Terça'},    {data:'25/06',dia:'Quarta'},
+    {data:'26/06',dia:'Quinta'},   {data:'27/06',dia:'Sexta'},
+    {data:'28/06',dia:'Sábado'}
+  ]},
+  '5': { label:'5ª semana', periodo:'29/06 a 30/06', dias:[
+    {data:'29/06',dia:'Domingo'},  {data:'30/06',dia:'Segunda'}
+  ]}
+};
 // Horários semanais por dia da semana
 const MISSAS_SEM_DIAS = {
   'Domingo':  [],
@@ -141,12 +75,6 @@ let recognition=null;
 // SPLASH + INIT
 // ============================================================
 window.addEventListener('load', async()=>{
-  // Se aberto como arquivo local, redirecionar para o Netlify automaticamente
-  if(window.location.protocol === 'file:'){
-    window.location.href = 'https://scintillating-semifreddo-7a4c34.netlify.app';
-    return;
-  }
-
   // MODO FORMULÁRIO DE DISPONIBILIDADE (link enviado por WhatsApp)
   const params = new URLSearchParams(location.search);
   const dispId = params.get('disp');
@@ -163,7 +91,6 @@ window.addEventListener('load', async()=>{
     db = getFirestore(app);
     window._db = db;
     await carregarMinistros();
-    setTimeout(()=>{ if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
     document.getElementById('loading').style.display='none';
     document.getElementById('app').style.display='block';
     renderInicio();
@@ -342,115 +269,6 @@ function primeiroNomes(nome){ return nome.split(' ').slice(0,3).join(' '); }
 // ESCALA — LÓGICA INTELIGENTE
 // Só mostra ministros com disponibilidade no horário selecionado
 // ============================================================
-// Nomes dos meses para a chave do Firebase
-const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-let SEMANAS_SERVICO = 5; // padrão: 5 semanas
-
-window.definirSemanas = function(n){
-  SEMANAS_SERVICO = n;
-  // Atualizar visual dos botões
-  document.getElementById('btn-sem4').style.border = n===4?'1.5px solid #085041':'1.5px solid #ddd';
-  document.getElementById('btn-sem4').style.background = n===4?'#e1f5ee':'white';
-  document.getElementById('btn-sem4').style.color = n===4?'#085041':'#555';
-  document.getElementById('btn-sem4').textContent = n===4?'4 semanas ✓':'4 semanas';
-  document.getElementById('btn-sem5').style.border = n===5?'1.5px solid #085041':'1.5px solid #ddd';
-  document.getElementById('btn-sem5').style.background = n===5?'#e1f5ee':'white';
-  document.getElementById('btn-sem5').style.color = n===5?'#085041':'#555';
-  document.getElementById('btn-sem5').textContent = n===5?'5 semanas ✓':'5 semanas';
-  recalcularComSemanas();
-};
-
-function recalcularComSemanas(){
-  const m = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-  const a = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
-  const cal = calcularCalendario(a, m);
-
-  // Coletar todos os domingos (mês atual + possível derramamento)
-  let todosDomingos = [...cal.domingos];
-  let aviso = '';
-
-  const proxMesNum = m===11 ? 0 : m+1;
-  const proxAnoNum = m===11 ? a+1 : a;
-  const proxMesNome = calcularCalendario(proxAnoNum, proxMesNum).mesNome;
-
-  // Encontrar o PRIMEIRO domingo do próximo mês (5ª semana derramada)
-  // Pode estar na última semana do calendário atual OU no início do próximo mês
-  let domingoDerramado = null;
-
-  // Verificar última semana do mês atual — tem algum dia no próximo mês que é domingo?
-  const ultimaChave = String(Object.keys(cal.semanas).length);
-  const ultimaSemDias = cal.semanas[ultimaChave]?.dias || [];
-  const domNaSemana = ultimaSemDias.find(d => d.dia==='Domingo' && !d.mesRef);
-  if(domNaSemana) domingoDerramado = domNaSemana.data;
-
-  // Se não encontrou na última semana, pegar o 1º domingo do próximo mês
-  if(!domingoDerramado){
-    const calProx = calcularCalendario(proxAnoNum, proxMesNum);
-    if(calProx.domingos.length > 0) domingoDerramado = calProx.domingos[0];
-  }
-
-  if(SEMANAS_SERVICO === 5){
-    if(todosDomingos.length < 5 && domingoDerramado){
-      todosDomingos.push(domingoDerramado);
-      aviso = `<div style="padding:8px 10px;background:#e6f1fb;border-radius:8px;font-size:11px;color:#185FA5;font-weight:500;line-height:1.5">
-        🔁 <strong>5ª semana:</strong> Domingo <strong>${domingoDerramado}</strong> (${proxMesNome}) — <strong>equipe de ${cal.mesNome} continua servindo</strong>
-      </div>`;
-    }
-  } else {
-    // 4 semanas — limitar a 4 domingos do mês
-    todosDomingos = todosDomingos.slice(0, 4);
-    if(domingoDerramado || cal.domingos.length > 4){
-      const dom5 = cal.domingos[4] || domingoDerramado;
-      aviso = `<div style="padding:8px 10px;background:#FFF3CD;border-radius:8px;font-size:11px;color:#856404;font-weight:500">
-        ⚠️ <strong>4 semanas:</strong> Domingo <strong>${dom5}</strong> (${proxMesNome}) não incluído — nova equipe assume
-      </div>`;
-    }
-  }
-
-  // Atualizar domingos globais
-  DOMINGOS_MES.length = 0;
-  todosDomingos.forEach(d=>DOMINGOS_MES.push(d));
-  Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
-  Object.assign(SEMANAS_MES, cal.semanas);
-  Object.assign(CAL, cal);
-  DOMINGOS_DERRAMADOS = cal.domingosDerramados || [];
-  window.MES_ATUAL_DIN = `${MESES_KEY[m]}${a}`;
-
-  // Mostrar aviso
-  const avisoEl = document.getElementById('aviso-semanas');
-  if(avisoEl){ avisoEl.innerHTML = aviso; avisoEl.style.display = aviso?'block':'none'; }
-
-  // Resetar select de semanas
-  const sel = document.getElementById('esc-sem');
-  if(sel) sel.innerHTML = '';
-  renderEscala();
-}
-
-window.trocarMes = function(){
-  recalcularComSemanas();
-};
-
-window.getMesAtual = function(){
-  return window.MES_ATUAL_DIN || MES_ATUAL;
-};
-
-// Inicializar calendário ao abrir a aba Escala
-window.inicializarEscala = function(){
-  recalcularComSemanas();
-};
-
-window.verEscalaAnterior = function(){
-  const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-  const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
-  const mesAntNum = mesAtualNum === 0 ? 11 : mesAtualNum - 1;
-  const anoAntNum = mesAtualNum === 0 ? anoAtualNum - 1 : anoAtualNum;
-  // Ir para o mês anterior
-  document.getElementById('esc-mes').value = mesAntNum;
-  document.getElementById('esc-ano').value = anoAntNum;
-  trocarMes();
-  toast(`Mostrando escala de ${calcularCalendario(anoAntNum,mesAntNum).mesNome}/${anoAntNum} — equipe que serve no domingo derramado`);
-};
-
 window.renderEscala = async function(){
   const tipo = document.getElementById('esc-tipo').value;
   const sem  = document.getElementById('esc-sem').value;
@@ -458,60 +276,15 @@ window.renderEscala = async function(){
   // Dominical: chave mensal fixa (mesmos ministros todos os domingos)
   // Semanal: chave por semana (equipe diferente a cada semana)
   const key = tipo==='dom'
-    ? `escala_dom_${getMesAtual()}`
-    : `escala_sem_sem${sem}_${getMesAtual()}`;
-
-  // Popular seletor de semanas dinamicamente
-  const sel = document.getElementById('esc-sem');
-  if(sel && sel.options.length !== TOTAL_SEMANAS){
-    sel.innerHTML = '';
-    Object.entries(SEMANAS_MES).forEach(([k,v])=>{
-      const opt = document.createElement('option');
-      opt.value = k;
-      opt.textContent = `${v.label} — ${v.periodo}${v.cruzaMeses?' 🔁':''}`;
-      sel.appendChild(opt);
-    });
-  }
+    ? `escala_dom_${MES_ATUAL}`
+    : `escala_sem_sem${sem}_${MES_ATUAL}`;
 
   // Mostrar/esconder seletor de semana
   const semInfo = SEMANAS_MES[sem];
   document.getElementById('esc-sem-wrap').style.display = tipo==='dom' ? 'none' : 'block';
-  // Verificar se há domingos derramados do mês anterior para este mês
-  const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-  const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
-  // Calcular mês anterior para verificar derramados
-  const mesAntNum = mesAtualNum === 0 ? 11 : mesAtualNum - 1;
-  const anoAntNum = mesAtualNum === 0 ? anoAtualNum - 1 : anoAtualNum;
-  const calAnt = calcularCalendario(anoAntNum, mesAntNum);
-  const derramadosDoMesAnt = (calAnt.domingosDerramados||[]).filter(d=>{
-    // Verificar se a data derramada cai no mês atual
-    const [dd,mm] = d.data.split('/').map(Number);
-    return mm === (mesAtualNum+1) && (anoAntNum === anoAtualNum || (mesAntNum===11 && mesAtualNum===0));
-  });
-
-  let infoDerramado = '';
-  if(tipo==='dom' && derramadosDoMesAnt.length > 0){
-    const datas = derramadosDoMesAnt.map(d=>`<strong>${d.data}</strong>`).join(', ');
-    infoDerramado = `<div style="margin-top:6px;padding:6px 10px;background:#FFF3CD;border-radius:6px;font-size:11px;color:#856404;font-weight:500">
-      ⚡ Domingo(s) ${datas} pertencem à escala de <strong>${calAnt.mesNome}/${calAnt.ano}</strong> — equipe de ${calAnt.mesNome} continua servindo
-      <button onclick="verEscalaAnterior()" style="margin-left:8px;padding:2px 8px;border:1px solid #856404;border-radius:4px;background:transparent;color:#856404;font-size:10px;cursor:pointer">Ver escala</button>
-    </div>`;
-  }
-
-  // Aviso de domingos que derramam para o próximo mês
-  let infoDerrama = '';
-  if(tipo==='dom' && DOMINGOS_DERRAMADOS.length > 0){
-    const datas = DOMINGOS_DERRAMADOS.map(d=>`<strong>${d.data}</strong>`).join(', ');
-    const proxMesNome = calcularCalendario(anoAtualNum, (mesAtualNum+1)%12).mesNome;
-    infoDerrama = `<div style="margin-top:6px;padding:6px 10px;background:#e6f1fb;border-radius:6px;font-size:11px;color:#185FA5;font-weight:500">
-      🔁 Domingo(s) ${datas} em ${proxMesNome} — <strong>esta equipe de ${CAL.mesNome} segue servindo</strong> nessa(s) data(s)
-    </div>`;
-  }
-
-  // Usar DOMINGOS_MES já atualizado por recalcularComSemanas (inclui 05/07 se 5 semanas)
   document.getElementById('esc-info').innerHTML = tipo==='dom'
-    ? `📌 ${DOMINGOS_MES.length} domingos (${CAL.mesNome}/${CAL.ano}): ${DOMINGOS_MES.map(d=>`<strong>${d}</strong>`).join(' · ')}`
-    : `🔄 ${semInfo?.label||''} — <strong>${semInfo?.periodo||''}</strong>${semInfo?.cruzaMeses?' <span style="font-size:10px;background:#FFF3CD;color:#856404;padding:1px 5px;border-radius:8px">cruza meses</span>':''}`;
+    ? `📌 Escala mensal — domingos: ${DOMINGOS_MES.map(d=>`<strong>${d}</strong>`).join(' · ')}`
+    : `🔄 ${semInfo.label} — <strong>${semInfo.periodo}</strong>`;
   document.getElementById('esc-info').style.color = tipo==='dom' ? '#085041' : '#185FA5';
   document.getElementById('esc-info').style.background = tipo==='dom' ? '#f0faf5' : '#e6f1fb';
 
@@ -667,8 +440,8 @@ window.setResp = function(key, hora, mi){
 window.salvarEscala = async function(){
   const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
   const key = tipo==='dom'
-    ? `escala_dom_${getMesAtual()}`
-    : `escala_sem_sem${sem}_${getMesAtual()}`;
+    ? `escala_dom_${MES_ATUAL}`
+    : `escala_sem_sem${sem}_${MES_ATUAL}`;
   await setDoc(doc(db,'escalas',key), escalas[key]||{});
   toast(tipo==='dom' ? 'Escala dominical salva para todo o mês!' : 'Escala semanal salva!');
 };
@@ -676,8 +449,8 @@ window.salvarEscala = async function(){
 window.compartilharEscala = function(){
   const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
   const key = tipo==='dom'
-    ? `escala_dom_${getMesAtual()}`
-    : `escala_sem_sem${sem}_${getMesAtual()}`;
+    ? `escala_dom_${MES_ATUAL}`
+    : `escala_sem_sem${sem}_${MES_ATUAL}`;
   const esc=escalas[key]||{};
   const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
   let txt=`📋 *ESCALA ${tipo==='dom'?'DOMINICAL':'SEMANAL'}* — ${sem}ª semana junho/2026\n\n`;
@@ -1021,14 +794,14 @@ window.verTodasEscalas = async function(){
   document.getElementById('modal-vis').style.display='flex';
 
   // Carregar escala dominical
-  const keyDom=`escala_dom_${getMesAtual()}`;
+  const keyDom=`escala_dom_${MES_ATUAL}`;
   if(!escalas[keyDom]){
     try{ const d=await getDoc(doc(db,'escalas',keyDom)); escalas[keyDom]=d.exists()?d.data():{}; }catch(e){ escalas[keyDom]={}; }
   }
 
   // Carregar todas as semanas semanais
-  for(let s=1;s<=TOTAL_SEMANAS;s++){
-    const keySem=`escala_sem_sem${s}_${getMesAtual()}`;
+  for(let s=1;s<=5;s++){
+    const keySem=`escala_sem_sem${s}_${MES_ATUAL}`;
     if(!escalas[keySem]){
       try{ const d=await getDoc(doc(db,'escalas',keySem)); escalas[keySem]=d.exists()?d.data():{}; }catch(e){ escalas[keySem]={}; }
     }
@@ -1062,8 +835,8 @@ window.verTodasEscalas = async function(){
 
   // SEMANAL — por semana
   const semLabels=['','1ª semana','2ª semana','3ª semana','4ª semana','5ª semana'];
-  for(let s=1;s<=TOTAL_SEMANAS;s++){
-    const keySem=`escala_sem_sem${s}_${getMesAtual()}`;
+  for(let s=1;s<=5;s++){
+    const keySem=`escala_sem_sem${s}_${MES_ATUAL}`;
     const escSem=escalas[keySem]||{};
     const temDados=MISSAS_SEM.some(h=>((escSem[h]?.ministros)||[]).length>0);
     if(!temDados) continue;
@@ -1385,7 +1158,7 @@ function encontrarMelhor(txt){
 }
 function startVoice(callback){
   if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){toast('Voz não suportada neste navegador.','err');return;}
-  // Voz funciona local e online
+  if(window.location.protocol==='file:'){toast('Voz requer conexão online. Publique o app no Netlify.','warn');return;}
   if(recognition) recognition.stop();
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   recognition=new SR(); recognition.lang='pt-BR'; recognition.continuous=false; recognition.interimResults=false;
@@ -1527,33 +1300,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
 <div id="s-escala" class="sec">
   <div class="card">
     <p class="ct">📅 Montar escala</p>
-    <!-- Seletor de mês/ano -->
-    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
-      <select id="esc-mes" onchange="trocarMes()" style="flex:1;margin:0;font-weight:600;color:#085041">
-        <option value="0">Janeiro</option><option value="1">Fevereiro</option>
-        <option value="2">Março</option><option value="3">Abril</option>
-        <option value="4">Maio</option><option value="5" selected>Junho</option>
-        <option value="6">Julho</option><option value="7">Agosto</option>
-        <option value="8">Setembro</option><option value="9">Outubro</option>
-        <option value="10">Novembro</option><option value="11">Dezembro</option>
-      </select>
-      <select id="esc-ano" onchange="trocarMes()" style="width:90px;margin:0;font-weight:600;color:#085041">
-        <option value="2026" selected>2026</option>
-        <option value="2027">2027</option>
-        <option value="2028">2028</option>
-      </select>
-    </div>
-
-    <!-- Controle de semanas -->
-    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
-      <span style="font-size:12px;color:#555;font-weight:600;white-space:nowrap">Semanas de serviço:</span>
-      <div style="display:flex;gap:4px;flex:1">
-        <button id="btn-sem4" onclick="definirSemanas(4)" style="flex:1;padding:8px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:13px;font-weight:600;cursor:pointer">4 semanas</button>
-        <button id="btn-sem5" onclick="definirSemanas(5)" style="flex:1;padding:8px;border:1.5px solid #085041;border-radius:8px;background:#e1f5ee;color:#085041;font-size:13px;font-weight:600;cursor:pointer">5 semanas ✓</button>
-      </div>
-    </div>
-    <div id="aviso-semanas" style="display:none;margin-bottom:8px"></div>
-
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <select id="esc-tipo" onchange="renderEscala()" style="flex:1;margin:0">
         <option value="dom">Missas dominicais</option>
@@ -1561,7 +1307,12 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
       </select>
     </div>
     <div id="esc-sem-wrap" style="display:none;margin-bottom:8px">
-      <select id="esc-sem" onchange="renderEscala()" style="margin:0" id="sel-semana">
+      <select id="esc-sem" onchange="renderEscala()" style="margin:0">
+        <option value="1">1ª semana — 01/06 a 07/06</option>
+        <option value="2">2ª semana — 08/06 a 14/06</option>
+        <option value="3">3ª semana — 15/06 a 21/06</option>
+        <option value="4">4ª semana — 22/06 a 28/06</option>
+        <option value="5">5ª semana — 29/06 a 30/06</option>
       </select>
     </div>
     <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5">
