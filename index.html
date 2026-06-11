@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Ministério da Eucaristia — Basílica de Nazaré</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -141,8 +143,23 @@ let recognition=null;
 // SPLASH + INIT
 // ============================================================
 window.addEventListener('load', async()=>{
+  // Se aberto como arquivo local, redirecionar para o Netlify automaticamente
+  if(window.location.protocol === 'file:'){
+    window.location.href = 'https://scintillating-semifreddo-7a4c34.netlify.app';
+    return;
+  }
+
   // MODO FORMULÁRIO DE DISPONIBILIDADE (link enviado por WhatsApp)
   const params = new URLSearchParams(location.search);
+  const ministroId = params.get('ministro');
+  if(ministroId){
+    const app2 = initializeApp(FB);
+    db = getFirestore(app2);
+    await carregarMinistros();
+    showTab('ministros');
+    setTimeout(()=>verMinistro(ministroId), 800);
+    return;
+  }
   const dispId = params.get('disp');
   if(dispId){
     const app = initializeApp(FB);
@@ -1294,7 +1311,8 @@ window.abrirPerfil = function(id){
       <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Editar disponibilidades</button>
       ${m.tel?`<button onclick="window.open('https://wa.me/55${m.tel.replace(/\D/g,'')}','_blank')" style="padding:9px 12px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;cursor:pointer">📱</button>`:''}
     </div>
-    <button onclick="solicitarDisp('${id}')" style="width:100%;padding:9px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer">📲 Pedir disponibilidade pelo WhatsApp</button>`;
+    <button onclick="solicitarDisp('${id}')" style="width:100%;padding:9px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px">📲 Pedir disponibilidade pelo WhatsApp</button>
+    <button onclick="verQRCode('${id}')" style="width:100%;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">📱 Ver QR Code do ministro</button>`;
   document.getElementById('modal-perfil').style.display='flex';
 };
 
@@ -1364,6 +1382,114 @@ window.solicitarDisp = function(id){
 };
 
 window.fecharModal=function(id){ document.getElementById(id).style.display='none'; };
+
+// QR CODE
+let qrMinistroAtual = null;
+window.verQRCode = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  qrMinistroAtual = m;
+  document.getElementById('qr-nome').textContent = m.nome;
+  document.getElementById('qr-canvas').innerHTML = '';
+  const url = `https://maubitar.github.io/ministerio-eucaristia/?ministro=${id}`;
+  new QRCode(document.getElementById('qr-canvas'), {
+    text: url,
+    width: 220,
+    height: 220,
+    colorDark: '#085041',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  document.getElementById('modal-qr').style.display='flex';
+};
+
+window.enviarQRWhatsApp = function(){
+  if(!qrMinistroAtual) return;
+  const url = `https://maubitar.github.io/ministerio-eucaristia/?ministro=${qrMinistroAtual.id}`;
+  const txt = `Olá, ${qrMinistroAtual.nome.split(' ')[0]}! 🙏
+
+Seu QR Code de identificação no *Ministério da Eucaristia* da Basílica de Nazaré:
+
+${url}
+
+Guarde este link — ele é seu código único de presença!
+_Basílica Santuário de Nossa Senhora de Nazaré_`;
+  const tel = (qrMinistroAtual.tel||'').replace(/\D/g,'');
+  const waUrl = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
+  window.open(waUrl,'_blank');
+};
+
+window.imprimirQR = function(){
+  if(!qrMinistroAtual) return;
+  const canvas = document.querySelector('#qr-canvas canvas');
+  if(!canvas) return;
+  const img = canvas.toDataURL('image/png');
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><title>QR Code - ${qrMinistroAtual.nome}</title>
+  <style>body{font-family:Arial,sans-serif;text-align:center;padding:30px} .logo{font-size:13px;color:#085041;font-weight:700} h2{color:#085041;margin:10px 0 4px} p{font-size:11px;color:#666} @media print{button{display:none}}</style></head>
+  <body>
+  <p class="logo">🕊️ Ministério Extraordinário da Sagrada Comunhão Eucaristia</p>
+  <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+  <h2>${qrMinistroAtual.nome}</h2>
+  <p>QR Code de identificação</p>
+  <img src="${img}" style="width:200px;height:200px;margin:16px 0">
+  <p style="font-size:10px;color:#aaa">Apresente este código para registrar sua presença</p>
+  <button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#085041;color:white;border:none;border-radius:6px;cursor:pointer">🖨️ Imprimir</button>
+  </body></html>`);
+  w.document.close();
+};
+
+// SCANNER DE QR CODE
+let scannerStream = null;
+let scannerInterval = null;
+
+window.abrirScanner = function(){
+  document.getElementById('modal-scanner').style.display='flex';
+  document.getElementById('scanner-resultado').textContent='';
+  document.getElementById('scanner-status').textContent='Iniciando câmera...';
+  const video = document.getElementById('scanner-video');
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+    .then(stream=>{
+      scannerStream = stream;
+      video.srcObject = stream;
+      video.play();
+      document.getElementById('scanner-status').textContent='Aponte para o QR Code';
+      scannerInterval = setInterval(()=>lerQRFrame(video),500);
+    })
+    .catch(()=>{ document.getElementById('scanner-status').textContent='Câmera não disponível'; });
+};
+
+function lerQRFrame(video){
+  const canvas = document.getElementById('scanner-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video,0,0);
+  // Usar jsQR se disponível
+  try{
+    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+    if(window.jsQR){
+      const code = jsQR(imageData.data,imageData.width,imageData.height);
+      if(code && code.data.includes('ministro=')){
+        const id = new URL(code.data).searchParams.get('ministro');
+        const m = ministros.find(x=>x.id===id);
+        if(m){
+          pararScanner();
+          document.getElementById('scanner-resultado').textContent=`✓ ${m.nome}`;
+          toast(`✓ Presença: ${m.nome}`,'suc');
+        }
+      }
+    }
+  }catch(e){}
+}
+
+window.pararScanner = function(){
+  if(scannerStream) scannerStream.getTracks().forEach(t=>t.stop());
+  if(scannerInterval) clearInterval(scannerInterval);
+  scannerStream = null;
+  scannerInterval = null;
+  document.getElementById('modal-scanner').style.display='none';
+};
 window.exportarCSV=function(){
   const linhas=['Nº,Nome,WhatsApp,Nascimento,Disp. Dominical,Disp. Semanal,Faltas Reunião,Faltas Adoração'];
   ministros.forEach(m=>linhas.push(`${m.numero},"${m.nome}","${m.tel||''}","${m.nascimento||''}","${(m.dispDom||[]).join(';')}","${(m.dispSem||[]).join(';')}",${m.faltasReuniao||0},${m.faltasAdoracao||0}`));
@@ -1379,7 +1505,7 @@ function encontrarMelhor(txt){
 }
 function startVoice(callback){
   if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){toast('Voz não suportada neste navegador.','err');return;}
-  if(window.location.protocol==='file:'){toast('Voz requer conexão online. Publique o app no Netlify.','warn');return;}
+  // Voz funciona local e online
   if(recognition) recognition.stop();
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   recognition=new SR(); recognition.lang='pt-BR'; recognition.continuous=false; recognition.interimResults=false;
@@ -1710,6 +1836,42 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
 </div>
 <div id="modal-cad" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-cad')">
   <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Novo ministro</p><button onclick="fecharModal('modal-cad')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><input type="text" id="cad-nome" placeholder="Nome completo *"><input type="tel" id="cad-tel" placeholder="WhatsApp (91) 9 0000-0000"><input type="date" id="cad-nasc" style="margin-bottom:12px"><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades dominicais (mínimo 2 no total)</p><div class="missa-grid" id="cad-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades semanais</p><div class="missa-grid" id="cad-sem"></div><button class="btn-g" onclick="salvarCadastro()">Salvar ministro</button></div>
+</div>
+
+<!-- MODAL QR CODE -->
+<div id="modal-qr" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-qr')">
+  <div class="modal-box" style="max-width:320px;text-align:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <p id="qr-nome" style="font-size:16px;font-weight:700"></p>
+        <p style="font-size:11px;color:#888">QR Code de identificação</p>
+      </div>
+      <button onclick="fecharModal('modal-qr')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <div id="qr-canvas" style="display:flex;justify-content:center;margin-bottom:16px"></div>
+    <p style="font-size:11px;color:#666;margin-bottom:14px;line-height:1.5">Este QR Code identifica o ministro no sistema. Use para registrar presença.</p>
+    <div style="display:flex;gap:8px">
+      <button onclick="enviarQRWhatsApp()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer">📱 Enviar WhatsApp</button>
+      <button onclick="imprimirQR()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL SCANNER QR CODE -->
+<div id="modal-scanner" class="modal-bg" onclick="if(event.target===this)pararScanner()">
+  <div class="modal-box" style="max-width:360px;text-align:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div>
+        <p style="font-size:16px;font-weight:700">📷 Scanner de Presença</p>
+        <p style="font-size:11px;color:#888">Aponte para o QR Code do ministro</p>
+      </div>
+      <button onclick="pararScanner()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <video id="scanner-video" style="width:100%;border-radius:10px;background:#000;max-height:280px"></video>
+    <canvas id="scanner-canvas" style="display:none"></canvas>
+    <p id="scanner-resultado" style="font-size:13px;margin-top:12px;color:#085041;font-weight:600;min-height:20px"></p>
+    <p id="scanner-status" style="font-size:11px;color:#888;margin-top:4px">Câmera iniciando...</p>
+  </div>
 </div>
 
 <!-- MODAL VISUALIZAÇÃO GERAL DAS ESCALAS -->
