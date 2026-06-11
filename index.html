@@ -1383,6 +1383,62 @@ window.solicitarDisp = function(id){
 
 window.fecharModal=function(id){ document.getElementById(id).style.display='none'; };
 
+// ATUALIZAÇÃO DO APP
+let updateFileContent = null;
+const GH_TOKEN = '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';
+
+window.handleUpdateDrop = function(e){
+  e.preventDefault();
+  document.getElementById('drop-update').style.borderColor='#ddd';
+  document.getElementById('drop-update').style.background='white';
+  handleUpdateFile(e.dataTransfer.files[0]);
+};
+
+window.handleUpdateFile = function(file){
+  if(!file || !file.name.endsWith('.html')){ toast('Selecione um arquivo .html','err'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    updateFileContent = e.target.result;
+    document.getElementById('update-info').style.display='block';
+    document.getElementById('update-info').textContent = '✓ ' + file.name + ' (' + (file.size/1024).toFixed(1) + ' KB) — pronto para publicar';
+    const btn = document.getElementById('btn-update');
+    btn.disabled = false; btn.style.opacity='1';
+  };
+  reader.readAsText(file);
+};
+
+window.publicarUpdate = async function(){
+  const btn = document.getElementById('btn-update');
+  const status = document.getElementById('update-status');
+  btn.disabled=true; btn.textContent='⏳ Publicando...';
+  status.style.display='block'; status.style.background='#e6f1fb'; status.style.color='#185FA5';
+  status.textContent='Conectando...';
+  try{
+    const r1 = await fetch('https://api.github.com/repos/Maubitar/ministerio-eucaristia/contents/index.html',{
+      headers:{'Authorization':'token '+GH_TOKEN,'User-Agent':'SOGI'}
+    });
+    const d1 = await r1.json();
+    const sha = d1.sha;
+    status.textContent='Publicando...';
+    const encoded = btoa(unescape(encodeURIComponent(updateFileContent)));
+    const r2 = await fetch('https://api.github.com/repos/Maubitar/ministerio-eucaristia/contents/index.html',{
+      method:'PUT',
+      headers:{'Authorization':'token '+GH_TOKEN,'User-Agent':'SOGI','Content-Type':'application/json'},
+      body:JSON.stringify({message:'SOGI update',content:encoded,sha:sha})
+    });
+    if(r2.ok){
+      status.style.background='#e1f5ee'; status.style.color='#085041';
+      status.textContent='✅ Publicado! App atualizado em ~2 minutos.';
+      btn.textContent='✅ Publicado!';
+      toast('App publicado com sucesso!');
+    } else { throw new Error('Erro '+r2.status); }
+  }catch(e){
+    status.style.background='#fde8e8'; status.style.color='#A32D2D';
+    status.textContent='❌ Erro: '+e.message;
+    btn.disabled=false; btn.textContent='🚀 Publicar atualização'; btn.style.opacity='1';
+  }
+};
+
 // QR CODE
 let qrMinistroAtual = null;
 window.verQRCode = function(id){
@@ -1812,6 +1868,27 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
 
 <!-- MAIS -->
 <div id="s-mais" class="sec">
+  <!-- PUBLICADOR DENTRO DO APP -->
+  <div class="card" style="border:2px solid #085041">
+    <p class="ct">🚀 Atualizar S.O.G.I.</p>
+    <p style="font-size:12px;color:#666;margin-bottom:10px">Quando o Claude enviar um novo index.html, baixe e publique aqui em 1 clique.</p>
+    <div id="drop-update"
+      onclick="document.getElementById('file-update').click()"
+      ondragover="event.preventDefault();this.style.borderColor='#085041';this.style.background='#e1f5ee'"
+      ondragleave="this.style.borderColor='#ddd';this.style.background='white'"
+      ondrop="handleUpdateDrop(event)"
+      style="border:2px dashed #ddd;border-radius:10px;padding:16px;text-align:center;cursor:pointer;margin-bottom:10px">
+      <p style="font-size:13px;color:#555;margin:0">📁 Clique ou arraste o <strong>index.html</strong> aqui</p>
+    </div>
+    <input type="file" id="file-update" accept=".html" onchange="handleUpdateFile(this.files[0])" style="display:none">
+    <div id="update-info" style="display:none;padding:8px;background:#f5f5f3;border-radius:8px;font-size:12px;color:#555;margin-bottom:10px"></div>
+    <button id="btn-update" onclick="publicarUpdate()" disabled
+      style="width:100%;padding:12px;border:none;border-radius:8px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;opacity:.4">
+      🚀 Publicar atualização
+    </button>
+    <div id="update-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;text-align:center"></div>
+  </div>
+
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
   <div class="card">
     <p class="ct">ℹ️ Sistema v2.0</p>
