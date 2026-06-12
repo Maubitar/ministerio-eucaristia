@@ -602,6 +602,49 @@ window.salvarEscala = async function(){
   toast(tipo==='dom' ? 'Escala dominical salva para todo o mês!' : 'Escala semanal salva!');
 };
 
+// Dado data (DD/MM) e hora, retorna {ministros:[], responsavel:''} buscando na escala salva
+// correspondente: domingo -> escala_dom_<mes>; outro dia -> escala_sem_sem<N>_<mes> da semana que contém essa data
+window.buscarEscaladosPara = async function(dataDDMM, hora, diaSemana){
+  const mesAtualKey = getMesAtual();
+
+  if(diaSemana === 'Domingo'){
+    const key = `escala_dom_${mesAtualKey}`;
+    if(!escalas[key]){
+      try{ const d = await getDoc(doc(db,'escalas',key)); escalas[key] = d.exists()?d.data():{}; }
+      catch(e){ escalas[key]={}; }
+    }
+    return (escalas[key]||{})[hora] || {ministros:[],responsavel:''};
+  }
+
+  // dia de semana: encontrar em qual SEMANAS_MES essa data (dataDDMM) cai
+  let semanaAlvo = null;
+  Object.entries(SEMANAS_MES).forEach(([k,v])=>{
+    if(v.dias.some(d=>d.data===dataDDMM && d.dia===diaSemana)) semanaAlvo = k;
+  });
+  if(!semanaAlvo) return {ministros:[],responsavel:''};
+
+  const key = `escala_sem_sem${semanaAlvo}_${mesAtualKey}`;
+  if(!escalas[key]){
+    try{ const d = await getDoc(doc(db,'escalas',key)); escalas[key] = d.exists()?d.data():{}; }
+    catch(e){ escalas[key]={}; }
+  }
+  return (escalas[key]||{})[hora] || {ministros:[],responsavel:''};
+};
+
+// Retorna lista de {data, diaSemana} para os próximos N dias a partir de hoje (para seletor de data na Presença)
+window.proximasDatasComMissa = function(){
+  const out = [];
+  const hoje = new Date();
+  for(let i=0;i<14;i++){
+    const d = new Date(hoje); d.setDate(hoje.getDate()+i);
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+    out.push({data:`${dd}/${mm}`, diaSemana:DIAS_NOME[d.getDay()], iso:d.toISOString().split('T')[0]});
+  }
+  return out;
+};
+
 window.compartilharEscala = function(){
   const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
   const key = tipo==='dom'
@@ -623,51 +666,130 @@ window.compartilharEscala = function(){
   window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
 };
 
-window.renderPresenca = function(){
-  const hor = document.getElementById('pres-hor').value;
-  const tipo = document.getElementById('pres-tipo').value;
-  const dispKey = tipo==='dom'?'dispDom':'dispSem';
-  const lista = ministros.filter(m=>(m[dispKey]||[]).includes(hor));
+let presQrInstances = {};
 
-  if(!lista.length){
-    document.getElementById('pres-body').innerHTML=`<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro cadastrado para ${hor}. Ajuste as disponibilidades.</p>`;
+window.popularSeletorDatasPresenca = function(){
+  const sel = document.getElementById('pres-data');
+  if(!sel || sel.options.length) return;
+  proximasDatasComMissa().forEach(d=>{
+    const opt = document.createElement('option');
+    opt.value = JSON.stringify({data:d.data, diaSemana:d.diaSemana, iso:d.iso});
+    opt.textContent = `${d.diaSemana}, ${d.data}`;
+    sel.appendChild(opt);
+  });
+  atualizarHorariosPresenca();
+};
+
+window.atualizarHorariosPresenca = function(){
+  const sel = document.getElementById('pres-data');
+  const horSel = document.getElementById('pres-hor');
+  if(!sel || !sel.value) return;
+  const info = JSON.parse(sel.value);
+  const horas = info.diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[info.diaSemana]||[]);
+  horSel.innerHTML = horas.map(h=>`<option value="${h}">${h}</option>`).join('');
+  if(!horas.length) horSel.innerHTML = '<option value="">Sem missas neste dia</option>';
+  renderPresenca();
+};
+
+window.renderPresenca = async function(){
+  const sel = document.getElementById('pres-data');
+  if(!sel.options.length){ popularSeletorDatasPresenca(); return; }
+  const info = JSON.parse(sel.value);
+  const hor = document.getElementById('pres-hor').value;
+  if(!hor){
+    document.getElementById('pres-count').textContent='';
+    document.getElementById('pres-body').innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Não há missas neste dia.</p>`;
     return;
   }
 
-  document.getElementById('pres-count').textContent = lista.length+' ministros';
-  document.getElementById('pres-body').innerHTML = lista.map(m=>{
-    const s = presAtual[m.id]?.status||'';
-    const j = presAtual[m.id]?.justificativa||'';
+  const tipo = info.diaSemana==='Domingo' ? 'dom' : 'sem';
+  document.getElementById('pres-body').innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Carregando escala...</p>`;
+
+  const g = await buscarEscaladosPara(info.data, hor, info.diaSemana);
+  const escalados = g.ministros || [];
+  const responsavel = g.responsavel || '';
+
+  if(!escalados.length){
+    document.getElementById('pres-count').textContent = '0 ministros';
+    document.getElementById('pres-body').innerHTML = `
+      <div style="padding:16px;text-align:center;background:#FFF3CD;border-radius:8px">
+        <p style="font-size:13px;color:#856404;font-weight:600;margin:0">⚠️ Nenhum ministro escalado</p>
+        <p style="font-size:12px;color:#856404;margin-top:4px">Monte a escala primeiro em <strong>Escala</strong> para ${info.diaSemana}, ${info.data} — ${hor}.</p>
+      </div>`;
+    return;
+  }
+
+  document.getElementById('pres-count').textContent = escalados.length+' escalado(s)';
+
+  const linha = (nome, isResp)=>{
+    const m = ministros.find(x=>x.nome===nome);
+    const id = m?.id || '';
+    const s = id ? (presAtual[id]?.status||'') : '';
+    const j = id ? (presAtual[id]?.justificativa||'') : '';
+    const qrId = 'qrp-'+(id||nome.replace(/\W/g,''));
     return `<div style="padding:8px 0;border-bottom:1px solid #eee">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:${s==='F'?'6px':'0'}">
-        <span style="flex:1;font-size:13px">${m.nome}</span>
-        <button onclick="setPres('${m.id}','P')" style="width:30px;height:28px;border:1px solid ${s==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${s==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='P'?'#085041':'#888'}">P</button>
-        <button onclick="setPres('${m.id}','F')" style="width:30px;height:28px;border:1px solid ${s==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${s==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='F'?'#A32D2D':'#888'}">F</button>
-        <button onclick="setPres('${m.id}','S')" style="width:30px;height:28px;border:1px solid ${s==='S'?'#BA7517':'#ddd'};border-radius:6px;background:${s==='S'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='S'?'#BA7517':'#888'}">S</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${s==='F'?'6px':'0'}">
+        <div id="${qrId}" style="width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center"></div>
+        <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}</span>
+        <button onclick="setPres('${id}','P')" style="width:30px;height:28px;border:1px solid ${s==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${s==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='P'?'#085041':'#888'}">P</button>
+        <button onclick="setPres('${id}','F')" style="width:30px;height:28px;border:1px solid ${s==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${s==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='F'?'#A32D2D':'#888'}">F</button>
+        <button onclick="setPres('${id}','S')" style="width:30px;height:28px;border:1px solid ${s==='S'?'#BA7517':'#ddd'};border-radius:6px;background:${s==='S'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='S'?'#BA7517':'#888'}">S</button>
       </div>
       ${s==='F'?`<input type="text" placeholder="Justificativa da falta (opcional)..." value="${j}"
-        oninput="setJustificativa('${m.id}',this.value)"
+        oninput="setJustificativa('${id}',this.value)"
         style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#A32D2D;margin:0">`:'' }
     </div>`;
-  }).join('');
+  };
+
+  const outros = escalados.filter(n=>n!==responsavel);
+
+  let html = '';
+  if(responsavel){
+    html += `<div style="background:#fdf8ef;border:1px solid #f0deb8;border-radius:8px;padding:4px 8px;margin-bottom:6px">
+      <p style="font-size:10px;color:#BA7517;font-weight:700;margin:6px 0 0;text-transform:uppercase;letter-spacing:.5px">Responsável</p>
+      ${linha(responsavel, true)}
+    </div>`;
+  }
+  html += outros.map(n=>linha(n,false)).join('');
+  document.getElementById('pres-body').innerHTML = html;
+
+  // Render small QR codes after DOM insertion
+  presQrInstances = {};
+  [...(responsavel?[responsavel]:[]), ...outros].forEach(nome=>{
+    const m = ministros.find(x=>x.nome===nome);
+    const id = m?.id || '';
+    const qrId = 'qrp-'+(id||nome.replace(/\W/g,''));
+    const el = document.getElementById(qrId);
+    if(!el || !id) return;
+    const url = `${APP_URL}/?ministro=${id}`;
+    presQrInstances[id] = new QRCode(el, {
+      text: url, width: 36, height: 36,
+      colorDark: '#085041', colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  });
 };
 
 window.setPres = function(id, val){
+  if(!id) return;
   if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
   presAtual[id].status = presAtual[id].status===val?'':val;
   renderPresenca();
 };
 
 window.setJustificativa = function(id, val){
+  if(!id) return;
   if(!presAtual[id]) presAtual[id]={status:'F',justificativa:''};
   presAtual[id].justificativa = val;
 };
 
 window.salvarPres = async function(){
-  const hor=document.getElementById('pres-hor').value, tipo=document.getElementById('pres-tipo').value;
-  const data=new Date().toISOString().split('T')[0];
-  const key=`${data}_${tipo}_${hor.replace(':','')}`;
-  await setDoc(doc(db,'presencas',key),{data,tipo,horario:hor,registros:presAtual,atualizadoEm:serverTimestamp()});
+  const sel = document.getElementById('pres-data');
+  const info = JSON.parse(sel.value);
+  const hor = document.getElementById('pres-hor').value;
+  if(!hor) return;
+  const key = `${info.iso}_${hor.replace(':','')}`;
+  await setDoc(doc(db,'presencas',key),{data:info.iso,horario:hor,diaSemana:info.diaSemana,registros:presAtual,atualizadoEm:serverTimestamp()});
   toast('Presenças salvas!');
   presAtual={};
   renderPresenca();
@@ -1238,7 +1360,7 @@ window.solicitarDisp = function(id){
 window.fecharModal=function(id){ document.getElementById(id).style.display='none'; };
 
 let updateFileContent = null;
-const GH_TOKEN = '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';
+const GH_TOKEN = 'COLE_SEU_TOKEN_NOVO_AQUI';
 const GH_API_URL = 'https://api.github.com/repos/Maubitar/ministerio-eucaristia/contents/index.html';
 
 const CORS_PROXIES = [
@@ -1764,9 +1886,12 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
     </div>
     <div id="tp-missa">
       <div style="display:flex;gap:8px">
-        <select id="pres-tipo" onchange="renderPresenca()" style="flex:1;margin:0 0 8px"><option value="dom">Dominical</option><option value="sem">Semanal</option></select>
-        <select id="pres-hor" onchange="renderPresenca()" style="flex:1;margin:0 0 8px"><option>06:00h</option><option>08:00h</option><option>10:00h</option><option>12:00h</option><option>16:00h</option><option>18:00h</option><option>20:00h</option></select>
+        <select id="pres-data" onchange="atualizarHorariosPresenca()" style="flex:1.4;margin:0 0 8px"></select>
+        <select id="pres-hor" onchange="renderPresenca()" style="flex:1;margin:0 0 8px"></select>
       </div>
+      <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
+        ✓ Lista preenchida automaticamente a partir da Escala — marque P/F/S
+      </p>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <p id="pres-count" style="font-size:11px;color:#1D9E75;margin:0"></p>
         <button onclick="abrirScanner()" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:500">📷 Scanner QR</button>
@@ -1857,7 +1982,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
     <p class="ct">📖 Manual do S.O.G.I.</p>
     <p style="font-size:12px;color:#666;line-height:1.7;margin-bottom:10px">
       <strong>Escala:</strong> escolha mês/ano, defina 4 ou 5 semanas, monte dominical (vale o mês todo) e semanal (por semana). O autocomplete só mostra quem está disponível no horário.<br><br>
-      <strong>Presença:</strong> marque P (presente), F (falta) ou S (substituído). Use o scanner de QR Code para agilizar.<br><br>
+      <strong>Presença:</strong> escolha a data e o horário — a lista é preenchida automaticamente com quem está escalado (com o responsável destacado no topo) e cada ministro tem seu QR Code ao lado do nome. Marque P (presente), F (falta) ou S (substituído).<br><br>
       <strong>Reunião/Adoração:</strong> faltas sem justificativa contam para o cartão amarelo (3 faltas = alerta).<br><br>
       <strong>Ministros:</strong> toque no nome para ver perfil, editar disponibilidade, pedir disponibilidade por WhatsApp ou gerar QR Code individual.<br><br>
       <strong>Publicador:</strong> quando o Claude enviar um novo index.html, arraste aqui e clique em Publicar — atualiza o app em ~2 min.
