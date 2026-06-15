@@ -1,0 +1,2231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Ministério da Eucaristia — Basílica de Nazaré</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const FB = {
+  apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
+  authDomain:"ministerio-eucaristia-nazare.firebaseapp.com",
+  projectId:"ministerio-eucaristia-nazare",
+  storageBucket:"ministerio-eucaristia-nazare.firebasestorage.app",
+  messagingSenderId:"477582083075",
+  appId:"1:477582083075:web:6ff409b36ca96569107a36"
+};
+
+const MISSAS_DOM = ['06:00h','08:00h','10:00h','12:00h','16:00h','18:00h','20:00h'];
+const MISSAS_SEM = ['07:00h','09:00h','12:00h','18:00h'];
+const REFORCO_TIPOS = [
+  {id:'sab12', label:'Sábado 12:00h'},
+  {id:'sab17', label:'Sábado 17:00h'},
+  {id:'qui18', label:'Quinta-feira 18:00h'},
+];
+const MES_ATUAL = 'jun2026';
+const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
+
+function calcularCalendario(ano, mes) {
+  const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const MESES_NOME = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+
+  const primeiroDia = new Date(ano, mes, 1);
+  const inicioSem1 = new Date(primeiroDia);
+  inicioSem1.setDate(1 - primeiroDia.getDay());
+
+  const semanas = {};
+  const ordinal = ['','1ª','2ª','3ª','4ª','5ª','6ª'];
+  let semNum = 0;
+  let cursor = new Date(inicioSem1);
+
+  while(true) {
+    const fimSem = new Date(cursor); fimSem.setDate(cursor.getDate()+6);
+    if(cursor.getMonth() > mes && cursor.getFullYear() >= ano) break;
+    if(cursor.getFullYear() > ano) break;
+
+    semNum++;
+    const dias = [];
+    for(let i=0;i<7;i++){
+      const d = new Date(cursor); d.setDate(cursor.getDate()+i);
+      dias.push({ data: fmt(d), dia: DIAS_NOME[d.getDay()], mesRef: d.getMonth()===mes });
+    }
+
+    const inicio = new Date(cursor);
+    const fim = new Date(fimSem);
+    let periodoLabel = `${fmt(inicio)} a ${fmt(fim)}`;
+    const isSemDoMes = dias.some(d=>d.mesRef);
+
+    if(isSemDoMes){
+      semanas[String(semNum)] = {
+        label: ordinal[semNum] + 'ª semana',
+        periodo: periodoLabel,
+        cruzaMeses: inicio.getMonth() !== fim.getMonth(),
+        dias: dias
+      };
+    }
+
+    cursor.setDate(cursor.getDate()+7);
+    if(semNum > 6) break;
+  }
+
+  const domingos = [];
+  for(let d=new Date(ano,mes,1); d.getMonth()===mes; d.setDate(d.getDate()+1)){
+    if(d.getDay()===0) domingos.push(fmt(new Date(d)));
+  }
+
+  const domingosDerramados = [];
+  const ultimaSem = semanas[String(semNum)];
+  if(ultimaSem){
+    ultimaSem.dias.forEach(d=>{
+      if(!d.mesRef && d.dia==='Domingo'){
+        domingosDerramados.push({
+          data: d.data,
+          semOrigem: String(semNum),
+          mesOrigem: MESES_NOME[mes],
+          anoOrigem: ano
+        });
+      }
+    });
+  }
+
+  return { semanas, domingos, domingosDerramados, mesNome: MESES_NOME[mes], ano };
+}
+
+const CONFIG_MES = { ano: 2026, mes: 5 };
+const CAL = calcularCalendario(CONFIG_MES.ano, CONFIG_MES.mes);
+const DOMINGOS_MES = CAL.domingos;
+const SEMANAS_MES  = CAL.semanas;
+const TOTAL_SEMANAS = Object.keys(SEMANAS_MES).length;
+let DOMINGOS_DERRAMADOS = CAL.domingosDerramados || [];
+
+const MISSAS_SEM_DIAS = {
+  'Domingo':  [],
+  'Segunda':  ['07:00h','09:00h','12:00h','18:00h'],
+  'Terça':    ['07:00h','09:00h','12:00h','18:00h'],
+  'Quarta':   ['07:00h','09:00h','12:00h','18:00h'],
+  'Quinta':   ['07:00h','09:00h','12:00h','18:00h'],
+  'Sexta':    ['07:00h','09:00h','12:00h','18:00h'],
+  'Sábado':   ['07:00h','09:00h','12:00h','18:00h'],
+};
+
+let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={};
+let recognition=null;
+const LOGO_BASILICA = 'logo-basilica.jpg';
+const LOGO_MESCE = 'logo-mesce.jpg';
+
+window.addEventListener('load', async()=>{
+  if(window.location.protocol === 'file:'){
+    window.location.href = APP_URL;
+    return;
+  }
+
+  const params = new URLSearchParams(location.search);
+  const ministroId = params.get('ministro');
+  if(ministroId){
+    const app2 = initializeApp(FB);
+    db = getFirestore(app2);
+    await carregarMinistros();
+    showTab('ministros');
+    setTimeout(()=>verMinistro(ministroId), 800);
+    return;
+  }
+  const dispId = params.get('disp');
+  if(dispId){
+    const app = initializeApp(FB);
+    db = getFirestore(app);
+    modoDisponibilidade(dispId);
+    return;
+  }
+
+  // Define logos imediatamente (independem do Firebase)
+  ['logo-basilica-splash','logo-basilica-loading','logo-basilica-pres','logo-basilica-header'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.src=LOGO_BASILICA;
+  });
+  ['logo-mesce-splash','logo-mesce-pres','logo-mesce-header'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.src=LOGO_MESCE;
+  });
+
+  showSplash();
+  try {
+    const app = initializeApp(FB);
+    db = getFirestore(app);
+    window._db = db;
+    await carregarMinistros();
+    setTimeout(()=>{ if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('app').style.display='block';
+    renderInicio();
+  } catch(e) {
+    document.getElementById('loading-msg').textContent = 'Erro: '+e.message;
+  }
+});
+
+function showSplash(){
+  const s = document.getElementById('splash');
+  s.style.display='flex';
+  setTimeout(()=>{ s.style.opacity='0'; setTimeout(()=>s.style.display='none', 600); }, 2500);
+}
+
+const formDom=new Set(), formSem=new Set();
+async function modoDisponibilidade(id){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
+  let m;
+  try{
+    const d = await getDoc(doc(db,'ministros',id));
+    if(!d.exists()) throw new Error('não encontrado');
+    m = {id:d.id, ...d.data()};
+  }catch(e){
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com o coordenador do ministério.</div>';
+    return;
+  }
+  formDom.clear(); formSem.clear();
+  (m.dispDom||[]).forEach(h=>formDom.add(h));
+  (m.dispSem||[]).forEach(h=>formSem.add(h));
+
+  const btn=(h,tipo)=>{
+    const sel = tipo==='dom'?formDom.has(h):formSem.has(h);
+    const cor = tipo==='dom'?'#085041':'#185FA5';
+    const bg  = tipo==='dom'?'#e1f5ee':'#e6f1fb';
+    return `<button onclick="togFormDisp('${h}','${tipo}',this)" data-h="${h}" data-t="${tipo}"
+      style="padding:14px 8px;border:1.5px solid ${sel?cor:'#ddd'};border-radius:10px;background:${sel?bg:'white'};color:${sel?cor:'#333'};font-size:14px;font-weight:600;cursor:pointer">${h}</button>`;
+  };
+
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:20px 16px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:20px">
+      <p style="font-size:13px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Ministério da Eucaristia</p>
+      <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+    <div style="background:white;border-radius:14px;padding:20px 16px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+      <p style="font-size:16px;font-weight:700;margin-bottom:4px">Olá, ${m.nome.split(' ')[0]}! 🙏</p>
+      <p style="font-size:13px;color:#666;margin-bottom:18px;line-height:1.5">Marque abaixo os horários de missa em que você pode servir. Selecione no mínimo <strong>2 horários</strong>.</p>
+      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px">⛪ MISSAS DOMINICAIS</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
+        ${MISSAS_DOM.map(h=>btn(h,'dom')).join('')}
+      </div>
+      <p style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">📅 MISSAS SEMANAIS (seg a sáb)</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:22px">
+        ${MISSAS_SEM.map(h=>btn(h,'sem')).join('')}
+      </div>
+      <button id="btn-salvar-disp" onclick="salvarFormDisp('${m.id}')"
+        style="width:100%;padding:15px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">
+        ✓ Confirmar disponibilidade
+      </button>
+      <p id="form-msg" style="font-size:12px;text-align:center;margin-top:10px;color:#888"></p>
+    </div>
+    <p style="font-size:10px;color:#aaa;text-align:center;margin-top:16px">Seus dados são atualizados automaticamente no sistema do ministério.</p>
+  </div>`;
+}
+
+window.togFormDisp = function(h, tipo, el){
+  const set = tipo==='dom'?formDom:formSem;
+  const cor = tipo==='dom'?'#085041':'#185FA5';
+  const bg  = tipo==='dom'?'#e1f5ee':'#e6f1fb';
+  if(set.has(h)){ set.delete(h); el.style.border='1.5px solid #ddd'; el.style.background='white'; el.style.color='#333'; }
+  else{ set.add(h); el.style.border='1.5px solid '+cor; el.style.background=bg; el.style.color=cor; }
+};
+
+window.salvarFormDisp = async function(id){
+  const msg = document.getElementById('form-msg');
+  if(formDom.size+formSem.size < 2){
+    msg.textContent='⚠️ Selecione pelo menos 2 horários.';
+    msg.style.color='#BA7517';
+    return;
+  }
+  const b=document.getElementById('btn-salvar-disp');
+  b.disabled=true; b.textContent='Salvando...';
+  try{
+    await updateDoc(doc(db,'ministros',id),{dispDom:[...formDom],dispSem:[...formSem],dispAtualizadaEm:serverTimestamp()});
+    document.body.innerHTML = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center;background:#f8f8f6">
+      <div style="font-size:56px;margin-bottom:14px">✅</div>
+      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Disponibilidade registrada!</p>
+      <p style="font-size:13px;color:#666;max-width:300px;line-height:1.6">Obrigado! Suas informações já foram atualizadas no sistema do Ministério da Eucaristia.</p>
+      <p style="font-size:12px;color:#085041;margin-top:18px;font-weight:600">Que Deus abençoe seu serviço! 🙏</p>
+    </div>`;
+  }catch(e){
+    msg.textContent='Erro ao salvar. Tente novamente.';
+    msg.style.color='#A32D2D';
+    b.disabled=false; b.textContent='✓ Confirmar disponibilidade';
+  }
+};
+
+async function carregarMinistros(){
+  const snap = await getDocs(collection(db,'ministros'));
+  ministros = snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(m=>m.ativo!==false)
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  document.getElementById('h-total').textContent = ministros.length;
+  document.getElementById('m-total').textContent = ministros.length;
+  window._ministros = ministros;
+}
+
+function toast(msg, tipo='ok'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;
+  el.style.background = tipo==='err'?'#A32D2D':tipo==='warn'?'#BA7517':'#085041';
+  el.style.opacity='1';
+  setTimeout(()=>el.style.opacity='0', 3000);
+}
+
+window.nav = function(id, btn){
+  document.querySelectorAll('.sec').forEach(s=>s.style.display='none');
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
+  document.getElementById('s-'+id).style.display='block';
+  if(btn) btn.classList.add('active');
+  const fns = {
+    ministros: ()=>renderMinistros(''),
+    escala: ()=>renderEscala(),
+    presenca: ()=>renderPresenca(),
+    reforco: ()=>renderReforco(),
+    relatorios: ()=>renderRelatorios(),
+  };
+  if(fns[id]) fns[id]();
+};
+
+function renderInicio(){
+  const mes = new Date().getMonth()+1;
+  const aniv = ministros.filter(m=>m.nascimento && parseInt(m.nascimento.split('-')[1])===mes);
+  document.getElementById('m-aniv').textContent = aniv.length;
+
+  const alertas = ministros.filter(m=>(m.faltasReuniao||0)+(m.faltasAdoracao||0)>=3);
+  document.getElementById('m-alertas').textContent = alertas.length;
+
+  document.getElementById('dash-aniv').innerHTML = aniv.length
+    ? aniv.slice(0,5).map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #eee">
+          <div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="flex:1"><p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
+          <p style="font-size:11px;color:#888;margin:0">${m.nascimento.split('-').reverse().join('/')}</p></div>
+          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${m.nascimento.split('-')[2]}/${m.nascimento.split('-')[1]}</span>
+        </div>`).join('')
+    : '<p style="font-size:12px;color:#888">Cadastre nascimentos para ver aniversariantes.</p>';
+
+  document.getElementById('dash-alertas').innerHTML = alertas.length
+    ? alertas.slice(0,5).map(m=>{
+        const tot = (m.faltasReuniao||0)+(m.faltasAdoracao||0);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+          <span style="flex:1;font-size:13px">${primeiroNomes(m.nome)}</span>
+          <span style="font-size:11px;padding:2px 8px;background:${tot>=3?'#fcebeb':'#faeeda'};color:${tot>=3?'#A32D2D':'#BA7517'};border-radius:20px;font-weight:600">${tot>=3?'🟡 Cartão amarelo':'⚠️ '+tot+' faltas'}</span>
+        </div>`;
+      }).join('')
+    : '<p style="font-size:12px;color:#1D9E75">✓ Nenhum ministro em situação disciplinar.</p>';
+}
+
+function iniciais(nome){ return nome.split(' ').map(x=>x[0]).slice(0,2).join(''); }
+function primeiroNomes(nome){ return nome.split(' ').slice(0,3).join(' '); }
+
+const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+let SEMANAS_SERVICO = 5;
+
+window.definirSemanas = function(n){
+  SEMANAS_SERVICO = n;
+  document.getElementById('btn-sem4').style.border = n===4?'1.5px solid #085041':'1.5px solid #ddd';
+  document.getElementById('btn-sem4').style.background = n===4?'#e1f5ee':'white';
+  document.getElementById('btn-sem4').style.color = n===4?'#085041':'#555';
+  document.getElementById('btn-sem4').textContent = n===4?'4 semanas ✓':'4 semanas';
+  document.getElementById('btn-sem5').style.border = n===5?'1.5px solid #085041':'1.5px solid #ddd';
+  document.getElementById('btn-sem5').style.background = n===5?'#e1f5ee':'white';
+  document.getElementById('btn-sem5').style.color = n===5?'#085041':'#555';
+  document.getElementById('btn-sem5').textContent = n===5?'5 semanas ✓':'5 semanas';
+  recalcularComSemanas();
+};
+
+function recalcularComSemanas(){
+  const m = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const a = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const cal = calcularCalendario(a, m);
+
+  let todosDomingos = [...cal.domingos];
+  let aviso = '';
+
+  const proxMesNum = m===11 ? 0 : m+1;
+  const proxAnoNum = m===11 ? a+1 : a;
+  const proxMesNome = calcularCalendario(proxAnoNum, proxMesNum).mesNome;
+
+  let domingoDerramado = null;
+  const ultimaChave = String(Object.keys(cal.semanas).length);
+  const ultimaSemDias = cal.semanas[ultimaChave]?.dias || [];
+  const domNaSemana = ultimaSemDias.find(d => d.dia==='Domingo' && !d.mesRef);
+  if(domNaSemana) domingoDerramado = domNaSemana.data;
+
+  if(!domingoDerramado){
+    const calProx = calcularCalendario(proxAnoNum, proxMesNum);
+    if(calProx.domingos.length > 0) domingoDerramado = calProx.domingos[0];
+  }
+
+  if(SEMANAS_SERVICO === 5){
+    if(todosDomingos.length < 5 && domingoDerramado){
+      todosDomingos.push(domingoDerramado);
+      aviso = `<div style="padding:8px 10px;background:#e6f1fb;border-radius:8px;font-size:11px;color:#185FA5;font-weight:500;line-height:1.5">
+        🔁 <strong>5ª semana:</strong> Domingo <strong>${domingoDerramado}</strong> (${proxMesNome}) — <strong>equipe de ${cal.mesNome} continua servindo</strong>
+      </div>`;
+    }
+  } else {
+    todosDomingos = todosDomingos.slice(0, 4);
+    if(domingoDerramado || cal.domingos.length > 4){
+      const dom5 = cal.domingos[4] || domingoDerramado;
+      aviso = `<div style="padding:8px 10px;background:#FFF3CD;border-radius:8px;font-size:11px;color:#856404;font-weight:500">
+        ⚠️ <strong>4 semanas:</strong> Domingo <strong>${dom5}</strong> (${proxMesNome}) não incluído — nova equipe assume
+      </div>`;
+    }
+  }
+
+  DOMINGOS_MES.length = 0;
+  todosDomingos.forEach(d=>DOMINGOS_MES.push(d));
+  Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
+  Object.assign(SEMANAS_MES, cal.semanas);
+  Object.assign(CAL, cal);
+  DOMINGOS_DERRAMADOS = cal.domingosDerramados || [];
+  window.MES_ATUAL_DIN = `${MESES_KEY[m]}${a}`;
+
+  const avisoEl = document.getElementById('aviso-semanas');
+  if(avisoEl){ avisoEl.innerHTML = aviso; avisoEl.style.display = aviso?'block':'none'; }
+
+  const sel = document.getElementById('esc-sem');
+  if(sel) sel.innerHTML = '';
+  renderEscala();
+}
+
+window.trocarMes = function(){ recalcularComSemanas(); };
+window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
+window.inicializarEscala = function(){ recalcularComSemanas(); };
+
+window.verEscalaAnterior = function(){
+  const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const mesAntNum = mesAtualNum === 0 ? 11 : mesAtualNum - 1;
+  const anoAntNum = mesAtualNum === 0 ? anoAtualNum - 1 : anoAtualNum;
+  document.getElementById('esc-mes').value = mesAntNum;
+  document.getElementById('esc-ano').value = anoAntNum;
+  trocarMes();
+  toast(`Mostrando escala de ${calcularCalendario(anoAntNum,mesAntNum).mesNome}/${anoAntNum}`);
+};
+
+window.renderEscala = async function(){
+  const tipo = document.getElementById('esc-tipo').value;
+  const sem  = document.getElementById('esc-sem').value;
+  const horas = tipo==='dom' ? MISSAS_DOM : MISSAS_SEM;
+  const key = tipo==='dom'
+    ? `escala_dom_${getMesAtual()}`
+    : `escala_sem_sem${sem}_${getMesAtual()}`;
+
+  const sel = document.getElementById('esc-sem');
+  if(sel && sel.options.length !== TOTAL_SEMANAS){
+    sel.innerHTML = '';
+    Object.entries(SEMANAS_MES).forEach(([k,v])=>{
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = `${v.label} — ${v.periodo}${v.cruzaMeses?' 🔁':''}`;
+      sel.appendChild(opt);
+    });
+  }
+
+  const semInfo = SEMANAS_MES[sem];
+  document.getElementById('esc-sem-wrap').style.display = tipo==='dom' ? 'none' : 'block';
+
+  const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const mesAntNum = mesAtualNum === 0 ? 11 : mesAtualNum - 1;
+  const anoAntNum = mesAtualNum === 0 ? anoAtualNum - 1 : anoAtualNum;
+  const calAnt = calcularCalendario(anoAntNum, mesAntNum);
+  const derramadosDoMesAnt = (calAnt.domingosDerramados||[]).filter(d=>{
+    const [dd,mm] = d.data.split('/').map(Number);
+    return mm === (mesAtualNum+1) && (anoAntNum === anoAtualNum || (mesAntNum===11 && mesAtualNum===0));
+  });
+
+  let infoDerramado = '';
+  if(tipo==='dom' && derramadosDoMesAnt.length > 0){
+    const datas = derramadosDoMesAnt.map(d=>`<strong>${d.data}</strong>`).join(', ');
+    infoDerramado = `<div style="margin-top:6px;padding:6px 10px;background:#FFF3CD;border-radius:6px;font-size:11px;color:#856404;font-weight:500">
+      ⚡ Domingo(s) ${datas} pertencem à escala de <strong>${calAnt.mesNome}/${calAnt.ano}</strong>
+      <button onclick="verEscalaAnterior()" style="margin-left:8px;padding:2px 8px;border:1px solid #856404;border-radius:4px;background:transparent;color:#856404;font-size:10px;cursor:pointer">Ver escala</button>
+    </div>`;
+  }
+
+  let infoDerrama = '';
+  if(tipo==='dom' && DOMINGOS_DERRAMADOS.length > 0){
+    const datas = DOMINGOS_DERRAMADOS.map(d=>`<strong>${d.data}</strong>`).join(', ');
+    const proxMesNome = calcularCalendario(anoAtualNum, (mesAtualNum+1)%12).mesNome;
+    infoDerrama = `<div style="margin-top:6px;padding:6px 10px;background:#e6f1fb;border-radius:6px;font-size:11px;color:#185FA5;font-weight:500">
+      🔁 Domingo(s) ${datas} em ${proxMesNome} — <strong>esta equipe de ${CAL.mesNome} segue servindo</strong>
+    </div>`;
+  }
+
+  document.getElementById('esc-info').innerHTML = tipo==='dom'
+    ? `📌 ${DOMINGOS_MES.length} domingos (${CAL.mesNome}/${CAL.ano}): ${DOMINGOS_MES.map(d=>`<strong>${d}</strong>`).join(' · ')}`
+    : `🔄 ${semInfo?.label||''} — <strong>${semInfo?.periodo||''}</strong>${semInfo?.cruzaMeses?' <span style="font-size:10px;background:#FFF3CD;color:#856404;padding:1px 5px;border-radius:8px">cruza meses</span>':''}`;
+  document.getElementById('esc-info').style.color = tipo==='dom' ? '#085041' : '#185FA5';
+  document.getElementById('esc-info').style.background = tipo==='dom' ? '#f0faf5' : '#e6f1fb';
+
+  if(!escalas[key]){
+    try {
+      const d = await getDoc(doc(db,'escalas',key));
+      escalas[key] = d.exists() ? d.data() : {};
+    } catch(e){ escalas[key]={}; }
+  }
+
+  document.getElementById('esc-body').innerHTML = horas.map(hora=>{
+    const g = escalas[key][hora] || {ministros:[], responsavel:''};
+    const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
+    const disponíveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+    const jaEscalados = new Set(g.ministros);
+
+    let datasLabel = '';
+    if(tipo==='dom'){
+      datasLabel = DOMINGOS_MES.map(d=>`<span style="font-size:10px;padding:1px 6px;background:rgba(255,255,255,.2);border-radius:10px">${d}</span>`).join(' ');
+    } else {
+      const semDias = (SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
+      datasLabel = semDias.map(d=>`<span style="font-size:10px;padding:1px 6px;background:rgba(255,255,255,.2);border-radius:10px">${d.dia} ${d.data}</span>`).join(' ');
+    }
+
+    return `<div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="background:${tipo==='dom'?'#085041':'#185FA5'};color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">${datasLabel}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:#888">${g.ministros.length} escalado(s)</span>
+        <button onclick="verDisponiveis('${hora}','${dispKey}')"
+          style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
+          👥 ${disponíveis.length} disponíveis
+        </button>
+      </div>
+      ${g.responsavel?`<div style="font-size:11px;background:#faeeda;color:#633806;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${g.responsavel}</div>`:'' }
+      ${g.ministros.map((m,mi)=>`
+        <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #e8e8e8">
+          <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
+          <span style="flex:1;font-size:12px">${m}</span>
+          <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
+        </div>`).join('')}
+      <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+        <div style="position:relative;flex:1">
+          <input type="text" id="inp-${key}-${hora.replace(':','')}"
+            placeholder="Buscar por disponibilidade (${hora})..."
+            oninput="acEscInteligente(this,'ac-${key}-${hora.replace(':','')}','${key}','${hora}','${dispKey}')"
+            style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin:0">
+          <div id="ac-${key}-${hora.replace(':','')}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+        </div>
+        <button onclick="startVoiceEscala('${key}','${hora}','${dispKey}')" style="width:34px;height:34px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:16px;flex-shrink:0" title="Buscar por voz">🎤</button>
+      </div>
+    </div>`;
+  }).join('');
+};
+
+window.acEscInteligente = function(inp, acId, key, hora, dispKey){
+  const v = inp.value.toLowerCase().trim();
+  document.querySelectorAll('[id^="ac-"]').forEach(el=>{ if(el.id!==acId) el.style.display='none'; });
+  const ac = document.getElementById(acId);
+  if(!ac) return;
+
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+  const matches = v.length>=1
+    ? disponiveis.filter(m=>m.nome.toLowerCase().includes(v))
+    : disponiveis;
+
+  if(!matches.length){ ac.style.display='none'; return; }
+
+  const jaEscalados = new Set((escalas[key]?.[hora]?.ministros)||[]);
+
+  ac.style.display='block';
+  ac.innerHTML = matches.slice(0,10).map(m=>{
+    const jaEsc = jaEscalados.has(m.nome);
+    return `<div onmousedown="addMin('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
+      style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;${jaEsc?'background:#f0faf5;':''}"
+      onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${jaEsc?'#f0faf5':'white'}'">
+      <span>${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}</span>
+      <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')}</span>
+    </div>`;
+  }).join('');
+
+  if(v.length>=2 && !disponiveis.filter(m=>m.nome.toLowerCase().includes(v)).length){
+    const fora = ministros.filter(m=>m.nome.toLowerCase().includes(v)).slice(0,3);
+    if(fora.length){
+      ac.innerHTML += `<div style="padding:6px 12px;font-size:11px;color:#BA7517;border-top:1px solid #eee;font-weight:500">⚠️ Sem disponibilidade em ${hora}:</div>`;
+      ac.innerHTML += fora.map(m=>`<div onmousedown="addMinForaDisp('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
+        style="padding:8px 12px;cursor:pointer;font-size:12px;color:#BA7517;background:#faeeda"
+        onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">
+        ${m.nome} <span style="font-size:10px">(fora do horário)</span>
+      </div>`).join('');
+    }
+  }
+};
+
+window.addMin = function(key, hora, nome, acId){
+  if(!escalas[key]) escalas[key]={};
+  if(!escalas[key][hora]) escalas[key][hora]={ministros:[],responsavel:''};
+  if(!escalas[key][hora].ministros.includes(nome)) escalas[key][hora].ministros.push(nome);
+  if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+  const inpId = acId ? acId.replace('ac-','inp-') : null;
+  if(inpId){ const inp=document.getElementById(inpId); if(inp) inp.value=''; }
+  renderEscala();
+};
+
+window.addMinForaDisp = function(key, hora, nome, acId){
+  if(confirm(`${nome} não tem disponibilidade para ${hora}.\nDeseja adicionar mesmo assim?`)){
+    addMin(key, hora, nome, acId);
+  }
+};
+
+window.verDisponiveis = function(hora, dispKey){
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const tipo = dispKey==='dispDom'?'Dominical':'Semanal';
+  document.getElementById('vd-titulo').textContent = `${tipo} — ${hora}`;
+  document.getElementById('vd-count').textContent = `${disponiveis.length} ministros disponíveis`;
+  document.getElementById('vd-body').innerHTML = disponiveis.length
+    ? disponiveis.map((m,i)=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+          <div style="width:28px;height:28px;border-radius:50%;background:#e6f1fb;color:#185FA5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="flex:1">
+            <p style="font-size:13px;margin:0">${m.nome}</p>
+            <p style="font-size:10px;color:#888;margin:0">${[...(m.dispDom||[]),...(m.dispSem||[])].join(' · ')}</p>
+          </div>
+          <span style="font-size:11px;color:#888">${i+1}</span>
+        </div>`).join('')
+    : '<p style="font-size:13px;color:#888;padding:12px 0">Nenhum ministro disponível neste horário.</p>';
+  document.getElementById('modal-vd').style.display='flex';
+};
+
+window.remMin = function(key, hora, mi){
+  escalas[key][hora].ministros.splice(mi,1);
+  renderEscala();
+};
+
+window.setResp = function(key, hora, mi){
+  const nome = escalas[key][hora].ministros[mi];
+  escalas[key][hora].responsavel = escalas[key][hora].responsavel===nome?'':nome;
+  renderEscala();
+};
+
+window.salvarEscala = async function(){
+  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
+  const key = tipo==='dom'
+    ? `escala_dom_${getMesAtual()}`
+    : `escala_sem_sem${sem}_${getMesAtual()}`;
+  await setDoc(doc(db,'escalas',key), escalas[key]||{});
+  toast(tipo==='dom' ? 'Escala dominical salva para todo o mês!' : 'Escala semanal salva!');
+};
+
+// Dado data (DD/MM) e hora, retorna {ministros:[], responsavel:''} buscando na escala SALVA
+// (sempre busca direto do Firestore — não usa o cache em memória de `escalas`, que pode
+// conter rascunhos não salvos da aba Escala)
+window.buscarEscaladosPara = async function(dataDDMM, hora, diaSemana){
+  const mesAtualKey = getMesAtual();
+
+  if(diaSemana === 'Domingo'){
+    const key = `escala_dom_${mesAtualKey}`;
+    let dados = {};
+    try{ const d = await getDoc(doc(db,'escalas',key)); dados = d.exists()?d.data():{}; }
+    catch(e){ dados = {}; }
+    return dados[hora] || {ministros:[],responsavel:''};
+  }
+
+  // dia de semana: encontrar em qual SEMANAS_MES essa data (dataDDMM) cai
+  let semanaAlvo = null;
+  Object.entries(SEMANAS_MES).forEach(([k,v])=>{
+    if(v.dias.some(d=>d.data===dataDDMM && d.dia===diaSemana)) semanaAlvo = k;
+  });
+  if(!semanaAlvo) return {ministros:[],responsavel:''};
+
+  const key = `escala_sem_sem${semanaAlvo}_${mesAtualKey}`;
+  let dados = {};
+  try{ const d = await getDoc(doc(db,'escalas',key)); dados = d.exists()?d.data():{}; }
+  catch(e){ dados = {}; }
+  return dados[hora] || {ministros:[],responsavel:''};
+};
+
+// Retorna lista de {data, diaSemana} para os próximos N dias a partir de hoje (para seletor de data na Presença)
+window.proximasDatasComMissa = function(){
+  const out = [];
+  const hoje = new Date();
+  for(let i=0;i<14;i++){
+    const d = new Date(hoje); d.setDate(hoje.getDate()+i);
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+    out.push({data:`${dd}/${mm}`, diaSemana:DIAS_NOME[d.getDay()], iso:d.toISOString().split('T')[0]});
+  }
+  return out;
+};
+
+window.compartilharEscala = function(){
+  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
+  const key = tipo==='dom'
+    ? `escala_dom_${getMesAtual()}`
+    : `escala_sem_sem${sem}_${getMesAtual()}`;
+  const esc=escalas[key]||{};
+  const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
+  let txt=`📋 *ESCALA ${tipo==='dom'?'DOMINICAL':'SEMANAL'}* — ${sem}ª semana junho/2026\n\n`;
+  horas.forEach(h=>{
+    const g=esc[h]||{ministros:[],responsavel:''};
+    if(g.ministros.length){
+      txt+=`⏰ *${h}*\n`;
+      if(g.responsavel) txt+=`★ Responsável: ${g.responsavel}\n`;
+      g.ministros.forEach(m=>txt+=`• ${m}\n`);
+      txt+='\n';
+    }
+  });
+  txt+='_Basílica Santuário de Nossa Senhora de Nazaré_';
+  window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
+};
+
+let presQrInstances = {};
+
+window.popularSeletorDatasPresenca = function(){
+  const sel = document.getElementById('pres-data');
+  if(!sel || sel.options.length) return;
+  proximasDatasComMissa().forEach(d=>{
+    const opt = document.createElement('option');
+    opt.value = JSON.stringify({data:d.data, diaSemana:d.diaSemana, iso:d.iso});
+    opt.textContent = `${d.diaSemana}, ${d.data}`;
+    sel.appendChild(opt);
+  });
+  atualizarHorariosPresenca();
+};
+
+window.atualizarHorariosPresenca = function(){
+  const sel = document.getElementById('pres-data');
+  const horSel = document.getElementById('pres-hor');
+  if(!sel || !sel.value) return;
+  const info = JSON.parse(sel.value);
+  const horas = info.diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[info.diaSemana]||[]);
+  horSel.innerHTML = horas.map(h=>`<option value="${h}">${h}</option>`).join('');
+  if(!horas.length) horSel.innerHTML = '<option value="">Sem missas neste dia</option>';
+  renderPresenca();
+};
+
+let presListaAtual = null;
+
+window.renderPresenca = async function(){
+  const sel = document.getElementById('pres-data');
+  if(!sel.options.length){ popularSeletorDatasPresenca(); return; }
+  const info = JSON.parse(sel.value);
+  const hor = document.getElementById('pres-hor').value;
+  if(!hor){
+    document.getElementById('pres-count').textContent='';
+    document.getElementById('pres-body').innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Não há missas neste dia.</p>`;
+    presListaAtual = null;
+    return;
+  }
+
+  const tipo = info.diaSemana==='Domingo' ? 'dom' : 'sem';
+  document.getElementById('pres-body').innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Carregando escala...</p>`;
+
+  const g = await buscarEscaladosPara(info.data, hor, info.diaSemana);
+  const escalados = g.ministros || [];
+  const responsavel = g.responsavel || '';
+
+  if(!escalados.length){
+    document.getElementById('pres-count').textContent = '0 ministros';
+    document.getElementById('pres-body').innerHTML = `
+      <div style="padding:16px;text-align:center;background:#FFF3CD;border-radius:8px">
+        <p style="font-size:13px;color:#856404;font-weight:600;margin:0">⚠️ Nenhum ministro escalado</p>
+        <p style="font-size:12px;color:#856404;margin-top:4px">Monte a escala primeiro em <strong>Escala</strong> para ${info.diaSemana}, ${info.data} — ${hor}.</p>
+      </div>`;
+    presListaAtual = null;
+    return;
+  }
+
+  document.getElementById('pres-count').textContent = escalados.length+' escalado(s)';
+  presListaAtual = {info, hor, escalados, responsavel};
+
+  const linha = (nome, isResp)=>{
+    const m = ministros.find(x=>x.nome===nome);
+    const id = m?.id || '';
+    const s = id ? (presAtual[id]?.status||'') : '';
+    const j = id ? (presAtual[id]?.justificativa||'') : '';
+    const qrId = 'qrp-'+(id||nome.replace(/\W/g,''));
+    return `<div style="padding:8px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${s==='F'?'6px':'0'}">
+        <div id="${qrId}" class="pres-qr" style="width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden"></div>
+        <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}</span>
+        <button onclick="setPres('${id}','P')" style="width:30px;height:28px;border:1px solid ${s==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${s==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='P'?'#085041':'#888'}">P</button>
+        <button onclick="setPres('${id}','F')" style="width:30px;height:28px;border:1px solid ${s==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${s==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='F'?'#A32D2D':'#888'}">F</button>
+        <button onclick="setPres('${id}','S')" style="width:30px;height:28px;border:1px solid ${s==='S'?'#BA7517':'#ddd'};border-radius:6px;background:${s==='S'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='S'?'#BA7517':'#888'}">S</button>
+      </div>
+      ${s==='F'?`<input type="text" placeholder="Justificativa da falta (opcional)..." value="${j}"
+        oninput="setJustificativa('${id}',this.value)"
+        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#A32D2D;margin:0">`:'' }
+    </div>`;
+  };
+
+  const outros = escalados.filter(n=>n!==responsavel);
+
+  let html = '';
+  if(responsavel){
+    html += `<div style="background:#fdf8ef;border:1px solid #f0deb8;border-radius:8px;padding:4px 8px;margin-bottom:6px">
+      <p style="font-size:10px;color:#BA7517;font-weight:700;margin:6px 0 0;text-transform:uppercase;letter-spacing:.5px">Responsável</p>
+      ${linha(responsavel, true)}
+    </div>`;
+  }
+  html += outros.map(n=>linha(n,false)).join('');
+  document.getElementById('pres-body').innerHTML = html;
+
+  // Render small QR codes after DOM insertion
+  presQrInstances = {};
+  [...(responsavel?[responsavel]:[]), ...outros].forEach(nome=>{
+    const m = ministros.find(x=>x.nome===nome);
+    const id = m?.id || '';
+    const qrId = 'qrp-'+(id||nome.replace(/\W/g,''));
+    const el = document.getElementById(qrId);
+    if(!el || !id) return;
+    const url = `${APP_URL}/?ministro=${id}`;
+    presQrInstances[id] = new QRCode(el, {
+      text: url, width: 36, height: 36,
+      colorDark: '#085041', colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  });
+};
+
+window.setPres = function(id, val){
+  if(!id) return;
+  if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
+  presAtual[id].status = presAtual[id].status===val?'':val;
+  renderPresenca();
+};
+
+window.setJustificativa = function(id, val){
+  if(!id) return;
+  if(!presAtual[id]) presAtual[id]={status:'F',justificativa:''};
+  presAtual[id].justificativa = val;
+};
+
+window.salvarPres = async function(){
+  const sel = document.getElementById('pres-data');
+  const info = JSON.parse(sel.value);
+  const hor = document.getElementById('pres-hor').value;
+  if(!hor) return;
+  const key = `${info.iso}_${hor.replace(':','')}`;
+  await setDoc(doc(db,'presencas',key),{data:info.iso,horario:hor,diaSemana:info.diaSemana,registros:presAtual,atualizadoEm:serverTimestamp()});
+  toast('Presenças salvas!');
+  presAtual={};
+  renderPresenca();
+};
+
+window.imprimirPresenca = function(){
+  if(!presListaAtual){ toast('Nenhuma escala carregada para esta data/horário.','warn'); return; }
+  const {info, hor, escalados, responsavel} = presListaAtual;
+  const w = window.open('','_blank');
+  const linhas = escalados.map((nome,i)=>`<tr style="border-bottom:1px solid #ccc">
+    <td style="padding:6px 4px;text-align:center;font-size:11px">${i+1}</td>
+    <td style="padding:6px 4px;font-size:12px">${nome}${nome===responsavel?' <strong>(Responsável)</strong>':''}</td>
+    <td style="padding:6px 4px;text-align:center;width:40px">&nbsp;</td>
+    <td style="padding:6px 4px;text-align:center;width:40px">&nbsp;</td>
+    <td style="padding:6px 4px;text-align:center;width:40px">&nbsp;</td>
+  </tr>`).join('');
+
+  w.document.write(`<!DOCTYPE html><html><head><title>Lista de Presença</title></head>
+  <body style="font-family:Arial,sans-serif;padding:24px;font-size:12px;color:#1a1a1a">
+    <div style="display:flex;align-items:center;gap:16px;border-bottom:2px solid #085041;padding-bottom:10px;margin-bottom:14px">
+      <img src="${APP_URL}/${LOGO_BASILICA}" style="width:60px;height:60px">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h2 style="margin:2px 0;color:#085041">Lista de Presença</h2>
+        <p style="font-size:11px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" style="width:60px;height:60px">
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
+      <tr>
+        <td style="padding:2px 0;font-size:13px"><strong>Data:</strong> ${info.diaSemana}, ${info.data}/2026</td>
+        <td style="padding:2px 0;font-size:13px;text-align:right"><strong>Horário:</strong> ${hor}</td>
+      </tr>
+      <tr><td colspan="2" style="padding:2px 0;font-size:13px"><strong>Total de ministros escalados:</strong> ${escalados.length}</td></tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #999">
+      <tr style="background:#085041;color:white">
+        <th style="padding:6px 4px;font-size:11px;width:30px">Nº</th>
+        <th style="padding:6px 4px;font-size:11px;text-align:left">Ministro</th>
+        <th style="padding:6px 4px;font-size:11px">P</th>
+        <th style="padding:6px 4px;font-size:11px">F</th>
+        <th style="padding:6px 4px;font-size:11px">S</th>
+      </tr>
+      ${linhas}
+    </table>
+    <p style="font-size:11px;color:#555;margin-top:10px">Legenda: <strong>P</strong> – presente &nbsp;/&nbsp; <strong>F</strong> – faltou &nbsp;/&nbsp; <strong>S</strong> – substituição</p>
+    <p style="text-align:center;margin-top:24px;font-size:10px;color:#999">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
+    <script>window.onload=()=>window.print();</script>
+  </body></html>`);
+  w.document.close();
+};
+
+const presReuniaoMap = {};
+
+window.setStatusReun = function(nome, val){
+  if(!presReuniaoMap[nome]) presReuniaoMap[nome]={status:'',justificativa:''};
+  presReuniaoMap[nome].status = presReuniaoMap[nome].status===val ? '' : val;
+  if(presReuniaoMap[nome].status!=='J') presReuniaoMap[nome].justificativa='';
+  renderReuniao();
+};
+window.setJustReun = function(nome, val){
+  if(!presReuniaoMap[nome]) presReuniaoMap[nome]={status:'J',justificativa:''};
+  presReuniaoMap[nome].justificativa = val;
+};
+
+function renderReuniao(){
+  const lista = ministros;
+  document.getElementById('reun-body').innerHTML = lista.map(m=>{
+    const pr = presReuniaoMap[m.nome];
+    const status = pr?.status || '';
+    const faltas = m.faltasReuniao||0;
+    const cartao = faltas>=3;
+    return `<div style="padding:7px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="flex:1;font-size:13px">${m.nome}${cartao?` <span style="font-size:10px;background:#fcebeb;color:#A32D2D;padding:1px 6px;border-radius:20px">🟡 ${faltas}F</span>`:''}</span>
+        <button onclick="setStatusReun('${m.nome.replace(/'/g,"\\'")}','P')" style="width:30px;height:28px;border:1px solid ${status==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${status==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='P'?'#085041':'#888'}">P</button>
+        <button onclick="setStatusReun('${m.nome.replace(/'/g,"\\'")}','F')" style="width:30px;height:28px;border:1px solid ${status==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${status==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='F'?'#A32D2D':'#888'}">F</button>
+        <button onclick="setStatusReun('${m.nome.replace(/'/g,"\\'")}','J')" style="width:30px;height:28px;border:1px solid ${status==='J'?'#BA7517':'#ddd'};border-radius:6px;background:${status==='J'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='J'?'#BA7517':'#888'}">J</button>
+      </div>
+      ${status==='J'?`<input type="text" placeholder="Justificativa da falta..." value="${pr?.justificativa||''}"
+        oninput="setJustReun('${m.nome.replace(/'/g,"\\'")}',this.value)"
+        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#BA7517;margin-top:4px">`:'' }
+    </div>`;
+  }).join('');
+}
+
+window.salvarReuniao = async function(){
+  const data=document.getElementById('reun-data').value || new Date().toISOString().split('T')[0];
+  const registros={};
+  ministros.forEach(m=>{
+    const pr=presReuniaoMap[m.nome];
+    registros[m.id]={status:pr?.status||'',justificativa:pr?.justificativa||''};
+  });
+  await setDoc(doc(db,'reunioes',data),{data,registros,atualizadoEm:serverTimestamp()});
+  for(const m of ministros){
+    const pr=presReuniaoMap[m.nome];
+    if(pr?.status==='F'){
+      await updateDoc(doc(db,'ministros',m.id),{faltasReuniao:(m.faltasReuniao||0)+1});
+      m.faltasReuniao=(m.faltasReuniao||0)+1;
+    }
+  }
+  toast('Reunião salva! Faltas atualizadas.');
+  renderInicio();
+};
+
+window.imprimirReuniao = function(){
+  const w=window.open('','_blank');
+  const linhas=ministros.map((m,i)=>`<tr><td>${i+1}</td><td>${m.nome}</td><td style="width:200px;border-bottom:1px solid #ccc">&nbsp;</td></tr>`).join('');
+  w.document.write(`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;font-size:12px">
+    <div style="text-align:center;margin-bottom:20px">
+      <h2 style="margin:0">Basílica Santuário de Nossa Senhora de Nazaré</h2>
+      <h3 style="margin:4px 0">Ministério da Sagrada Eucaristia</h3>
+      <p>Lista de Presença — Reunião Mensal</p>
+      <p>Data: ___/___/______&nbsp;&nbsp;&nbsp;Total: ${ministros.length} ministros</p>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="border-bottom:2px solid #000"><th style="text-align:left;padding:4px">#</th><th style="text-align:left;padding:4px">Nome</th><th style="text-align:left;padding:4px">Assinatura</th></tr>
+      ${linhas}
+    </table>
+    <p style="text-align:center;margin-top:20px;font-size:10px">Ministério da Eucaristia — Basílica de Nazaré</p>
+  </body></html>`);
+  w.print();
+};
+
+window.renderReforco = async function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  if(!reforcos[key]){
+    try{ const d=await getDoc(doc(db,'reforcos',key)); reforcos[key]=d.exists()?d.data():{ministros:[]}; }
+    catch(e){ reforcos[key]={ministros:[]}; }
+  }
+  const lista=reforcos[key].ministros||[];
+  const rf=REFORCO_TIPOS.find(r=>r.id===tipo);
+  document.getElementById('ref-titulo').textContent=`Reforço — ${rf.label}`;
+  document.getElementById('ref-body').innerHTML=lista.length
+    ? lista.map((m,i)=>`
+        <div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid #eee;gap:8px">
+          <span style="flex:1;font-size:13px">${m}</span>
+          <button onclick="remReforco('${key}',${i})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px">×</button>
+        </div>`).join('')
+    : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro de reforço.</p>';
+};
+window.remReforco=function(key,i){ reforcos[key].ministros.splice(i,1); renderReforco(); };
+window.acRef=function(inp,acId,key){
+  const v=inp.value.toLowerCase().trim();
+  const ac=document.getElementById(acId);
+  if(v.length<2){ac.style.display='none';return;}
+  const ms=ministros.filter(m=>m.nome.toLowerCase().includes(v)).slice(0,8);
+  if(!ms.length){ac.style.display='none';return;}
+  ac.style.display='block';
+  ac.innerHTML=ms.map(m=>`<div onmousedown="addMinReforco('${key}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
+    style="padding:8px 12px;cursor:pointer;font-size:13px" onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
+};
+window.addMinReforco=function(key,nome,acId){
+  if(!reforcos[key]) reforcos[key]={ministros:[]};
+  if(!reforcos[key].ministros.includes(nome)) reforcos[key].ministros.push(nome);
+  const ac=document.getElementById(acId); if(ac) ac.style.display='none';
+  const inp=document.getElementById(acId.replace('acref-','inpref-')); if(inp) inp.value='';
+  renderReforco();
+};
+window.salvarReforco=async function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  await setDoc(doc(db,'reforcos',key),reforcos[key]||{ministros:[]});
+  toast('Reforço salvo!');
+};
+window.compartilharReforco=function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const rf=REFORCO_TIPOS.find(r=>r.id===tipo);
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  const lista=(reforcos[key]?.ministros)||[];
+  if(!lista.length){toast('Adicione ministros ao reforço.','warn');return;}
+  let txt=`🔔 *REFORÇO — ${rf.label.toUpperCase()}*\nJunho 2026\n\n`;
+  lista.forEach(m=>txt+=`• ${m}\n`);
+  txt+='\n_Basílica Santuário de Nossa Senhora de Nazaré_';
+  window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
+};
+
+window.renderRelatorios = async function(){
+  const tab=document.getElementById('rel-tab').value;
+  document.getElementById('rel-body').innerHTML='<p style="color:#888;font-size:13px;padding:8px 0">Carregando...</p>';
+  if(tab==='missas') await relFrequencia();
+  if(tab==='reunioes') await relReunioes();
+  if(tab==='adoracoes') await relAdoracoes();
+  if(tab==='faltas') await relFaltas();
+  if(tab==='escalas') await relEscalas();
+  if(tab==='eventos') await relEventos();
+};
+
+async function relFrequencia(){
+  const snap=await getDocs(collection(db,'presencas'));
+  const contadores={};
+  snap.docs.forEach(d=>{
+    const data=d.data();
+    Object.entries(data.registros||{}).forEach(([id,reg])=>{
+      if(!contadores[id]) contadores[id]={p:0,f:0,s:0};
+      const status = typeof reg === 'string' ? reg : (reg?.status||'');
+      if(status==='P') contadores[id].p++;
+      else if(status==='F') contadores[id].f++;
+      else if(status==='S') contadores[id].s++;
+    });
+  });
+  const dados=ministros.map(m=>{
+    const c=contadores[m.id]||{p:0,f:0,s:0};
+    const tot=c.p+c.f+c.s;
+    const pct=tot>0?Math.round(c.p/tot*100):0;
+    return {...m,c,tot,pct};
+  }).sort((a,b)=>b.pct-a.pct);
+
+  document.getElementById('rel-body').innerHTML=`
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:6px 4px">Ministro</th>
+        <th style="text-align:center;padding:6px 4px;color:#1D9E75">P</th>
+        <th style="text-align:center;padding:6px 4px;color:#A32D2D">F</th>
+        <th style="text-align:center;padding:6px 4px;color:#BA7517">S</th>
+        <th style="text-align:center;padding:6px 4px">%</th>
+      </tr></thead>
+      <tbody>${dados.slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:6px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;padding:6px 4px;color:#1D9E75;font-weight:600">${m.c.p}</td>
+        <td style="text-align:center;padding:6px 4px;color:#A32D2D;font-weight:600">${m.c.f}</td>
+        <td style="text-align:center;padding:6px 4px;color:#BA7517;font-weight:600">${m.c.s}</td>
+        <td style="text-align:center;padding:6px 4px"><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.tot>0?m.pct+'%':'—'}</span></td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+async function relFaltas(){
+  const dados=ministros.map(m=>({
+    ...m,
+    totalFaltas:(m.faltasReuniao||0)+(m.faltasAdoracao||0),
+    fr:m.faltasReuniao||0, fa:m.faltasAdoracao||0
+  })).filter(m=>m.totalFaltas>0).sort((a,b)=>b.totalFaltas-a.totalFaltas);
+
+  document.getElementById('rel-body').innerHTML=dados.length?`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">Critério: 3+ faltas em reunião/adoração = cartão amarelo</p>
+    ${dados.map(m=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+        <div style="flex:1">
+          <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
+          <p style="font-size:11px;color:#888;margin:0">Reunião: ${m.fr}F · Adoração: ${m.fa}F</p>
+        </div>
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;background:${m.totalFaltas>=3?'#fcebeb':'#faeeda'};color:${m.totalFaltas>=3?'#A32D2D':'#BA7517'}">
+          ${m.totalFaltas>=3?'🟡 Cartão amarelo':'⚠️ '+m.totalFaltas+' faltas'}
+        </span>
+      </div>`).join('')}`
+    :'<p style="font-size:13px;color:#1D9E75;padding:8px 0">✓ Nenhum ministro com faltas registradas.</p>';
+}
+
+async function relEscalas(){
+  const snap=await getDocs(collection(db,'escalas'));
+  const escalasData=snap.docs.map(d=>({id:d.id,...d.data()}));
+  if(!escalasData.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma escala salva ainda.</p>';return;}
+
+  const contMin={}, contResp={};
+  escalasData.forEach(esc=>{
+    Object.entries(esc).forEach(([hora,g])=>{
+      if(typeof g==='object'&&g.ministros){
+        g.ministros.forEach(m=>{ contMin[m]=(contMin[m]||0)+1; });
+        if(g.responsavel) contResp[g.responsavel]=(contResp[g.responsavel]||0)+1;
+      }
+    });
+  });
+
+  const dados=ministros.map(m=>({nome:m.nome,escalado:contMin[m.nome]||0,responsavel:contResp[m.nome]||0}))
+    .filter(m=>m.escalado>0).sort((a,b)=>b.responsavel-a.responsavel);
+
+  document.getElementById('rel-body').innerHTML=dados.length?`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">Histórico de escalas salvas (${escalasData.length} escalas)</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:6px 4px">Ministro</th>
+        <th style="text-align:center;padding:6px 4px">Escalado</th>
+        <th style="text-align:center;padding:6px 4px">Responsável</th>
+      </tr></thead>
+      <tbody>${dados.slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:6px 4px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;padding:6px 4px;font-weight:600">${m.escalado}x</td>
+        <td style="text-align:center;padding:6px 4px">${m.responsavel>0?`<span style="background:#faeeda;color:#633806;padding:1px 7px;border-radius:20px;font-weight:600">★ ${m.responsavel}x</span>`:'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table>`
+    :'<p style="font-size:12px;color:#888">Nenhum dado de escala disponível.</p>';
+}
+
+window.verTodasEscalas = async function(){
+  document.getElementById('vis-body').innerHTML='<p style="font-size:12px;color:#888;padding:8px">Carregando...</p>';
+  document.getElementById('modal-vis').style.display='flex';
+
+  const keyDom=`escala_dom_${getMesAtual()}`;
+  if(!escalas[keyDom]){
+    try{ const d=await getDoc(doc(db,'escalas',keyDom)); escalas[keyDom]=d.exists()?d.data():{}; }catch(e){ escalas[keyDom]={}; }
+  }
+
+  for(let s=1;s<=TOTAL_SEMANAS;s++){
+    const keySem=`escala_sem_sem${s}_${getMesAtual()}`;
+    if(!escalas[keySem]){
+      try{ const d=await getDoc(doc(db,'escalas',keySem)); escalas[keySem]=d.exists()?d.data():{}; }catch(e){ escalas[keySem]={}; }
+    }
+  }
+
+  let html='';
+  html+=`<div style="margin-bottom:20px">
+    <div style="background:#085041;color:white;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">
+      📋 Escala Dominical — Todos os domingos de junho/2026
+    </div>
+    <div style="border:1px solid #085041;border-top:none;border-radius:0 0 8px 8px;overflow:hidden">`;
+
+  MISSAS_DOM.forEach(hora=>{
+    const g=(escalas[keyDom]||{})[hora]||{ministros:[],responsavel:''};
+    html+=`<div style="padding:10px 14px;border-bottom:1px solid #eee">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-weight:600;font-size:13px">⏰ ${hora}</span>
+        ${g.ministros.length?`<span style="font-size:11px;background:#e1f5ee;color:#085041;padding:2px 8px;border-radius:20px">${g.ministros.length} ministros</span>`:`<span style="font-size:11px;color:#ccc">Não escalado</span>`}
+      </div>
+      ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}</p>`:''}
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        ${g.ministros.map(m=>`<span style="font-size:11px;padding:2px 8px;background:${m===g.responsavel?'#faeeda':'#f5f5f3'};color:${m===g.responsavel?'#633806':'#555'};border-radius:20px">${m.split(' ').slice(0,2).join(' ')}</span>`).join('')||'<span style="font-size:11px;color:#ccc">—</span>'}
+      </div>
+    </div>`;
+  });
+  html+=`</div></div>`;
+
+  for(let s=1;s<=TOTAL_SEMANAS;s++){
+    const keySem=`escala_sem_sem${s}_${getMesAtual()}`;
+    const escSem=escalas[keySem]||{};
+    const temDados=MISSAS_SEM.some(h=>((escSem[h]?.ministros)||[]).length>0);
+    if(!temDados) continue;
+
+    const semDadosVis = SEMANAS_MES[s.toString()];
+    html+=`<div style="margin-bottom:16px">
+      <div style="background:#185FA5;color:white;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700;font-size:14px">
+        📋 Escala Semanal — ${semDadosVis?.label} (${semDadosVis?.periodo})
+      </div>
+      <div style="border:1px solid #185FA5;border-top:none;border-radius:0 0 8px 8px;overflow:hidden">`;
+
+    MISSAS_SEM.forEach(hora=>{
+      const g=(escSem[hora])||{ministros:[],responsavel:''};
+      html+=`<div style="padding:10px 14px;border-bottom:1px solid #eee">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-weight:600;font-size:13px">⏰ ${hora}</span>
+          ${g.ministros.length?`<span style="font-size:11px;background:#e6f1fb;color:#185FA5;padding:2px 8px;border-radius:20px">${g.ministros.length} ministros</span>`:`<span style="font-size:11px;color:#ccc">Não escalado</span>`}
+        </div>
+        ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}</p>`:''}
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${g.ministros.map(m=>`<span style="font-size:11px;padding:2px 8px;background:${m===g.responsavel?'#faeeda':'#f5f5f3'};color:${m===g.responsavel?'#633806':'#555'};border-radius:20px">${m.split(' ').slice(0,2).join(' ')}</span>`).join('')||'<span style="font-size:11px;color:#ccc">—</span>'}
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  }
+
+  if(html==='') html='<p style="font-size:13px;color:#888;padding:16px 0;text-align:center">Nenhuma escala salva ainda.</p>';
+  document.getElementById('vis-body').innerHTML=html;
+};
+
+async function relReunioes(){
+  const snap=await getDocs(collection(db,'reunioes'));
+  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
+  if(!docs.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma reunião registrada ainda.</p>';return;}
+
+  const contadores={};
+  docs.forEach(r=>{
+    Object.entries(r.registros||{}).forEach(([id,reg])=>{
+      if(!contadores[id]) contadores[id]={presentes:0,faltas:0,justificadas:0};
+      if(reg.presente) contadores[id].presentes++;
+      else{ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
+    });
+  });
+
+  const dados=ministros.map(m=>{
+    const c=contadores[m.id]||{presentes:0,faltas:0,justificadas:0};
+    const tot=c.presentes+c.faltas;
+    return {...m,c,tot,pct:tot>0?Math.round(c.presentes/tot*100):0};
+  }).sort((a,b)=>b.c.faltas-a.c.faltas);
+
+  document.getElementById('rel-body').innerHTML=`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} reunião(ões) registrada(s)</p>
+    <div style="margin-bottom:12px">
+      ${docs.slice(0,5).map(r=>{
+        const tot=Object.keys(r.registros||{}).length;
+        const pres=Object.values(r.registros||{}).filter(x=>x.presente).length;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
+          <span>${r.data.split('-').reverse().join('/')}</span>
+          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${pres}/${tot} presentes</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <p style="font-size:12px;font-weight:600;color:#333;margin-bottom:8px">Frequência por ministro</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:5px 4px">Ministro</th>
+        <th style="text-align:center;padding:5px 4px;color:#1D9E75">P</th>
+        <th style="text-align:center;padding:5px 4px;color:#A32D2D">F</th>
+        <th style="text-align:center;padding:5px 4px;color:#BA7517">FJ</th>
+        <th style="text-align:center;padding:5px 4px">%</th>
+      </tr></thead>
+      <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;padding:5px 4px;color:#1D9E75;font-weight:600">${m.c.presentes}</td>
+        <td style="text-align:center;padding:5px 4px;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
+        <td style="text-align:center;padding:5px 4px;color:#BA7517">${m.c.justificadas}</td>
+        <td style="text-align:center;padding:5px 4px"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <p style="font-size:10px;color:#888;margin-top:6px">P=Presente · F=Falta · FJ=Justificada</p>`;
+}
+
+async function relAdoracoes(){
+  const snap=await getDocs(collection(db,'adoracoes'));
+  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
+  if(!docs.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma adoração registrada ainda.</p>';return;}
+
+  const contadores={};
+  docs.forEach(r=>{
+    Object.entries(r.registros||{}).forEach(([id,reg])=>{
+      if(!contadores[id]) contadores[id]={presentes:0,faltas:0,justificadas:0};
+      if(reg.presente) contadores[id].presentes++;
+      else{ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
+    });
+  });
+
+  const dados=ministros.map(m=>{
+    const c=contadores[m.id]||{presentes:0,faltas:0,justificadas:0};
+    const tot=c.presentes+c.faltas;
+    return {...m,c,tot,pct:tot>0?Math.round(c.presentes/tot*100):0};
+  }).sort((a,b)=>b.c.faltas-a.c.faltas);
+
+  document.getElementById('rel-body').innerHTML=`
+    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} adoração(ões) registrada(s)</p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid #eee">
+        <th style="text-align:left;padding:5px 4px">Ministro</th>
+        <th style="text-align:center;padding:5px 4px;color:#185FA5">P</th>
+        <th style="text-align:center;padding:5px 4px;color:#A32D2D">F</th>
+        <th style="text-align:center;padding:5px 4px;color:#BA7517">FJ</th>
+        <th style="text-align:center;padding:5px 4px">%</th>
+      </tr></thead>
+      <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="text-align:center;color:#185FA5;font-weight:600">${m.c.presentes}</td>
+        <td style="text-align:center;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
+        <td style="text-align:center;color:#BA7517">${m.c.justificadas}</td>
+        <td style="text-align:center"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+async function relEventos(){
+  const snap=await getDocs(collection(db,'eventos'));
+  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  if(!docs.length){
+    document.getElementById('rel-body').innerHTML=`
+      <p style="font-size:12px;color:#888;margin-bottom:12px">Nenhum evento especial registrado ainda.</p>
+      <button onclick="abrirCadastroEvento()" style="margin-top:16px;padding:10px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%">+ Registrar evento especial</button>`;
+    return;
+  }
+  document.getElementById('rel-body').innerHTML=`
+    <button onclick="abrirCadastroEvento()" style="margin-bottom:12px;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%">+ Novo evento</button>
+    ${docs.map(e=>`
+      <div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <p style="font-size:14px;font-weight:700;margin:0">${e.nome||'Evento'}</p>
+          <span style="font-size:11px;color:#888">${(e.data||'').split('-').reverse().join('/')}</span>
+        </div>
+        <p style="font-size:12px;color:#888;margin-bottom:6px">${e.descricao||''}</p>
+        <div style="display:flex;gap:8px">
+          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${(e.ministros||[]).length} ministros</span>
+          ${e.responsavel?`<span style="font-size:11px;padding:2px 8px;background:#faeeda;color:#633806;border-radius:20px">★ ${e.responsavel}</span>`:''}
+        </div>
+      </div>`).join('')}`;
+}
+
+window.abrirCadastroEvento=function(){ document.getElementById('modal-evento').style.display='flex'; };
+window.salvarEvento=async function(){
+  const nome=document.getElementById('evt-nome').value.trim();
+  const data=document.getElementById('evt-data').value;
+  const desc=document.getElementById('evt-desc').value.trim();
+  if(!nome){toast('Nome do evento obrigatório.','err');return;}
+  await addDoc(collection(db,'eventos'),{nome,data,descricao:desc,ministros:[],criadoEm:serverTimestamp()});
+  fecharModal('modal-evento');
+  toast('Evento registrado!');
+  renderRelatorios();
+};
+
+window.filtrarMin = function(){ renderMinistros(document.getElementById('busca-min').value); };
+function renderMinistros(filtro){
+  const lista=ministros.filter(m=>m.nome.toLowerCase().includes(filtro.toLowerCase()));
+  const semDisp=lista.filter(m=>!(m.dispDom?.length||m.dispSem?.length)).length;
+  document.getElementById('min-sem-disp').textContent=semDisp>0?`${semDisp} sem disponibilidade`:'';
+  document.getElementById('min-body').innerHTML=lista.slice(0,30).map(m=>{
+    const semD=!(m.dispDom?.length||m.dispSem?.length);
+    const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+    return `<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #eee;gap:8px;cursor:pointer" onclick="abrirPerfil('${m.id}')">
+      <div style="width:34px;height:34px;border-radius:50%;background:${semD?'#f5f5f3':'#e1f5ee'};color:${semD?'#888':'#085041'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+      <div style="flex:1">
+        <p style="font-size:13px;font-weight:500;margin:0">${m.nome}</p>
+        <p style="font-size:11px;color:#888;margin:0">${semD?'⚠️ Sem disponibilidade':[...(m.dispDom||[]),...(m.dispSem||[])].slice(0,3).join(' · ')}</p>
+      </div>
+      ${faltas>=3?`<span style="font-size:10px;padding:2px 6px;background:#fcebeb;color:#A32D2D;border-radius:20px">🟡</span>`:''}
+      <span style="color:#ccc;font-size:18px">›</span>
+    </div>`;
+  }).join('')+(lista.length>30?`<p style="font-size:11px;color:#888;text-align:center;padding:8px">Mostrando 30 de ${lista.length}</p>`:'');
+}
+
+window.abrirPerfil = function(id){
+  const m=ministros.find(x=>x.id===id);
+  if(!m) return;
+  const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+  document.getElementById('mp-nome').textContent=m.nome;
+  document.getElementById('mp-body').innerHTML=`
+    <p style="font-size:11px;color:#888;margin-bottom:3px">WhatsApp</p>
+    <p style="font-size:13px;margin-bottom:10px">${m.tel||'Não cadastrado'} ${m.tel?`<a href="https://wa.me/55${m.tel.replace(/\D/g,'')}" target="_blank" style="color:#1D9E75;font-size:11px;margin-left:6px">Abrir ↗</a>`:''}</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <div style="flex:1;background:#f5f5f3;border-radius:8px;padding:8px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${m.faltasReuniao||0}</p>
+        <p style="font-size:10px;color:#888;margin:0">Faltas reunião</p>
+      </div>
+      <div style="flex:1;background:#f5f5f3;border-radius:8px;padding:8px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${m.faltasAdoracao||0}</p>
+        <p style="font-size:10px;color:#888;margin:0">Faltas adoração</p>
+      </div>
+      <div style="flex:1;background:${faltas>=3?'#fcebeb':'#e1f5ee'};border-radius:8px;padding:8px;text-align:center">
+        <p style="font-size:13px;font-weight:700;margin:0;color:${faltas>=3?'#A32D2D':'#085041'}">${faltas>=3?'🟡 Alerta':'✓ Ok'}</p>
+        <p style="font-size:10px;color:#888;margin:0">Situação</p>
+      </div>
+    </div>
+    <p style="font-size:11px;color:#888;margin-bottom:5px">Disponibilidades dominicais</p>
+    <div style="margin-bottom:10px">${(m.dispDom||[]).length?(m.dispDom).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
+    <p style="font-size:11px;color:#888;margin-bottom:5px">Disponibilidades semanais</p>
+    <div style="margin-bottom:14px">${(m.dispSem||[]).length?(m.dispSem).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e6f1fb;color:#185FA5;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Editar disponibilidades</button>
+      ${m.tel?`<button onclick="window.open('https://wa.me/55${m.tel.replace(/\D/g,'')}','_blank')" style="padding:9px 12px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;cursor:pointer">📱</button>`:''}
+    </div>
+    <button onclick="solicitarDisp('${id}')" style="width:100%;padding:9px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px">📲 Pedir disponibilidade pelo WhatsApp</button>
+    <button onclick="verQRCode('${id}')" style="width:100%;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">📱 Ver QR Code do ministro</button>`;
+  document.getElementById('modal-perfil').style.display='flex';
+};
+
+let editandoId=null;
+const selEditDom=new Set(), selEditSem=new Set();
+window.editarDisp=function(id){
+  editandoId=id;
+  const m=ministros.find(x=>x.id===id);
+  selEditDom.clear(); selEditSem.clear();
+  (m.dispDom||[]).forEach(h=>selEditDom.add(h));
+  (m.dispSem||[]).forEach(h=>selEditSem.add(h));
+  document.getElementById('edit-dom').innerHTML=MISSAS_DOM.map(h=>`<button onclick="togEditDisp('${h}','dom')" id="ed-${h.replace(':','')}" style="padding:8px;border:1px solid ${selEditDom.has(h)?'#1D9E75':'#ddd'};border-radius:6px;background:${selEditDom.has(h)?'#e1f5ee':'white'};cursor:pointer;font-size:12px;color:${selEditDom.has(h)?'#085041':'#333'}">${h}<br><small>Dom</small></button>`).join('');
+  document.getElementById('edit-sem').innerHTML=MISSAS_SEM.map(h=>`<button onclick="togEditDisp('${h}','sem')" id="es-${h.replace(':','')}" style="padding:8px;border:1px solid ${selEditSem.has(h)?'#185FA5':'#ddd'};border-radius:6px;background:${selEditSem.has(h)?'#e6f1fb':'white'};cursor:pointer;font-size:12px;color:${selEditSem.has(h)?'#185FA5':'#333'}">${h}<br><small>Sem</small></button>`).join('');
+  fecharModal('modal-perfil');
+  document.getElementById('modal-edit').style.display='flex';
+};
+window.togEditDisp=function(h,tipo){
+  const set=tipo==='dom'?selEditDom:selEditSem;
+  const id=(tipo==='dom'?'ed-':'es-')+h.replace(':','');
+  const btn=document.getElementById(id);
+  if(set.has(h)){set.delete(h);btn.style.background='white';btn.style.color='#333';btn.style.borderColor='#ddd';}
+  else{set.add(h);btn.style.background=tipo==='dom'?'#e1f5ee':'#e6f1fb';btn.style.color=tipo==='dom'?'#085041':'#185FA5';btn.style.borderColor=tipo==='dom'?'#1D9E75':'#185FA5';}
+};
+window.salvarEditDisp=async function(){
+  if(!editandoId) return;
+  await updateDoc(doc(db,'ministros',editandoId),{dispDom:[...selEditDom],dispSem:[...selEditSem]});
+  const m=ministros.find(x=>x.id===editandoId);
+  if(m){m.dispDom=[...selEditDom];m.dispSem=[...selEditSem];}
+  fecharModal('modal-edit');
+  toast('Disponibilidades atualizadas!');
+};
+
+const selCadDom=new Set(), selCadSem=new Set();
+window.togCad=function(h,tipo){
+  const set=tipo==='dom'?selCadDom:selCadSem;
+  const id=(tipo==='dom'?'cd-':'cs-')+h.replace(':','');
+  const btn=document.getElementById(id);
+  if(set.has(h)){set.delete(h);btn.style.background='white';btn.style.color='#333';btn.style.borderColor='#ddd';}
+  else{set.add(h);btn.style.background=tipo==='dom'?'#e1f5ee':'#e6f1fb';btn.style.color=tipo==='dom'?'#085041':'#185FA5';btn.style.borderColor=tipo==='dom'?'#1D9E75':'#185FA5';}
+};
+window.salvarCadastro=async function(){
+  const nome=document.getElementById('cad-nome').value.trim();
+  const tel=document.getElementById('cad-tel').value.trim();
+  const nasc=document.getElementById('cad-nasc').value;
+  if(!nome){toast('Nome obrigatório.','err');return;}
+  if(selCadDom.size+selCadSem.size<2){toast('Selecione pelo menos 2 disponibilidades.','warn');return;}
+  await addDoc(collection(db,'ministros'),{nome,tel,nascimento:nasc,ativo:true,dispDom:[...selCadDom],dispSem:[...selCadSem],numero:ministros.length+1,faltasReuniao:0,faltasAdoracao:0,criadoEm:serverTimestamp()});
+  selCadDom.clear();selCadSem.clear();
+  ['cad-nome','cad-tel','cad-nasc'].forEach(id=>document.getElementById(id).value='');
+  document.querySelectorAll('#cad-dom button,#cad-sem button').forEach(b=>{b.style.background='white';b.style.color='#333';b.style.borderColor='#ddd';});
+  fecharModal('modal-cad');
+  await carregarMinistros();
+  renderMinistros('');
+  toast('Ministro cadastrado!');
+};
+
+window.solicitarDisp = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const link = `${APP_URL}/?disp=${id}`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é do *Ministério da Eucaristia* da Basílica de Nazaré.\n\nPor favor, acesse o link abaixo e marque os horários de missa em que você pode servir:\n\n${link}\n\nLeva menos de 1 minuto. Que Deus abençoe! 🕊️`;
+  const tel = (m.tel||'').replace(/\D/g,'');
+  const url = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
+  window.open(url,'_blank');
+};
+
+window.fecharModal=function(id){ document.getElementById(id).style.display='none'; };
+
+let updateFileContent = null;
+const GH_TOKEN = 'COLE_SEU_TOKEN_NOVO_AQUI';
+const GH_API_URL = 'https://api.github.com/repos/Maubitar/ministerio-eucaristia/contents/index.html';
+
+const CORS_PROXIES = [
+  function(url){ return 'https://corsproxy.io/?' + encodeURIComponent(url); },
+  function(url){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); }
+];
+
+window.handleUpdateDrop = function(e){
+  e.preventDefault();
+  document.getElementById('drop-update').style.borderColor='#ddd';
+  document.getElementById('drop-update').style.background='white';
+  handleUpdateFile(e.dataTransfer.files[0]);
+};
+
+window.handleUpdateFile = function(file){
+  if(!file || !file.name.endsWith('.html')){ toast('Selecione um arquivo .html','err'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    updateFileContent = e.target.result;
+    document.getElementById('update-info').style.display='block';
+    document.getElementById('update-info').textContent = '✓ ' + file.name + ' (' + (file.size/1024).toFixed(1) + ' KB) — pronto para publicar';
+    const btn = document.getElementById('btn-update');
+    btn.disabled = false; btn.style.opacity='1';
+  };
+  reader.readAsText(file);
+};
+
+window.publicarUpdate = async function(){
+  const btn = document.getElementById('btn-update');
+  const status = document.getElementById('update-status');
+  btn.disabled=true; btn.textContent='⏳ Publicando...';
+  status.style.display='block'; status.style.background='#e6f1fb'; status.style.color='#185FA5';
+  status.textContent='Conectando ao GitHub...';
+
+  if(!updateFileContent){
+    toast('Selecione o arquivo primeiro.','err');
+    btn.disabled=false; btn.textContent='🚀 Publicar atualização'; btn.style.opacity='1';
+    return;
+  }
+
+  let sha = null;
+  let proxyIdx = -1;
+
+  for(let i=0; i<CORS_PROXIES.length; i++){
+    try{
+      status.textContent = 'Conectando... (tentativa ' + (i+1) + '/2)';
+      const r = await fetch(CORS_PROXIES[i](GH_API_URL), {
+        headers:{
+          'Authorization':'token '+GH_TOKEN,
+          'User-Agent':'SOGI-App',
+          'Accept':'application/vnd.github.v3+json'
+        }
+      });
+      if(!r.ok) continue;
+      const d = await r.json();
+      if(d.sha){ sha = d.sha; proxyIdx = i; break; }
+    }catch(e){}
+  }
+
+  if(!sha){
+    try{
+      status.textContent = 'Tentando conexão direta...';
+      const r = await fetch(GH_API_URL, {
+        headers:{'Authorization':'token '+GH_TOKEN,'User-Agent':'SOGI-App'}
+      });
+      if(r.ok){
+        const d = await r.json();
+        if(d.sha){ sha = d.sha; proxyIdx = -2; }
+      }
+    }catch(e){}
+  }
+
+  if(!sha){
+    status.style.background='#fde8e8'; status.style.color='#A32D2D';
+    status.innerHTML='❌ Não foi possível conectar ao GitHub.<br><small>Verifique sua conexão. Se persistir, use o método manual.</small>';
+    btn.disabled=false; btn.textContent='🚀 Publicar atualização'; btn.style.opacity='1';
+    return;
+  }
+
+  try{
+    status.textContent='Enviando arquivo atualizado...';
+    const encoded = btoa(unescape(encodeURIComponent(updateFileContent)));
+    const body = JSON.stringify({
+      message:'SOGI update — ' + new Date().toLocaleString('pt-BR'),
+      content: encoded,
+      sha: sha
+    });
+
+    const opts = {
+      method:'PUT',
+      headers:{
+        'Authorization':'token '+GH_TOKEN,
+        'User-Agent':'SOGI-App',
+        'Content-Type':'application/json',
+        'Accept':'application/vnd.github.v3+json'
+      },
+      body: body
+    };
+
+    let r2;
+    if(proxyIdx >= 0){
+      r2 = await fetch(CORS_PROXIES[proxyIdx](GH_API_URL), opts);
+    } else {
+      r2 = await fetch(GH_API_URL, opts);
+    }
+
+    if(r2.ok){
+      status.style.background='#e1f5ee'; status.style.color='#085041';
+      status.innerHTML='✅ Publicado com sucesso!<br><small>O app estará atualizado em ~2 minutos. 🚀</small>';
+      btn.textContent='✅ Publicado!';
+      btn.style.background='#1D9E75';
+      toast('App publicado com sucesso! 🚀');
+      updateFileContent = null;
+      document.getElementById('update-info').textContent='';
+      document.getElementById('update-info').style.display='none';
+    } else {
+      let msg = 'Erro HTTP '+r2.status;
+      try{ const errData = await r2.json(); if(errData.message) msg = errData.message; }catch(e){}
+      throw new Error(msg);
+    }
+  }catch(e){
+    status.style.background='#fde8e8'; status.style.color='#A32D2D';
+    status.innerHTML='❌ Erro ao publicar: '+e.message+'<br><small>Use o método manual: GitHub → index.html → lápis → colar.</small>';
+    btn.disabled=false; btn.textContent='🚀 Publicar atualização'; btn.style.opacity='1';
+  }
+};
+
+let qrMinistroAtual = null;
+window.verQRCode = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  qrMinistroAtual = m;
+  document.getElementById('qr-nome').textContent = m.nome;
+  document.getElementById('qr-canvas').innerHTML = '';
+  const url = `${APP_URL}/?ministro=${id}`;
+  new QRCode(document.getElementById('qr-canvas'), {
+    text: url,
+    width: 220,
+    height: 220,
+    colorDark: '#085041',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  document.getElementById('modal-qr').style.display='flex';
+};
+
+window.enviarQRWhatsApp = function(){
+  if(!qrMinistroAtual) return;
+  const url = `${APP_URL}/?ministro=${qrMinistroAtual.id}`;
+  const txt = `Olá, ${qrMinistroAtual.nome.split(' ')[0]}! 🙏\n\nSeu QR Code de identificação no *Ministério da Eucaristia* da Basílica de Nazaré:\n\n${url}\n\nGuarde este link — ele é seu código único de presença!\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
+  const tel = (qrMinistroAtual.tel||'').replace(/\D/g,'');
+  const waUrl = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
+  window.open(waUrl,'_blank');
+};
+
+window.imprimirQR = function(){
+  if(!qrMinistroAtual) return;
+  const canvas = document.querySelector('#qr-canvas canvas');
+  if(!canvas){ toast('Aguarde o QR Code carregar.','warn'); return; }
+  const img = canvas.toDataURL('image/png');
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><title>QR Code - ${qrMinistroAtual.nome}</title>
+  <style>body{font-family:Arial,sans-serif;text-align:center;padding:30px} .logo{font-size:13px;color:#085041;font-weight:700} h2{color:#085041;margin:10px 0 4px} p{font-size:11px;color:#666} @media print{button{display:none}}</style></head>
+  <body>
+  <p class="logo">🕊️ Ministério Extraordinário da Sagrada Comunhão Eucaristia</p>
+  <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+  <h2>${qrMinistroAtual.nome}</h2>
+  <p>QR Code de identificação</p>
+  <img src="${img}" style="width:200px;height:200px;margin:16px 0">
+  <p style="font-size:10px;color:#aaa">Apresente este código para registrar sua presença</p>
+  <button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#085041;color:white;border:none;border-radius:6px;cursor:pointer">🖨️ Imprimir</button>
+  </body></html>`);
+  w.document.close();
+};
+
+let scannerStream = null;
+let scannerInterval = null;
+
+window.abrirScanner = function(){
+  document.getElementById('modal-scanner').style.display='flex';
+  document.getElementById('scanner-resultado').textContent='';
+  document.getElementById('scanner-status').textContent='Iniciando câmera...';
+  const video = document.getElementById('scanner-video');
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+    .then(stream=>{
+      scannerStream = stream;
+      video.srcObject = stream;
+      video.play();
+      document.getElementById('scanner-status').textContent='Aponte para o QR Code do ministro';
+      scannerInterval = setInterval(()=>lerQRFrame(video),500);
+    })
+    .catch(()=>{ document.getElementById('scanner-status').textContent='⚠️ Câmera não disponível. Use HTTPS.'; });
+};
+
+function lerQRFrame(video){
+  if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  const canvas = document.getElementById('scanner-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video,0,0);
+  try{
+    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+    if(window.jsQR){
+      const code = jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
+      if(code && code.data.includes('ministro=')){
+        const urlObj = new URL(code.data);
+        const id = urlObj.searchParams.get('ministro');
+        const m = ministros.find(x=>x.id===id);
+        if(m){
+          pararScanner();
+          document.getElementById('scanner-resultado').textContent='✓ '+m.nome;
+          toast('✓ Presença confirmada: '+m.nome.split(' ')[0]);
+          if(presAtual!==undefined){
+            if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
+            presAtual[id].status='P';
+            renderPresenca();
+          }
+        }
+      }
+    }
+  }catch(e){}
+}
+
+window.pararScanner = function(){
+  if(scannerStream) scannerStream.getTracks().forEach(t=>t.stop());
+  if(scannerInterval) clearInterval(scannerInterval);
+  scannerStream = null;
+  scannerInterval = null;
+  document.getElementById('modal-scanner').style.display='none';
+};
+
+window.exportarCSV=function(){
+  const linhas=['Nº,Nome,WhatsApp,Nascimento,Disp. Dominical,Disp. Semanal,Faltas Reunião,Faltas Adoração'];
+  ministros.forEach(m=>linhas.push(`${m.numero},"${m.nome}","${m.tel||''}","${m.nascimento||''}","${(m.dispDom||[]).join(';')}","${(m.dispSem||[]).join(';')}",${m.faltasReuniao||0},${m.faltasAdoracao||0}`));
+  const blob=new Blob(['\uFEFF'+linhas.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ministerio_eucaristia.csv'; a.click();
+  toast('CSV exportado!');
+};
+
+function encontrarMelhor(txt){
+  return ministros.filter(m=>m.nome.toLowerCase().split(' ').some(p=>p.length>3&&txt.toLowerCase().includes(p)))
+    .sort((a,b)=>b.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length-a.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length)[0];
+}
+function startVoice(callback){
+  if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){toast('Voz não suportada neste navegador.','err');return;}
+  if(recognition) recognition.stop();
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recognition=new SR(); recognition.lang='pt-BR'; recognition.continuous=false; recognition.interimResults=false;
+  recognition.onresult=e=>callback(e.results[0][0].transcript);
+  recognition.onerror=()=>toast('Não entendido. Tente novamente.','warn');
+  recognition.start();
+}
+window.startVoice=startVoice;
+
+window.startVoiceReforco=function(){
+  const tipo=document.getElementById('ref-tipo').value;
+  const key=`reforco_${tipo}_${MES_ATUAL}`;
+  startVoice(txt=>{
+    const best=encontrarMelhor(txt);
+    if(best){ addMinReforco(key,best.nome,'acref-main'); toast('✓ '+best.nome.split(' ')[0]+' adicionado!'); }
+    else toast('Ministro não encontrado: '+txt,'warn');
+  });
+};
+
+window.startVoiceEscala=function(key,hora,dispKey){
+  startVoice(txt=>{
+    const disponiveis=ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+    const best=disponiveis.filter(m=>m.nome.toLowerCase().split(' ').some(p=>p.length>3&&txt.toLowerCase().includes(p)))
+      .sort((a,b)=>b.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length-a.nome.toLowerCase().split(' ').filter(p=>p.length>3&&txt.toLowerCase().includes(p)).length)[0];
+    if(best){ addMin(key,hora,best.nome,null); toast('✓ '+best.nome.split(' ')[0]+' adicionado!'); }
+    else toast('Ministro não disponível para '+hora,'warn');
+  });
+};
+
+
+
+function initModais(){
+  document.getElementById('cad-dom').innerHTML=MISSAS_DOM.map(h=>`<button onclick="togCad('${h}','dom')" id="cd-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Dom</small></button>`).join('');
+  document.getElementById('cad-sem').innerHTML=MISSAS_SEM.map(h=>`<button onclick="togCad('${h}','sem')" id="cs-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Sem</small></button>`).join('');
+}
+initModais();
+
+window.imprimirEscala = function(){
+  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
+  const key = tipo==='dom' ? `escala_dom_${getMesAtual()}` : `escala_sem_sem${sem}_${getMesAtual()}`;
+  const esc=escalas[key]||{};
+  const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
+  const w=window.open('','_blank');
+  let linhas='';
+  horas.forEach(h=>{
+    const g=esc[h]||{ministros:[],responsavel:''};
+    if(g.ministros.length){
+      linhas+=`<tr style="background:#f5f5f3"><td colspan="2" style="padding:6px 8px;font-weight:700;font-size:13px">⏰ ${h}</td></tr>`;
+      if(g.responsavel) linhas+=`<tr><td colspan="2" style="padding:4px 8px;font-size:11px;color:#633806">★ Responsável: ${g.responsavel}</td></tr>`;
+      g.ministros.forEach((m,i)=>{ linhas+=`<tr style="border-bottom:1px solid #eee"><td style="padding:5px 8px;font-size:12px">${i+1}. ${m}</td><td style="width:180px;border-left:1px solid #eee;padding:5px 8px">&nbsp;</td></tr>`; });
+    }
+  });
+  w.document.write(`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;font-size:12px">
+    <div style="text-align:center;margin-bottom:16px">
+      <h2 style="margin:0;color:#085041">Basílica Santuário de Nossa Senhora de Nazaré</h2>
+      <h3 style="margin:4px 0">Ministério da Sagrada Eucaristia</h3>
+      <p>Escala ${tipo==='dom'?'Dominical':'Semanal'} — Junho 2026</p>
+    </div>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd">${linhas}</table>
+    <p style="text-align:center;margin-top:12px;font-size:10px;color:#888">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
+    <button onclick="window.print()" style="margin-top:10px;padding:8px 20px;background:#085041;color:white;border:none;border-radius:6px;cursor:pointer">🖨️ Imprimir</button>
+  </body></html>`);
+  w.document.close();
+};
+
+window.verDisponiveisReforco = function(){
+  const tipo = document.getElementById('ref-tipo').value;
+  const rf = REFORCO_TIPOS.find(r=>r.id===tipo);
+  document.getElementById('vd-titulo').textContent = `Todos os ministros — ${rf.label}`;
+  document.getElementById('vd-count').textContent = `${ministros.length} ministros cadastrados`;
+  document.getElementById('vd-body').innerHTML = ministros.map((m,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+      <div style="width:28px;height:28px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+      <div style="flex:1"><p style="font-size:13px;margin:0">${m.nome}</p></div>
+      <span style="font-size:11px;color:#888">${i+1}</span>
+    </div>`).join('');
+  document.getElementById('modal-vd').style.display='flex';
+};
+
+</script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f0ee;color:#1a1a1a;min-height:100vh}
+#splash{position:fixed;inset:0;background:#085041;z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity 0.6s}
+.splash-icon{width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:38px;animation:beat 1.6s ease-in-out infinite}
+@keyframes beat{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.sdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.4);animation:dp 1.2s ease-in-out infinite}
+.sdot:nth-child(2){animation-delay:.2s}.sdot:nth-child(3){animation-delay:.4s}
+@keyframes dp{0%,100%{opacity:.3}50%{opacity:1}}
+#loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:12px}
+#app{display:none;max-width:640px;margin:0 auto;padding:0 0 80px}
+.header{background:#085041;color:white;padding:14px 16px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.header-title{font-size:16px;font-weight:700;letter-spacing:-.2px}
+.header-sub{font-size:11px;opacity:.7;margin-top:1px}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:640px;background:white;border-top:1px solid #e8e8e8;display:flex;z-index:100;box-shadow:0 -2px 12px rgba(0,0,0,.06)}
+.nb{flex:1;padding:10px 2px 8px;border:none;background:transparent;cursor:pointer;font-size:9px;color:#bbb;display:flex;flex-direction:column;align-items:center;gap:3px;transition:color .15s}
+.nb.active{color:#085041;font-weight:600}
+.nb svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sec{display:none;padding:14px}
+.card{background:white;border-radius:12px;padding:14px 16px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.ct{font-size:13px;font-weight:700;margin-bottom:12px;color:#1a1a1a}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.metric{background:#f5f5f3;border-radius:10px;padding:10px;text-align:center}
+.metric .v{font-size:22px;font-weight:700}.metric .l{font-size:10px;color:#888;margin-top:1px}
+input,select{width:100%;padding:9px 12px;border:1.5px solid #e8e8e8;border-radius:8px;font-size:14px;font-family:inherit;background:white;margin-bottom:8px;transition:border-color .15s}
+input:focus,select:focus{outline:none;border-color:#1D9E75}
+.btn-g{padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px}
+.btn-w{padding:11px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px}
+.btn-o{padding:11px;border:1.5px solid #e8e8e8;border-radius:8px;background:white;color:#333;font-size:13px;font-weight:500;cursor:pointer;width:100%;margin-top:4px}
+.tabs{display:flex;gap:0;margin-bottom:12px;border:1.5px solid #e8e8e8;border-radius:8px;overflow:hidden}
+.tab{flex:1;padding:8px;font-size:12px;border:none;background:white;cursor:pointer;color:#888;font-weight:500;transition:all .15s}
+.tab.active{background:#085041;color:white;font-weight:600}
+#toast{position:fixed;top:72px;left:50%;transform:translateX(-50%);color:white;padding:10px 18px;border-radius:20px;font-size:13px;font-weight:500;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:flex-end;justify-content:center}
+.modal-box{background:white;border-radius:16px 16px 0 0;padding:20px 16px;width:100%;max-width:640px;max-height:88vh;overflow-y:auto}
+.missa-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px}
+.pres-qr table{width:36px!important;height:36px!important;margin:0!important}
+.pres-qr img{width:36px!important;height:36px!important}
+.pres-qr canvas{width:36px!important;height:36px!important}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<div id="splash">
+  <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px">
+    <img id="logo-basilica-splash" alt="Basílica de Nazaré" style="width:60px;height:60px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.5)">
+    <img id="logo-mesce-splash" alt="MESCE" style="width:60px;height:60px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.5)">
+  </div>
+  <p style="color:white;font-size:19px;font-weight:700;text-align:center">Ministério da Eucaristia</p>
+  <p style="color:rgba(255,255,255,.65);font-size:12px;text-align:center">Basílica Santuário de Nossa Senhora de Nazaré</p>
+  <div style="display:flex;gap:6px;margin-top:10px"><div class="sdot"></div><div class="sdot"></div><div class="sdot"></div></div>
+</div>
+
+<div id="loading">
+  <img id="logo-basilica-loading" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover">
+  <p style="font-size:16px;font-weight:700;color:#085041">Ministério da Eucaristia</p>
+  <p id="loading-msg" style="font-size:12px;color:#888">Conectando...</p>
+</div>
+<div id="app">
+<div class="header">
+  <div style="display:flex;align-items:center;gap:10px">
+    <img id="logo-basilica-header" alt="Basílica de Nazaré" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:white;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0">
+    <div>
+      <p class="header-title">Ministério da Eucaristia</p>
+      <p class="header-sub">Basílica de Nazaré · <span id="h-total">0</span> ministros · junho 2026</p>
+    </div>
+    <img id="logo-mesce-header" alt="MESCE" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:white;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0;margin-left:auto">
+  </div>
+</div>
+
+<nav class="nav">
+  <button class="nb active" onclick="nav('inicio',this)"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Início</button>
+  <button class="nb" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
+  <button class="nb" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
+  <button class="nb" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
+  <button class="nb" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
+  <button class="nb" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
+</nav>
+
+<!-- INÍCIO -->
+<div id="s-inicio" class="sec" style="display:block">
+  <div class="metrics">
+    <div class="metric"><div class="v" id="m-total">0</div><div class="l">Ministros</div></div>
+    <div class="metric"><div class="v">—</div><div class="l">Frequência</div></div>
+    <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários</div></div>
+  </div>
+  <div class="card">
+    <p class="ct">🟡 Alertas disciplinares <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
+    <div id="dash-alertas"></div>
+  </div>
+  <div class="card"><p class="ct">🎂 Aniversariantes do mês</p><div id="dash-aniv"></div></div>
+</div>
+
+<!-- ESCALA -->
+<div id="s-escala" class="sec">
+  <div class="card">
+    <p class="ct">📅 Montar escala</p>
+    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+      <select id="esc-mes" onchange="trocarMes()" style="flex:1;margin:0;font-weight:600;color:#085041">
+        <option value="0">Janeiro</option><option value="1">Fevereiro</option>
+        <option value="2">Março</option><option value="3">Abril</option>
+        <option value="4">Maio</option><option value="5" selected>Junho</option>
+        <option value="6">Julho</option><option value="7">Agosto</option>
+        <option value="8">Setembro</option><option value="9">Outubro</option>
+        <option value="10">Novembro</option><option value="11">Dezembro</option>
+      </select>
+      <select id="esc-ano" onchange="trocarMes()" style="width:90px;margin:0;font-weight:600;color:#085041">
+        <option value="2026" selected>2026</option>
+        <option value="2027">2027</option>
+        <option value="2028">2028</option>
+      </select>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+      <span style="font-size:12px;color:#555;font-weight:600;white-space:nowrap">Semanas de serviço:</span>
+      <div style="display:flex;gap:4px;flex:1">
+        <button id="btn-sem4" onclick="definirSemanas(4)" style="flex:1;padding:8px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:13px;font-weight:600;cursor:pointer">4 semanas</button>
+        <button id="btn-sem5" onclick="definirSemanas(5)" style="flex:1;padding:8px;border:1.5px solid #085041;border-radius:8px;background:#e1f5ee;color:#085041;font-size:13px;font-weight:600;cursor:pointer">5 semanas ✓</button>
+      </div>
+    </div>
+    <div id="aviso-semanas" style="display:none;margin-bottom:8px"></div>
+
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <select id="esc-tipo" onchange="renderEscala()" style="flex:1;margin:0">
+        <option value="dom">Missas dominicais</option>
+        <option value="sem">Missas semanais</option>
+      </select>
+    </div>
+    <div id="esc-sem-wrap" style="display:none;margin-bottom:8px">
+      <select id="esc-sem" onchange="renderEscala()" style="margin:0">
+      </select>
+    </div>
+    <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5">
+      📌 Escala mensal — mesmos ministros em todos os domingos de junho
+    </p>
+    <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px">
+      👁 Visualizar todas as escalas do mês
+    </button>
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn-g" onclick="salvarEscala()" style="margin:0;flex:1;min-width:80px">💾 Salvar</button>
+      <button class="btn-w" onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px">📱 WhatsApp</button>
+      <button onclick="imprimirEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
+    </div>
+    <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
+      ✓ Autocomplete filtra apenas ministros disponíveis para cada horário
+    </p>
+    <div id="esc-body"></div>
+  </div>
+  <div class="card">
+    <p class="ct">🔔 Reforço semanal</p>
+    <select id="ref-tipo" onchange="renderReforco()" style="margin-bottom:8px">
+      <option value="sab12">Sábado 12:00h</option>
+      <option value="sab17">Sábado 17:00h</option>
+      <option value="qui18">Quinta-feira 18:00h</option>
+    </select>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <p id="ref-titulo" style="font-size:13px;font-weight:700;color:#333;margin:0">Sábado 12:00h</p>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="ref-count" style="font-size:11px;color:#888"></span>
+        <button onclick="verDisponiveisReforco()"
+          style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
+          👥 Ver todos
+        </button>
+      </div>
+    </div>
+    <div id="ref-body"></div>
+    <div style="position:relative;margin-top:10px;display:flex;gap:6px">
+      <div style="position:relative;flex:1">
+        <input type="text" id="inpref-main" placeholder="Buscar e adicionar ministro..."
+          oninput="acRef(this,'acref-main','reforco_'+document.getElementById('ref-tipo').value+'_jun2026')"
+          style="margin:0">
+        <div id="acref-main" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1);margin-top:2px"></div>
+      </div>
+      <button onclick="startVoiceReforco()"
+        style="width:38px;height:38px;border:1.5px solid #e8e8e8;border-radius:8px;background:white;cursor:pointer;font-size:18px;flex-shrink:0"
+        title="Comando de voz">🎤</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1">💾 Salvar</button>
+      <button class="btn-w" onclick="compartilharReforco()" style="margin:0;flex:1">📱 WhatsApp</button>
+    </div>
+  </div>
+</div>
+<!-- PRESENÇA -->
+<div id="s-presenca" class="sec">
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="background:linear-gradient(135deg,#085041 0%,#0a6b56 100%);padding:16px 14px;display:flex;align-items:center;gap:12px">
+      <img id="logo-basilica-pres" alt="Basílica de Nazaré" style="width:52px;height:52px;border-radius:8px;background:white;padding:2px;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.25)">
+      <div style="flex:1;text-align:center;color:white">
+        <p style="font-size:10px;letter-spacing:1.5px;opacity:.85;font-weight:600;margin:0;text-transform:uppercase">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p style="font-size:15px;font-weight:700;margin:2px 0 0">Lista de Presença</p>
+        <p style="font-size:11px;opacity:.8;margin:1px 0 0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img id="logo-mesce-pres" alt="MESCE" style="width:52px;height:52px;border-radius:8px;background:white;padding:2px;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.25)">
+    </div>
+    <div style="padding:14px">
+    <div class="tabs">
+      <button class="tab active" onclick="tabPres('missa',this)">Missa</button>
+      <button class="tab" onclick="tabPres('reuniao',this)">Reunião</button>
+      <button class="tab" onclick="tabPres('adoracao',this)">Adoração</button>
+    </div>
+    <div id="tp-missa">
+      <div style="display:flex;gap:8px">
+        <select id="pres-data" onchange="atualizarHorariosPresenca()" style="flex:1.4;margin:0 0 8px"></select>
+        <select id="pres-hor" onchange="renderPresenca()" style="flex:1;margin:0 0 8px"></select>
+      </div>
+      <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
+        ✓ Lista preenchida automaticamente a partir da Escala — marque P/F/S
+      </p>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <p id="pres-count" style="font-size:11px;color:#1D9E75;margin:0"></p>
+        <button onclick="abrirScanner()" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:500">📷 Scanner QR</button>
+      </div>
+      <div id="pres-body"></div>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <button class="btn-g" onclick="salvarPres()" style="margin:0;flex:1">💾 Salvar presenças</button>
+        <button class="btn-o" onclick="imprimirPresenca()" style="margin:0;flex:1">🖨️ Imprimir lista oficial</button>
+      </div>
+    </div>
+    <div id="tp-reuniao" style="display:none">
+      <div style="background:#f0faf5;border:1.5px solid #1D9E75;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <label style="font-size:11px;font-weight:700;color:#085041;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">📅 Data da reunião</label>
+        <input type="date" id="reun-data" onchange="renderReuniao()" style="margin:0;font-weight:600;color:#085041">
+      </div>
+      <p style="font-size:11px;color:#888;margin-bottom:8px;padding:6px 10px;background:#f5f5f3;border-radius:6px">
+        <strong>P</strong> presente · <strong>F</strong> faltou · <strong>J</strong> justificou — faltas sem justificativa contam para cartão amarelo (3 faltas = alerta)
+      </p>
+      <div id="reun-body"></div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn-g" onclick="salvarReuniao()" style="margin:0;flex:1">💾 Salvar</button>
+        <button class="btn-o" onclick="imprimirReuniao()" style="margin:0;flex:1">🖨️ Imprimir lista</button>
+      </div>
+    </div>
+    <div id="tp-adoracao" style="display:none">
+      <div style="background:#f0faf5;border:1.5px solid #1D9E75;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <label style="font-size:11px;font-weight:700;color:#085041;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">📅 Data da adoração</label>
+        <input type="date" id="ador-data" onchange="renderAdoracao()" style="margin:0;font-weight:600;color:#085041">
+      </div>
+      <p style="font-size:11px;color:#888;margin-bottom:8px;padding:6px 10px;background:#f5f5f3;border-radius:6px">
+        <strong>P</strong> presente · <strong>F</strong> faltou · <strong>J</strong> justificou — faltas sem justificativa contam para cartão amarelo (3 faltas = alerta)
+      </p>
+      <div id="ador-body"></div>
+      <button class="btn-g" onclick="salvarAdoracao()">💾 Salvar adoração</button>
+    </div>
+    </div>
+  </div>
+</div>
+
+<!-- RELATÓRIOS -->
+<div id="s-relatorios" class="sec">
+  <div class="card">
+    <p class="ct">📊 Relatórios</p>
+    <select id="rel-tab" onchange="renderRelatorios()" style="margin-bottom:12px">
+      <option value="missas">Presença — Missas</option>
+      <option value="reunioes">Presença — Reuniões</option>
+      <option value="adoracoes">Presença — Adorações</option>
+      <option value="faltas">Faltas disciplinares</option>
+      <option value="escalas">Histórico de escalas</option>
+      <option value="eventos">Eventos especiais</option>
+    </select>
+    <div id="rel-body"><p style="font-size:12px;color:#888">Selecione um relatório acima.</p></div>
+    <div style="margin-top:12px;display:flex;gap:6px">
+      <button class="btn-o" onclick="exportarCSV()" style="margin:0;flex:1">📥 Exportar CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- MINISTROS -->
+<div id="s-ministros" class="sec">
+  <div class="card">
+    <p class="ct">👥 Ministros <span id="min-sem-disp" style="font-size:11px;color:#BA7517;margin-left:6px"></span></p>
+    <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()">
+    <div id="min-body"></div>
+  </div>
+</div>
+
+<!-- MAIS -->
+<div id="s-mais" class="sec">
+  <div class="card" style="border:2px solid #085041">
+    <p class="ct">🚀 Atualizar S.O.G.I.</p>
+    <p style="font-size:12px;color:#666;margin-bottom:10px">Quando o Claude enviar um novo index.html, baixe e publique aqui em 1 clique.</p>
+    <div id="drop-update"
+      onclick="document.getElementById('file-update').click()"
+      ondragover="event.preventDefault();this.style.borderColor='#085041';this.style.background='#e1f5ee'"
+      ondragleave="this.style.borderColor='#ddd';this.style.background='white'"
+      ondrop="handleUpdateDrop(event)"
+      style="border:2px dashed #ddd;border-radius:10px;padding:16px;text-align:center;cursor:pointer;margin-bottom:10px">
+      <p style="font-size:13px;color:#555;margin:0">📁 Clique ou arraste o <strong>index.html</strong> aqui</p>
+    </div>
+    <input type="file" id="file-update" accept=".html" onchange="handleUpdateFile(this.files[0])" style="display:none">
+    <div id="update-info" style="display:none;padding:8px;background:#f5f5f3;border-radius:8px;font-size:12px;color:#555;margin-bottom:10px"></div>
+    <button id="btn-update" onclick="publicarUpdate()" disabled
+      style="width:100%;padding:12px;border:none;border-radius:8px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;opacity:.4">
+      🚀 Publicar atualização
+    </button>
+    <div id="update-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;text-align:center"></div>
+  </div>
+
+  <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
+
+  <div class="card">
+    <p class="ct">📖 Manual do S.O.G.I.</p>
+    <p style="font-size:12px;color:#666;line-height:1.7;margin-bottom:10px">
+      <strong>Escala:</strong> escolha mês/ano, defina 4 ou 5 semanas, monte dominical (vale o mês todo) e semanal (por semana). O autocomplete só mostra quem está disponível no horário.<br><br>
+      <strong>Presença:</strong> escolha a data e o horário — a lista é preenchida automaticamente com quem está escalado (com o responsável destacado no topo) e cada ministro tem seu QR Code ao lado do nome. Marque P (presente), F (falta) ou S (substituído).<br><br>
+      <strong>Reunião/Adoração:</strong> faltas sem justificativa contam para o cartão amarelo (3 faltas = alerta).<br><br>
+      <strong>Ministros:</strong> toque no nome para ver perfil, editar disponibilidade, pedir disponibilidade por WhatsApp ou gerar QR Code individual.<br><br>
+      <strong>Publicador:</strong> quando o Claude enviar um novo index.html, arraste aqui e clique em Publicar — atualiza o app em ~2 min.
+    </p>
+  </div>
+
+  <div class="card">
+    <p class="ct">ℹ️ Sistema v2.1</p>
+    <p style="font-size:12px;color:#888;line-height:1.8">
+      Ministério da Eucaristia — Basílica de Nazaré<br>
+      Firebase: ministerio-eucaristia-nazare<br>
+      Lógica: disponibilidade por horário ✓<br>
+      Justificativa de faltas ✓<br>
+      Cartão amarelo automático ✓<br>
+      QR Code individual ✓<br>
+      Scanner de presença ✓<br>
+      <span style="color:#1D9E75">● Online e sincronizado</span>
+    </p>
+  </div>
+</div>
+</div>
+<!-- MODAIS -->
+<div id="modal-perfil" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-perfil')">
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700" id="mp-nome"></p><button onclick="fecharModal('modal-perfil')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><div id="mp-body"></div></div>
+</div>
+<div id="modal-edit" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-edit')">
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Editar disponibilidades</p><button onclick="fecharModal('modal-edit')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Dominicais</p><div class="missa-grid" id="edit-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Semanais</p><div class="missa-grid" id="edit-sem"></div><button class="btn-g" onclick="salvarEditDisp()">Salvar disponibilidades</button></div>
+</div>
+<div id="modal-cad" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-cad')">
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Novo ministro</p><button onclick="fecharModal('modal-cad')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><input type="text" id="cad-nome" placeholder="Nome completo *"><input type="tel" id="cad-tel" placeholder="WhatsApp (91) 9 0000-0000"><input type="date" id="cad-nasc" style="margin-bottom:12px"><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades dominicais (mínimo 2 no total)</p><div class="missa-grid" id="cad-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades semanais</p><div class="missa-grid" id="cad-sem"></div><button class="btn-g" onclick="salvarCadastro()">Salvar ministro</button></div>
+</div>
+
+<!-- MODAL QR CODE -->
+<div id="modal-qr" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-qr')">
+  <div class="modal-box" style="max-width:320px;text-align:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <p id="qr-nome" style="font-size:16px;font-weight:700"></p>
+        <p style="font-size:11px;color:#888">QR Code de identificação</p>
+      </div>
+      <button onclick="fecharModal('modal-qr')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <div id="qr-canvas" style="display:flex;justify-content:center;margin-bottom:16px"></div>
+    <p style="font-size:11px;color:#666;margin-bottom:14px;line-height:1.5">Este QR Code identifica o ministro no sistema. Use para registrar presença.</p>
+    <div style="display:flex;gap:8px">
+      <button onclick="enviarQRWhatsApp()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer">📱 Enviar WhatsApp</button>
+      <button onclick="imprimirQR()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL SCANNER QR CODE -->
+<div id="modal-scanner" class="modal-bg" onclick="if(event.target===this)pararScanner()">
+  <div class="modal-box" style="max-width:360px;text-align:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div>
+        <p style="font-size:16px;font-weight:700">📷 Scanner de Presença</p>
+        <p style="font-size:11px;color:#888">Aponte para o QR Code do ministro</p>
+      </div>
+      <button onclick="pararScanner()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <video id="scanner-video" style="width:100%;border-radius:10px;background:#000;max-height:280px"></video>
+    <canvas id="scanner-canvas" style="display:none"></canvas>
+    <p id="scanner-resultado" style="font-size:13px;margin-top:12px;color:#085041;font-weight:600;min-height:20px"></p>
+    <p id="scanner-status" style="font-size:11px;color:#888;margin-top:4px">Câmera iniciando...</p>
+  </div>
+</div>
+
+<!-- MODAL VISUALIZAÇÃO GERAL DAS ESCALAS -->
+<div id="modal-vis" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-vis')">
+  <div class="modal-box" style="max-height:92vh">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;position:sticky;top:0;background:white;padding-bottom:8px;border-bottom:1px solid #eee">
+      <div>
+        <p style="font-size:16px;font-weight:700">Escalas de junho/2026</p>
+        <p style="font-size:11px;color:#888">Dominical e semanal</p>
+      </div>
+      <button onclick="fecharModal('modal-vis')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <div id="vis-body"></div>
+  </div>
+</div>
+
+<!-- MODAL VER DISPONÍVEIS -->
+<div id="modal-vd" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-vd')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700" id="vd-titulo"></p>
+      <button onclick="fecharModal('modal-vd')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p id="vd-count" style="font-size:12px;color:#1D9E75;margin-bottom:12px"></p>
+    <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:10px">
+    <div id="vd-body"></div>
+  </div>
+</div>
+
+<!-- MODAL EVENTO ESPECIAL -->
+<div id="modal-evento" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-evento')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">Evento especial</p>
+      <button onclick="fecharModal('modal-evento')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <input type="text" id="evt-nome" placeholder="Nome do evento (ex: Círio de Nazaré)">
+    <input type="date" id="evt-data">
+    <input type="text" id="evt-desc" placeholder="Descrição (opcional)" style="margin-bottom:12px">
+    <button style="padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%" onclick="salvarEvento()">Salvar evento</button>
+  </div>
+</div>
+
+<script>
+function filtrarVD(){
+  const v=document.getElementById('vd-busca').value.toLowerCase();
+  const rows=document.querySelectorAll('#vd-body > div');
+  rows.forEach(r=>{ r.style.display=r.textContent.toLowerCase().includes(v)?'flex':'none'; });
+}
+
+function tabPres(tipo,btn){
+  document.querySelectorAll('#s-presenca .tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  ['missa','reuniao','adoracao'].forEach(t=>document.getElementById('tp-'+t).style.display='none');
+  document.getElementById('tp-'+tipo).style.display='block';
+  const hoje = new Date().toISOString().split('T')[0];
+  if(tipo==='reuniao'){
+    const inp=document.getElementById('reun-data');
+    if(!inp.value) inp.value=hoje;
+    renderReuniao();
+  }
+  if(tipo==='adoracao'){
+    const inp=document.getElementById('ador-data');
+    if(!inp.value) inp.value=hoje;
+    renderAdoracao();
+  }
+  if(tipo==='missa') renderPresenca();
+}
+
+const presAdoracaoMap={};
+function renderAdoracao(){
+  if(!window._ministros) return;
+  document.getElementById('ador-body').innerHTML=window._ministros.map(m=>{
+    const pr=presAdoracaoMap[m.nome];
+    const status=pr?.status||'';
+    const faltas=m.faltasAdoracao||0;
+    const cartao=faltas>=3;
+    return `<div style="padding:7px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="flex:1;font-size:13px">${m.nome}${cartao?` <span style="font-size:10px;background:#fcebeb;color:#A32D2D;padding:1px 6px;border-radius:20px">🟡 ${faltas}F</span>`:''}</span>
+        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','P')" style="width:30px;height:28px;border:1px solid ${status==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${status==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='P'?'#085041':'#888'}">P</button>
+        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','F')" style="width:30px;height:28px;border:1px solid ${status==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${status==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='F'?'#A32D2D':'#888'}">F</button>
+        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','J')" style="width:30px;height:28px;border:1px solid ${status==='J'?'#BA7517':'#ddd'};border-radius:6px;background:${status==='J'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='J'?'#BA7517':'#888'}">J</button>
+      </div>
+      ${status==='J'?`<input type="text" placeholder="Justificativa da falta..." value="${pr?.justificativa||''}"
+        oninput="setJustAdor('${m.nome.replace(/'/g,"\\'")}',this.value)"
+        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#BA7517;margin-top:4px">`:'' }
+    </div>`;
+  }).join('');
+}
+function setStatusAdor(nome,val){
+  if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={status:'',justificativa:''};
+  presAdoracaoMap[nome].status = presAdoracaoMap[nome].status===val ? '' : val;
+  if(presAdoracaoMap[nome].status!=='J') presAdoracaoMap[nome].justificativa='';
+  renderAdoracao();
+}
+function setJustAdor(nome,val){ if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={status:'J',justificativa:''}; presAdoracaoMap[nome].justificativa=val; }
+async function salvarAdoracao(){
+  const data=document.getElementById('ador-data').value || new Date().toISOString().split('T')[0];
+  const registros={};
+  ministros.forEach(m=>{
+    const pr=presAdoracaoMap[m.nome];
+    registros[m.id]={status:pr?.status||'',justificativa:pr?.justificativa||''};
+  });
+  await setDoc(doc(db,'adoracoes',data),{data,registros,atualizadoEm:serverTimestamp()});
+  for(const m of ministros){
+    const pr=presAdoracaoMap[m.nome];
+    if(pr?.status==='F'){
+      await updateDoc(doc(db,'ministros',m.id),{faltasAdoracao:(m.faltasAdoracao||0)+1});
+      m.faltasAdoracao=(m.faltasAdoracao||0)+1;
+    }
+  }
+  toast('Adoração salva! Faltas atualizadas.');
+  renderInicio();
+}
+setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500);
+</script>
+</body>
+</html>
