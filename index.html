@@ -1027,7 +1027,7 @@ window.imprimirPresenca = function(){
   const periodoSem = info.diaSemana==='Domingo' ? '' : periodoDaSemana(info.data, info.diaSemana);
   const dataLabel = periodoSem
     ? `Semana de ${periodoSem}`
-    : `${info.diaSemana}, ${info.data}/${CAL.ano}`;
+    : `Domingos de ${CAL.mesNome}: ${DOMINGOS_MES.join(' · ')}`;
 
   const blocos = missasComMin.map(missa=>{
     const responsavel = missa.responsavel;
@@ -1063,7 +1063,7 @@ window.imprimirPresenca = function(){
   }).join('');
 
   const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${periodoSem ? 'Semana '+periodoSem : info.diaSemana+' '+info.data}</title>
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${periodoSem ? 'Semana '+periodoSem : 'Domingos '+CAL.mesNome}</title>
   <style>
     *{box-sizing:border-box}
     body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:28px 32px}
