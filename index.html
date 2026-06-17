@@ -717,9 +717,80 @@ window.compartilharEscala = function(){
     }
   });
   txt+='_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
-  try{ navigator.clipboard.writeText(txt); } catch(e){}
-  toast('Escala copiada! Ao abrir o WhatsApp, cole (segure e "Colar") no grupo Coordenação MESCE.','ok');
-  window.open(GRUPO_WA,'_blank');
+  try{
+    navigator.clipboard.writeText(txt);
+    toast('✓ Escala copiada! Abra o grupo "MECE Basília" no WhatsApp e cole (Ctrl+V ou segure → Colar).','ok');
+  }catch(e){
+    toast('Copie a escala manualmente para enviar no grupo.','warn');
+  }
+};
+
+// Envia a escala personalizada para cada ministro escalado, via WhatsApp individual
+// (wa.me/55<tel>?text=...). Abre conversa já com texto pronto — basta enviar.
+window.enviarEscalaIndividual = function(){
+  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
+  const key = tipo==='dom'
+    ? `escala_dom_${getMesAtual()}`
+    : `escala_sem_sem${sem}_${getMesAtual()}`;
+  const esc=escalas[key]||{};
+  const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
+  const periodo = tipo==='dom'
+    ? `${CAL.mesNome}/${CAL.ano} (domingos: ${DOMINGOS_MES.join(', ')})`
+    : `${SEMANAS_MES[sem]?.label||sem+'ª semana'} (${SEMANAS_MES[sem]?.periodo||''})`;
+
+  // Monta: para cada ministro, em quais horários ele está escalado
+  const porMinistro = {}; // nome -> [horas]
+  horas.forEach(h=>{
+    const g=esc[h]||{ministros:[]};
+    (g.ministros||[]).forEach(nome=>{
+      if(!porMinistro[nome]) porMinistro[nome]=[];
+      porMinistro[nome].push(h);
+    });
+  });
+
+  const nomes = Object.keys(porMinistro).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  if(!nomes.length){ toast('Nenhum ministro escalado para enviar.','warn'); return; }
+
+  window._envioLista = nomes.map(nome=>{
+    const m = ministros.find(x=>x.nome===nome);
+    const tel = (m?.tel||'').replace(/\D/g,'');
+    const horasMin = porMinistro[nome];
+    const msg = `🙏 *Escala — Ministério da Eucaristia*\n${tipo==='dom'?'Escala Dominical':'Escala Semanal'}\n${periodo}\n\nOlá, ${nome.split(' ')[0]}! Você está escalado(a) para:\n${horasMin.map(h=>`⏰ ${h}`).join('\n')}\n\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
+    return { nome, tel, horas:horasMin, msg };
+  });
+
+  document.getElementById('envio-info').textContent = `${nomes.length} ministro(s) escalado(s) · ${tipo==='dom'?'Dominical':'Semanal'} ${tipo==='dom'?'':SEMANAS_MES[sem]?.periodo||''}`;
+  document.getElementById('envio-busca').value='';
+  renderEnvioLista(window._envioLista);
+  document.getElementById('modal-envio').style.display='flex';
+};
+
+function renderEnvioLista(lista){
+  document.getElementById('envio-body').innerHTML = lista.map(item=>{
+    const temTel = item.tel && item.tel.length>=10;
+    const link = temTel ? `https://wa.me/55${item.tel}?text=${encodeURIComponent(item.msg)}` : '';
+    return `<div class="envio-row" data-nome="${normalizarBusca(item.nome)}" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+      <div style="flex:1">
+        <p style="font-size:13px;margin:0;font-weight:500">${item.nome}</p>
+        <p style="font-size:11px;color:#888;margin:0">${item.horas.join(' · ')}${temTel?'':' · <span style=\"color:#A32D2D\">sem WhatsApp cadastrado</span>'}</p>
+      </div>
+      ${temTel
+        ? `<a href="${link}" target="_blank" onclick="marcarEnviado(this)" style="text-decoration:none;padding:7px 14px;border-radius:20px;background:#25D366;color:white;font-size:12px;font-weight:700;white-space:nowrap">📲 Enviar</a>`
+        : `<span style="padding:7px 14px;border-radius:20px;background:#f0f0f0;color:#aaa;font-size:12px;white-space:nowrap">sem nº</span>`}
+    </div>`;
+  }).join('');
+}
+
+window.marcarEnviado = function(a){
+  a.textContent='✓ Enviado';
+  a.style.background='#085041';
+};
+
+window.filtrarEnvio = function(){
+  const v = normalizarBusca(document.getElementById('envio-busca').value);
+  document.querySelectorAll('#envio-body .envio-row').forEach(r=>{
+    r.style.display = r.getAttribute('data-nome').includes(v) ? 'flex' : 'none';
+  });
 };
 
 let presQrInstances = {};
@@ -734,7 +805,12 @@ window.popularSeletorDatasPresenca = async function(){
   datas.forEach(d=>{
     const opt = document.createElement('option');
     opt.value = JSON.stringify({data:d.data, diaSemana:d.diaSemana, iso:d.iso});
-    opt.textContent = `${d.diaSemana}, ${d.data}`;
+    if(modo==='sem'){
+      const per = periodoDaSemana(d.data, d.diaSemana);
+      opt.textContent = per ? `${d.diaSemana}, ${d.data} — semana ${per}` : `${d.diaSemana}, ${d.data}`;
+    } else {
+      opt.textContent = `${d.diaSemana}, ${d.data}`;
+    }
     sel.appendChild(opt);
   });
   await autoPosicionarDataComEscala(datas);
@@ -775,6 +851,15 @@ async function autoPosicionarDataComEscala(datas){
 // Retorna a lista de horários de missa para um dia da semana
 function horariosDoDia(diaSemana){
   return diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[diaSemana]||[]);
+}
+
+// Retorna o rótulo do período da semana a que pertence a data (ex: "07/06 a 13/06")
+function periodoDaSemana(dataDDMM, diaSemana){
+  let achou = null;
+  Object.entries(SEMANAS_MES).forEach(([k,v])=>{
+    if(v.dias.some(d=>d.data===dataDDMM && d.dia===diaSemana)) achou = v;
+  });
+  return achou ? (achou.periodo||'') : '';
 }
 
 // Busca, em UMA leitura, o documento de escala do dia (dominical ou semanal)
@@ -927,6 +1012,10 @@ window.imprimirPresenca = function(){
   if(!missasComMin.length){ toast('Nenhuma escala para imprimir nesta data.','warn'); return; }
 
   const tipoEscala = info.diaSemana==='Domingo' ? 'Dominical' : 'Semanal';
+  const periodoSem = info.diaSemana==='Domingo' ? '' : periodoDaSemana(info.data, info.diaSemana);
+  const dataLabel = periodoSem
+    ? `${info.diaSemana}, ${info.data}/${CAL.ano} <span style="color:#888;font-weight:400">(semana de ${periodoSem})</span>`
+    : `${info.diaSemana}, ${info.data}/${CAL.ano}`;
 
   const blocos = missasComMin.map(missa=>{
     const responsavel = missa.responsavel;
@@ -1000,7 +1089,7 @@ window.imprimirPresenca = function(){
       <img src="${APP_URL}/${LOGO_MESCE}">
     </div>
     <div class="info">
-      <div><strong>Data:</strong> ${info.diaSemana}, ${info.data}/${CAL.ano}</div>
+      <div><strong>Data:</strong> ${dataLabel}</div>
       <div class="tipo">Escala ${tipoEscala}</div>
     </div>
     ${blocos}
@@ -1230,9 +1319,12 @@ window.compartilharReforco=function(){
   let txt=`🔔 *REFORÇO — ${rf.label.toUpperCase()}*\n${CAL.mesNome}/${CAL.ano}\n\n`;
   lista.forEach(m=>txt+=`• ${m}\n`);
   txt+='\n_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
-  try{ navigator.clipboard.writeText(txt); } catch(e){}
-  toast('Reforço copiado! Ao abrir o WhatsApp, cole no grupo Coordenação MESCE.','ok');
-  window.open(GRUPO_WA,'_blank');
+  try{
+    navigator.clipboard.writeText(txt);
+    toast('✓ Reforço copiado! Abra o grupo "MECE Basília" no WhatsApp e cole (Ctrl+V ou segure → Colar).','ok');
+  }catch(e){
+    toast('Copie o reforço manualmente para enviar no grupo.','warn');
+  }
 };
 
 window.renderRelatorios = async function(){
@@ -2146,10 +2238,13 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
     <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px">
       👁 Visualizar todas as escalas do mês
     </button>
-    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button class="btn-g" onclick="salvarEscala()" style="margin:0;flex:1;min-width:80px">💾 Salvar Escala</button>
-      <button class="btn-w" onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px">📱 WhatsApp</button>
       <button onclick="imprimirEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn-w" onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px">📋 Copiar texto</button>
+      <button onclick="enviarEscalaIndividual()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer">📲 Enviar a cada ministro</button>
     </div>
     <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
       ✓ Autocomplete filtra apenas ministros disponíveis para cada horário
@@ -2183,7 +2278,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
     </div>
     <div style="display:flex;gap:6px;margin-top:8px">
       <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1">💾 Salvar Reforço</button>
-      <button class="btn-w" onclick="compartilharReforco()" style="margin:0;flex:1">📱 WhatsApp</button>
+      <button class="btn-w" onclick="compartilharReforco()" style="margin:0;flex:1">📋 Copiar p/ WhatsApp</button>
     </div>
   </div>
 </div>
@@ -2405,6 +2500,18 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
     <p id="vd-count" style="font-size:12px;color:#1D9E75;margin-bottom:12px"></p>
     <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:10px">
     <div id="vd-body"></div>
+  </div>
+</div>
+
+<div id="modal-envio" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-envio')">
+  <div class="modal-box" style="max-height:92vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700">📲 Enviar escala a cada ministro</p>
+      <button onclick="fecharModal('modal-envio')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p id="envio-info" style="font-size:12px;color:#888;margin-bottom:10px"></p>
+    <input type="text" id="envio-busca" placeholder="Filtrar por nome..." oninput="filtrarEnvio()" style="margin-bottom:10px">
+    <div id="envio-body" style="overflow-y:auto;flex:1"></div>
   </div>
 </div>
 
