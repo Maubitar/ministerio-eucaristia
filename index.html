@@ -646,8 +646,8 @@ window.salvarEscala = async function(){
   const totalEscalados = Object.values(dados).reduce((acc,g)=>acc+(g?.ministros?.length||0),0);
   try{
     await setDoc(doc(db,'escalas',key), dados);
-    const ref = tipo==='dom' ? 'escala dominical' : `${SEMANAS_MES[sem]?.label||'semana '+sem} (semanal)`;
-    toast(`✓ ${ref} salva: ${totalEscalados} ministro(s) escalado(s)`);
+    const ref = tipo==='dom' ? 'Escala dominical' : `Escala ${SEMANAS_MES[sem]?.label||'semana '+sem}`;
+    toast(`✓ ${ref} salva com ${totalEscalados} ministro(s)! A Lista de Presença já está pronta na aba Presença.`);
   }catch(e){
     toast('❌ Erro ao salvar escala: '+e.message,'err');
   }
@@ -718,7 +718,7 @@ window.compartilharEscala = function(){
   txt+='_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
   try{ navigator.clipboard.writeText(txt); } catch(e){}
   toast('Escala copiada! Ao abrir o WhatsApp, cole (segure e "Colar") no grupo Coordenação MESCE.','ok');
-  setTimeout(()=>window.open(GRUPO_WA,'_blank'), 1200);
+  window.open(GRUPO_WA,'_blank');
 };
 
 let presQrInstances = {};
@@ -733,6 +733,28 @@ window.popularSeletorDatasPresenca = function(){
     sel.appendChild(opt);
   });
   atualizarHorariosPresenca();
+  // Tenta posicionar automaticamente na primeira data/horário que JÁ tem escala montada
+  autoSelecionarComEscala();
+};
+
+window.autoSelecionarComEscala = async function(){
+  const sel = document.getElementById('pres-data');
+  const horSel = document.getElementById('pres-hor');
+  if(!sel || !sel.options.length) return;
+  for(const opt of sel.options){
+    const info = JSON.parse(opt.value);
+    const horas = info.diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[info.diaSemana]||[]);
+    for(const h of horas){
+      const g = await buscarEscaladosPara(info.data, h, info.diaSemana);
+      if((g.ministros||[]).length){
+        sel.value = opt.value;
+        atualizarHorariosPresenca();
+        horSel.value = h;
+        renderPresenca();
+        return;
+      }
+    }
+  }
 };
 
 window.atualizarHorariosPresenca = function(){
@@ -915,7 +937,7 @@ window.setJustReun = function(nome, val){
   presReuniaoMap[nome].justificativa = val;
 };
 
-function renderReuniao(){
+window.renderReuniao = function(){
   const lista = ministros;
   document.getElementById('reun-body').innerHTML = lista.map(m=>{
     const pr = presReuniaoMap[m.nome];
@@ -934,7 +956,7 @@ function renderReuniao(){
         style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#BA7517;margin-top:4px">`:'' }
     </div>`;
   }).join('');
-}
+};
 
 window.salvarReuniao = async function(){
   const data=document.getElementById('reun-data').value || new Date().toISOString().split('T')[0];
@@ -1123,7 +1145,7 @@ window.compartilharReforco=function(){
   txt+='\n_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
   try{ navigator.clipboard.writeText(txt); } catch(e){}
   toast('Reforço copiado! Ao abrir o WhatsApp, cole no grupo Coordenação MESCE.','ok');
-  setTimeout(()=>window.open(GRUPO_WA,'_blank'), 1200);
+  window.open(GRUPO_WA,'_blank');
 };
 
 window.renderRelatorios = async function(){
@@ -1808,13 +1830,30 @@ function encontrarMelhor(txt){
     .sort((a,b)=>b.split?0:0 || (normalizarBusca(b.nome).split(' ').filter(p=>p.length>3&&t.includes(p)).length-normalizarBusca(a.nome).split(' ').filter(p=>p.length>3&&t.includes(p)).length))[0];
 }
 function startVoice(callback){
-  if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){toast('Voz não suportada neste navegador.','err');return;}
-  if(recognition) recognition.stop();
+  if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){
+    toast('Comando de voz não é suportado neste navegador. Use o Chrome.','err');return;
+  }
+  if(!window.isSecureContext){
+    toast('O comando de voz só funciona no site publicado (https), não no arquivo local.','err');return;
+  }
+  try{ if(recognition) recognition.abort(); }catch(e){}
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   recognition=new SR(); recognition.lang='pt-BR'; recognition.continuous=false; recognition.interimResults=false;
+  recognition.onstart=()=>toast('🎤 Pode falar o nome do ministro...','ok');
   recognition.onresult=e=>callback(e.results[0][0].transcript);
-  recognition.onerror=()=>toast('Não entendido. Tente novamente.','warn');
-  recognition.start();
+  recognition.onerror=ev=>{
+    const msgs={
+      'not-allowed':'Permissão do microfone negada. Clique no cadeado 🔒 na barra de endereço e permita o microfone.',
+      'service-not-allowed':'Permissão do microfone bloqueada nas configurações do navegador.',
+      'no-speech':'Não ouvi nada. Tente falar mais perto do microfone.',
+      'audio-capture':'Microfone não encontrado. Verifique se há um microfone conectado.',
+      'aborted':'Captura de voz interrompida.',
+      'network':'Sem internet para reconhecer a voz.'
+    };
+    toast(msgs[ev.error]||('Erro de voz: '+ev.error),'err');
+  };
+  try{ recognition.start(); }
+  catch(e){ toast('Não foi possível iniciar o microfone: '+e.message,'err'); }
 }
 window.startVoice=startVoice;
 
@@ -1873,13 +1912,25 @@ window.imprimirEscala = function(){
         const semDias = (SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
         datasLabel = semDias.map(d=>`${d.dia} ${d.data}`).join(', ');
       }
-      linhas+=`<tr style="background:#085041;color:white"><td colspan="2" style="padding:6px 8px;font-weight:700;font-size:13px">⏰ ${h} — ${datasLabel}</td></tr>`;
-      if(g.responsavel) linhas+=`<tr><td colspan="2" style="padding:4px 8px;font-size:11px;color:#633806;background:#faeeda">★ Responsável: ${g.responsavel}</td></tr>`;
-      g.ministros.forEach((m,i)=>{ linhas+=`<tr style="border-bottom:1px solid #eee"><td style="padding:5px 8px;font-size:12px">${i+1}. ${m}</td><td style="width:140px;border-left:1px solid #eee;padding:5px 8px;text-align:center;font-size:11px;color:#888">P / F / S</td></tr>`; });
+      linhas+=`<tr style="background:#085041;color:white">
+        <td style="padding:6px 8px;font-weight:700;font-size:13px">⏰ ${h} — ${datasLabel}</td>
+        <td style="padding:6px 4px;font-weight:700;font-size:11px;text-align:center;width:38px">P</td>
+        <td style="padding:6px 4px;font-weight:700;font-size:11px;text-align:center;width:38px">F</td>
+        <td style="padding:6px 4px;font-weight:700;font-size:11px;text-align:center;width:38px">S</td>
+      </tr>`;
+      g.ministros.forEach((m,i)=>{
+        const isResp = m===g.responsavel;
+        linhas+=`<tr style="border-bottom:1px solid #eee">
+          <td style="padding:5px 8px;font-size:12px;${isResp?'font-weight:700':''}">${i+1}. ${m}${isResp?' ★':''}</td>
+          <td style="border-left:1px solid #eee;height:22px"></td>
+          <td style="border-left:1px solid #eee;height:22px"></td>
+          <td style="border-left:1px solid #eee;height:22px"></td>
+        </tr>`;
+      });
     }
   });
 
-  if(!linhas) linhas = '<tr><td style="padding:12px;text-align:center;color:#888;font-size:12px">Nenhum ministro escalado.</td></tr>';
+  if(!linhas) linhas = '<tr><td colspan="4" style="padding:12px;text-align:center;color:#888;font-size:12px">Nenhum ministro escalado.</td></tr>';
 
   w.document.write(`<!DOCTYPE html><html><head><title>Escala</title></head>
   <body style="font-family:Arial,sans-serif;padding:24px;font-size:12px;color:#1a1a1a">
@@ -1894,7 +1945,8 @@ window.imprimirEscala = function(){
     </div>
     <p style="font-size:13px;font-weight:600;color:#085041;margin-bottom:10px">${periodoLabel}</p>
     <table style="width:100%;border-collapse:collapse;border:1px solid #ddd">${linhas}</table>
-    <p style="text-align:center;margin-top:16px;font-size:10px;color:#999">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
+    <p style="font-size:10px;color:#666;margin-top:8px">★ = Responsável pelo horário &nbsp;·&nbsp; <strong>P</strong> presente &nbsp;/&nbsp; <strong>F</strong> faltou &nbsp;/&nbsp; <strong>S</strong> substituído</p>
+    <p style="text-align:center;margin-top:12px;font-size:10px;color:#999">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
     <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   w.document.close();
