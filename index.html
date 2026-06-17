@@ -800,14 +800,26 @@ window.popularSeletorDatasPresenca = async function(){
   if(!sel || sel.options.length) return;
   const modo = window.presModo || 'dom';
   const todas = proximasDatasComMissa();
-  // Filtra: dominical = só domingos; semanal = só dias de semana (seg-sáb)
-  const datas = todas.filter(d => modo==='dom' ? d.diaSemana==='Domingo' : d.diaSemana!=='Domingo');
+  let datas = todas.filter(d => modo==='dom' ? d.diaSemana==='Domingo' : d.diaSemana!=='Domingo');
+
+  if(modo==='sem'){
+    // Uma opção por SEMANA (não por dia) — a escala semanal vale para a semana toda
+    const vistas = new Set();
+    const unicas = [];
+    datas.forEach(d=>{
+      const per = periodoDaSemana(d.data, d.diaSemana);
+      const chave = per || d.data;
+      if(!vistas.has(chave)){ vistas.add(chave); unicas.push(d); }
+    });
+    datas = unicas;
+  }
+
   datas.forEach(d=>{
     const opt = document.createElement('option');
     opt.value = JSON.stringify({data:d.data, diaSemana:d.diaSemana, iso:d.iso});
     if(modo==='sem'){
       const per = periodoDaSemana(d.data, d.diaSemana);
-      opt.textContent = per ? `${d.diaSemana}, ${d.data} — semana ${per}` : `${d.diaSemana}, ${d.data}`;
+      opt.textContent = per ? `Semana de ${per}` : `${d.diaSemana}, ${d.data}`;
     } else {
       opt.textContent = `${d.diaSemana}, ${d.data}`;
     }
@@ -1014,7 +1026,7 @@ window.imprimirPresenca = function(){
   const tipoEscala = info.diaSemana==='Domingo' ? 'Dominical' : 'Semanal';
   const periodoSem = info.diaSemana==='Domingo' ? '' : periodoDaSemana(info.data, info.diaSemana);
   const dataLabel = periodoSem
-    ? `${info.diaSemana}, ${info.data}/${CAL.ano} <span style="color:#888;font-weight:400">(semana de ${periodoSem})</span>`
+    ? `Semana de ${periodoSem}`
     : `${info.diaSemana}, ${info.data}/${CAL.ano}`;
 
   const blocos = missasComMin.map(missa=>{
@@ -1051,7 +1063,7 @@ window.imprimirPresenca = function(){
   }).join('');
 
   const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${info.diaSemana} ${info.data}</title>
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${periodoSem ? 'Semana '+periodoSem : info.diaSemana+' '+info.data}</title>
   <style>
     *{box-sizing:border-box}
     body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:28px 32px}
