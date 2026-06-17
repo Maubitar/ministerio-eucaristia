@@ -732,124 +732,115 @@ window.popularSeletorDatasPresenca = function(){
     opt.textContent = `${d.diaSemana}, ${d.data}`;
     sel.appendChild(opt);
   });
-  atualizarHorariosPresenca();
-  // Tenta posicionar automaticamente na primeira data/horário que JÁ tem escala montada
-  autoSelecionarComEscala();
-};
-
-window.autoSelecionarComEscala = async function(){
-  const sel = document.getElementById('pres-data');
-  const horSel = document.getElementById('pres-hor');
-  if(!sel || !sel.options.length) return;
-  for(const opt of sel.options){
-    const info = JSON.parse(opt.value);
-    const horas = info.diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[info.diaSemana]||[]);
-    for(const h of horas){
-      const g = await buscarEscaladosPara(info.data, h, info.diaSemana);
-      if((g.ministros||[]).length){
-        sel.value = opt.value;
-        atualizarHorariosPresenca();
-        horSel.value = h;
-        renderPresenca();
-        return;
-      }
-    }
-  }
-};
-
-window.atualizarHorariosPresenca = function(){
-  const sel = document.getElementById('pres-data');
-  const horSel = document.getElementById('pres-hor');
-  if(!sel || !sel.value) return;
-  const info = JSON.parse(sel.value);
-  const horas = info.diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[info.diaSemana]||[]);
-  horSel.innerHTML = horas.map(h=>`<option value="${h}">${h}</option>`).join('');
-  if(!horas.length) horSel.innerHTML = '<option value="">Sem missas neste dia</option>';
   renderPresenca();
 };
+
+// Retorna a lista de horários de missa para um dia da semana
+function horariosDoDia(diaSemana){
+  return diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[diaSemana]||[]);
+}
+
+// Busca, em UMA leitura, o documento de escala do dia (dominical ou semanal)
+// e devolve um objeto { hora: {ministros, responsavel} }
+async function buscarEscalaDoDia(info){
+  const mesAtualKey = getMesAtual();
+  let key;
+  if(info.diaSemana==='Domingo'){
+    key = `escala_dom_${mesAtualKey}`;
+  } else {
+    let semanaAlvo = null;
+    Object.entries(SEMANAS_MES).forEach(([k,v])=>{
+      if(v.dias.some(d=>d.data===info.data && d.dia===info.diaSemana)) semanaAlvo = k;
+    });
+    if(!semanaAlvo) return {};
+    key = `escala_sem_sem${semanaAlvo}_${mesAtualKey}`;
+  }
+  try{
+    const d = await getDoc(doc(db,'escalas',key));
+    return d.exists() ? d.data() : {};
+  }catch(e){ return {}; }
+}
 
 let presListaAtual = null;
 
 window.renderPresenca = async function(){
   const sel = document.getElementById('pres-data');
-  if(!sel.options.length){ popularSeletorDatasPresenca(); return; }
+  if(!sel || !sel.options.length){ popularSeletorDatasPresenca(); return; }
   const info = JSON.parse(sel.value);
-  const hor = document.getElementById('pres-hor').value;
-  if(!hor){
+  const horas = horariosDoDia(info.diaSemana);
+  const body = document.getElementById('pres-body');
+
+  if(!horas.length){
     document.getElementById('pres-count').textContent='';
-    document.getElementById('pres-body').innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Não há missas neste dia.</p>`;
+    body.innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Não há missas neste dia.</p>`;
     presListaAtual = null;
     return;
   }
 
-  const tipo = info.diaSemana==='Domingo' ? 'dom' : 'sem';
-  document.getElementById('pres-body').innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Carregando escala...</p>`;
+  body.innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Carregando escala do dia...</p>`;
+  const escalaDia = await buscarEscalaDoDia(info);
 
-  const g = await buscarEscaladosPara(info.data, hor, info.diaSemana);
-  const escalados = g.ministros || [];
-  const responsavel = g.responsavel || '';
+  // Monta lista de missas com escalados
+  const missas = horas.map(h=>{
+    const g = escalaDia[h] || {ministros:[],responsavel:''};
+    return { hora:h, ministros:g.ministros||[], responsavel:g.responsavel||'' };
+  });
 
-  if(!escalados.length){
-    document.getElementById('pres-count').textContent = '0 ministros';
-    document.getElementById('pres-body').innerHTML = `
+  const totalEscalados = missas.reduce((a,m)=>a+m.ministros.length,0);
+  presListaAtual = { info, missas };
+
+  if(!totalEscalados){
+    document.getElementById('pres-count').textContent = '0 ministros escalados';
+    body.innerHTML = `
       <div style="padding:16px;text-align:center;background:#FFF3CD;border-radius:8px">
-        <p style="font-size:13px;color:#856404;font-weight:600;margin:0">⚠️ Nenhum ministro escalado</p>
-        <p style="font-size:12px;color:#856404;margin-top:4px">Monte a escala primeiro em <strong>Escala</strong> para ${info.diaSemana}, ${info.data} — ${hor}.</p>
+        <p style="font-size:13px;color:#856404;font-weight:600;margin:0">⚠️ Nenhuma escala montada para ${info.diaSemana}, ${info.data}</p>
+        <p style="font-size:12px;color:#856404;margin-top:4px">Monte a escala primeiro na aba <strong>Escala</strong>.</p>
       </div>`;
-    presListaAtual = null;
     return;
   }
 
-  document.getElementById('pres-count').textContent = escalados.length+' escalado(s)';
-  presListaAtual = {info, hor, escalados, responsavel};
+  document.getElementById('pres-count').textContent = `${missas.filter(m=>m.ministros.length).length} missa(s) · ${totalEscalados} ministro(s)`;
+
+  const btnPFS = (id,letra,cor,corBg,s)=>`<button onclick="setPres('${id}','${letra}')" style="width:30px;height:28px;border:1px solid ${s===letra?cor:'#ddd'};border-radius:6px;background:${s===letra?corBg:'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s===letra?cor:'#888'}">${letra}</button>`;
 
   const linha = (nome, isResp)=>{
     const m = ministros.find(x=>x.nome===nome);
     const id = m?.id || '';
     const s = id ? (presAtual[id]?.status||'') : '';
     const j = id ? (presAtual[id]?.justificativa||'') : '';
-    const qrId = 'qrp-'+(id||nome.replace(/\W/g,''));
-    return `<div style="padding:8px 0;border-bottom:1px solid #eee">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${s==='F'?'6px':'0'}">
-        <div id="${qrId}" class="pres-qr" style="width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden"></div>
+    return `<div style="padding:7px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:8px">
         <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}</span>
-        <button onclick="setPres('${id}','P')" style="width:30px;height:28px;border:1px solid ${s==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${s==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='P'?'#085041':'#888'}">P</button>
-        <button onclick="setPres('${id}','F')" style="width:30px;height:28px;border:1px solid ${s==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${s==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='F'?'#A32D2D':'#888'}">F</button>
-        <button onclick="setPres('${id}','S')" style="width:30px;height:28px;border:1px solid ${s==='S'?'#BA7517':'#ddd'};border-radius:6px;background:${s==='S'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s==='S'?'#BA7517':'#888'}">S</button>
+        ${btnPFS(id,'P','#085041','#e1f5ee',s)}
+        ${btnPFS(id,'F','#A32D2D','#fcebeb',s)}
+        ${btnPFS(id,'S','#BA7517','#faeeda',s)}
       </div>
       ${s==='F'?`<input type="text" placeholder="Justificativa da falta (opcional)..." value="${j}"
         oninput="setJustificativa('${id}',this.value)"
-        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#A32D2D;margin:0">`:'' }
+        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#A32D2D;margin-top:5px">`:'' }
     </div>`;
   };
 
-  const outros = escalados.filter(n=>n!==responsavel);
-
   let html = '';
-  if(responsavel){
-    html += `<div style="background:#fdf8ef;border:1px solid #f0deb8;border-radius:8px;padding:4px 8px;margin-bottom:6px">
-      <p style="font-size:10px;color:#BA7517;font-weight:700;margin:6px 0 0;text-transform:uppercase;letter-spacing:.5px">Responsável</p>
-      ${linha(responsavel, true)}
-    </div>`;
-  }
-  html += outros.map(n=>linha(n,false)).join('');
-  document.getElementById('pres-body').innerHTML = html;
-
-  // Render small QR codes after DOM insertion
-  presQrInstances = {};
-  [...(responsavel?[responsavel]:[]), ...outros].forEach(nome=>{
-    const m = ministros.find(x=>x.nome===nome);
-    const id = m?.id || '';
-    const qrId = 'qrp-'+(id||nome.replace(/\W/g,''));
-    const el = document.getElementById(qrId);
-    if(!el || !id) return;
-    const url = `${APP_URL}/?ministro=${id}`;
-    presQrInstances[id] = new QRCode(el, {
-      text: url, width: 36, height: 36,
-      colorDark: '#085041', colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
+  missas.forEach(missa=>{
+    if(!missa.ministros.length) return;
+    const responsavel = missa.responsavel;
+    const ordenados = [...missa.ministros].sort((a,b)=>{
+      if(a===responsavel) return -1;
+      if(b===responsavel) return 1;
+      return a.localeCompare(b,'pt-BR');
     });
+    html += `<div style="margin-bottom:14px;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden">
+      <div style="background:#085041;color:white;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;font-size:14px">⏰ ${missa.hora}</span>
+        <span style="font-size:11px;opacity:.85">${missa.ministros.length} ministro(s)</span>
+      </div>
+      <div style="padding:4px 12px">
+        ${ordenados.map(n=>linha(n, n===responsavel)).join('')}
+      </div>
+    </div>`;
   });
+  body.innerHTML = html;
 };
 
 window.setPres = function(id, val){
@@ -866,59 +857,118 @@ window.setJustificativa = function(id, val){
 };
 
 window.salvarPres = async function(){
-  const sel = document.getElementById('pres-data');
-  const info = JSON.parse(sel.value);
-  const hor = document.getElementById('pres-hor').value;
-  if(!hor) return;
-  const key = `${info.iso}_${hor.replace(':','')}`;
-  await setDoc(doc(db,'presencas',key),{data:info.iso,horario:hor,diaSemana:info.diaSemana,registros:presAtual,atualizadoEm:serverTimestamp()});
-  toast('Presenças salvas!');
-  presAtual={};
-  renderPresenca();
+  if(!presListaAtual){ toast('Selecione uma data com escala.','warn'); return; }
+  const { info, missas } = presListaAtual;
+  let salvas = 0;
+  try{
+    for(const missa of missas){
+      if(!missa.ministros.length) continue;
+      const registros = {};
+      missa.ministros.forEach(nome=>{
+        const m = ministros.find(x=>x.nome===nome);
+        if(!m) return;
+        const pr = presAtual[m.id];
+        registros[m.id] = { status: pr?.status||'', justificativa: pr?.justificativa||'' };
+      });
+      const key = `${info.iso}_${missa.hora.replace(':','')}`;
+      await setDoc(doc(db,'presencas',key),{
+        data:info.iso, horario:missa.hora, diaSemana:info.diaSemana,
+        registros, atualizadoEm:serverTimestamp()
+      });
+      salvas++;
+    }
+    toast(`✓ Presenças salvas para ${salvas} missa(s) de ${info.diaSemana}, ${info.data}!`);
+  }catch(e){
+    toast('❌ Erro ao salvar presenças: '+e.message,'err');
+  }
 };
 
 window.imprimirPresenca = function(){
-  if(!presListaAtual){ toast('Nenhuma escala carregada para esta data/horário.','warn'); return; }
-  const {info, hor, escalados, responsavel} = presListaAtual;
-  const w = window.open('','_blank');
-  const linhas = escalados.map((nome,i)=>`<tr style="border-bottom:1px solid #ccc">
-    <td style="padding:6px 4px;text-align:center;font-size:11px">${i+1}</td>
-    <td style="padding:6px 4px;font-size:12px">${nome}${nome===responsavel?' <strong>(Responsável)</strong>':''}</td>
-    <td style="padding:6px 4px;text-align:center;width:40px">&nbsp;</td>
-    <td style="padding:6px 4px;text-align:center;width:40px">&nbsp;</td>
-    <td style="padding:6px 4px;text-align:center;width:40px">&nbsp;</td>
-  </tr>`).join('');
+  if(!presListaAtual){ toast('Selecione uma data com escala.','warn'); return; }
+  const { info, missas } = presListaAtual;
+  const missasComMin = missas.filter(m=>m.ministros.length);
+  if(!missasComMin.length){ toast('Nenhuma escala para imprimir nesta data.','warn'); return; }
 
-  w.document.write(`<!DOCTYPE html><html><head><title>Lista de Presença</title></head>
-  <body style="font-family:Arial,sans-serif;padding:24px;font-size:12px;color:#1a1a1a">
-    <div style="display:flex;align-items:center;gap:16px;border-bottom:2px solid #085041;padding-bottom:10px;margin-bottom:14px">
-      <img src="${APP_URL}/${LOGO_BASILICA}" style="width:60px;height:60px">
-      <div style="flex:1;text-align:center">
-        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h2 style="margin:2px 0;color:#085041">Lista de Presença</h2>
-        <p style="font-size:11px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      </div>
-      <img src="${APP_URL}/${LOGO_MESCE}" style="width:60px;height:60px">
-    </div>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
+  const tipoEscala = info.diaSemana==='Domingo' ? 'Dominical' : 'Semanal';
+
+  const blocos = missasComMin.map(missa=>{
+    const responsavel = missa.responsavel;
+    const ordenados = [...missa.ministros].sort((a,b)=>{
+      if(a===responsavel) return -1;
+      if(b===responsavel) return 1;
+      return a.localeCompare(b,'pt-BR');
+    });
+    const linhas = ordenados.map((nome,i)=>`
       <tr>
-        <td style="padding:2px 0;font-size:13px"><strong>Data:</strong> ${info.diaSemana}, ${info.data}/2026</td>
-        <td style="padding:2px 0;font-size:13px;text-align:right"><strong>Horário:</strong> ${hor}</td>
-      </tr>
-      <tr><td colspan="2" style="padding:2px 0;font-size:13px"><strong>Total de ministros escalados:</strong> ${escalados.length}</td></tr>
-    </table>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #999">
-      <tr style="background:#085041;color:white">
-        <th style="padding:6px 4px;font-size:11px;width:30px">Nº</th>
-        <th style="padding:6px 4px;font-size:11px;text-align:left">Ministro</th>
-        <th style="padding:6px 4px;font-size:11px">P</th>
-        <th style="padding:6px 4px;font-size:11px">F</th>
-        <th style="padding:6px 4px;font-size:11px">S</th>
-      </tr>
-      ${linhas}
-    </table>
-    <p style="font-size:11px;color:#555;margin-top:10px">Legenda: <strong>P</strong> – presente &nbsp;/&nbsp; <strong>F</strong> – faltou &nbsp;/&nbsp; <strong>S</strong> – substituição</p>
-    <p style="text-align:center;margin-top:24px;font-size:10px;color:#999">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
+        <td class="num">${i+1}</td>
+        <td class="nome">${nome}${nome===responsavel?' <span class="resp">★ Responsável</span>':''}</td>
+        <td class="mark"></td>
+        <td class="mark"></td>
+        <td class="mark"></td>
+      </tr>`).join('');
+    return `
+    <div class="missa">
+      <div class="missa-hora">⏰ ${missa.hora} <span class="missa-qtd">— ${missa.ministros.length} ministro(s)</span></div>
+      <table class="tab">
+        <thead>
+          <tr>
+            <th class="num">Nº</th>
+            <th class="nome">Ministro</th>
+            <th class="mark">P</th>
+            <th class="mark">F</th>
+            <th class="mark">S</th>
+          </tr>
+        </thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${info.diaSemana} ${info.data}</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:28px 32px}
+    .cab{display:flex;align-items:center;gap:18px;border-bottom:3px solid #085041;padding-bottom:12px;margin-bottom:6px}
+    .cab img{width:66px;height:66px;object-fit:contain}
+    .cab .ct{flex:1;text-align:center}
+    .cab .basilica{font-size:11px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
+    .cab h1{margin:3px 0;color:#085041;font-size:24px}
+    .cab .sub{font-size:12px;color:#555;margin:0}
+    .info{display:flex;justify-content:space-between;align-items:flex-end;margin:14px 0 18px;font-size:14px}
+    .info .tipo{font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px}
+    .missa{margin-bottom:18px;page-break-inside:avoid}
+    .missa-hora{background:#085041;color:white;font-weight:700;font-size:15px;padding:7px 12px;border-radius:8px 8px 0 0}
+    .missa-qtd{font-weight:400;font-size:12px;opacity:.85}
+    table.tab{width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none}
+    table.tab th{background:#f3f5f4;font-size:11px;padding:7px 6px;border:1px solid #cfcfcf;text-transform:uppercase;letter-spacing:.5px;color:#555}
+    table.tab td{border:1px solid #e2e2e2;padding:8px 6px;font-size:13px}
+    .num{width:38px;text-align:center;color:#888}
+    .nome{text-align:left}
+    .mark{width:46px;text-align:center}
+    th.mark{background:#085041;color:white}
+    .resp{font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:20px;font-weight:700;margin-left:4px}
+    .legenda{font-size:11px;color:#555;margin-top:6px}
+    .rodape{text-align:center;margin-top:26px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px}
+    @media print{ body{padding:14px 18px} }
+  </style></head>
+  <body>
+    <div class="cab">
+      <img src="${APP_URL}/${LOGO_BASILICA}">
+      <div class="ct">
+        <p class="basilica">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1>Lista de Presença</h1>
+        <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}">
+    </div>
+    <div class="info">
+      <div><strong>Data:</strong> ${info.diaSemana}, ${info.data}/${CAL.ano}</div>
+      <div class="tipo">Escala ${tipoEscala}</div>
+    </div>
+    ${blocos}
+    <p class="legenda"><strong>Legenda:</strong> ★ Responsável &nbsp;·&nbsp; <strong>P</strong> presente &nbsp;/&nbsp; <strong>F</strong> faltou &nbsp;/&nbsp; <strong>S</strong> substituição</p>
+    <p class="rodape">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
     <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   w.document.close();
@@ -2171,12 +2221,12 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
       <button class="tab" onclick="tabPres('adoracao',this)">Adoração</button>
     </div>
     <div id="tp-missa">
-      <div style="display:flex;gap:8px">
-        <select id="pres-data" onchange="atualizarHorariosPresenca()" style="flex:1.4;margin:0 0 8px"></select>
-        <select id="pres-hor" onchange="renderPresenca()" style="flex:1;margin:0 0 8px"></select>
+      <div style="background:#f0faf5;border:1.5px solid #1D9E75;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <label style="font-size:11px;font-weight:700;color:#085041;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">📅 Data da missa</label>
+        <select id="pres-data" onchange="renderPresenca()" style="margin:0;font-weight:600;color:#085041;width:100%"></select>
       </div>
       <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
-        ✓ Lista preenchida automaticamente a partir da Escala — marque P/F/S
+        ✓ Todas as missas do dia aparecem automaticamente a partir da Escala — marque P/F/S
       </p>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <p id="pres-count" style="font-size:11px;color:#1D9E75;margin:0"></p>
