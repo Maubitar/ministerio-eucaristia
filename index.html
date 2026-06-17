@@ -28,6 +28,7 @@ const REFORCO_TIPOS = [
 ];
 const MES_ATUAL = 'jun2026';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
+const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
 function calcularCalendario(ano, mes) {
   const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
@@ -701,7 +702,10 @@ window.compartilharEscala = function(){
     : `escala_sem_sem${sem}_${getMesAtual()}`;
   const esc=escalas[key]||{};
   const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
-  let txt=`📋 *ESCALA ${tipo==='dom'?'DOMINICAL':'SEMANAL'}* — ${sem}ª semana junho/2026\n\n`;
+  const periodo = tipo==='dom'
+    ? `${CAL.mesNome}/${CAL.ano} (domingos: ${DOMINGOS_MES.join(', ')})`
+    : `${SEMANAS_MES[sem]?.label||sem+'ª semana'} — ${SEMANAS_MES[sem]?.periodo||''}`;
+  let txt=`📋 *ESCALA ${tipo==='dom'?'DOMINICAL':'SEMANAL'}*\n${periodo}\n\n`;
   horas.forEach(h=>{
     const g=esc[h]||{ministros:[],responsavel:''};
     if(g.ministros.length){
@@ -711,8 +715,10 @@ window.compartilharEscala = function(){
       txt+='\n';
     }
   });
-  txt+='_Basílica Santuário de Nossa Senhora de Nazaré_';
-  window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
+  txt+='_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
+  try{ navigator.clipboard.writeText(txt); } catch(e){}
+  toast('Escala copiada! Ao abrir o WhatsApp, cole (segure e "Colar") no grupo Coordenação MESCE.','ok');
+  setTimeout(()=>window.open(GRUPO_WA,'_blank'), 1200);
 };
 
 let presQrInstances = {};
@@ -949,23 +955,119 @@ window.salvarReuniao = async function(){
   renderInicio();
 };
 
-window.imprimirReuniao = function(){
-  const w=window.open('','_blank');
-  const linhas=ministros.map((m,i)=>`<tr><td>${i+1}</td><td>${m.nome}</td><td style="width:200px;border-bottom:1px solid #ccc">&nbsp;</td></tr>`).join('');
-  w.document.write(`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;font-size:12px">
-    <div style="text-align:center;margin-bottom:20px">
-      <h2 style="margin:0">Basílica Santuário de Nossa Senhora de Nazaré</h2>
-      <h3 style="margin:4px 0">Ministério da Sagrada Eucaristia</h3>
-      <p>Lista de Presença — Reunião Mensal</p>
-      <p>Data: ___/___/______&nbsp;&nbsp;&nbsp;Total: ${ministros.length} ministros</p>
+function imprimirListaPFJ(titulo, dataValor, mapaStatus, ministrosFaltas){
+  const w = window.open('','_blank');
+  const dataFmt = dataValor ? dataValor.split('-').reverse().join('/') : '___/___/______';
+  const linhas = ministros.map((m,i)=>{
+    const pr = mapaStatus[m.nome];
+    const status = pr?.status || '';
+    const marca = s => status===s ? '●' : '';
+    return `<tr style="border-bottom:1px solid #ccc">
+      <td style="padding:5px 4px;text-align:center;font-size:11px">${i+1}</td>
+      <td style="padding:5px 4px;font-size:12px">${m.nome}</td>
+      <td style="padding:5px 4px;text-align:center;width:36px;font-weight:700">${marca('P')}</td>
+      <td style="padding:5px 4px;text-align:center;width:36px;font-weight:700">${marca('F')}</td>
+      <td style="padding:5px 4px;text-align:center;width:36px;font-weight:700">${marca('J')}</td>
+      <td style="padding:5px 4px;font-size:10px;color:#555">${pr?.justificativa||''}</td>
+    </tr>`;
+  }).join('');
+
+  w.document.write(`<!DOCTYPE html><html><head><title>${titulo}</title></head>
+  <body style="font-family:Arial,sans-serif;padding:24px;font-size:12px;color:#1a1a1a">
+    <div style="display:flex;align-items:center;gap:16px;border-bottom:2px solid #085041;padding-bottom:10px;margin-bottom:14px">
+      <img src="${APP_URL}/${LOGO_BASILICA}" style="width:60px;height:60px">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h2 style="margin:2px 0;color:#085041">${titulo}</h2>
+        <p style="font-size:11px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" style="width:60px;height:60px">
     </div>
-    <table style="width:100%;border-collapse:collapse">
-      <tr style="border-bottom:2px solid #000"><th style="text-align:left;padding:4px">#</th><th style="text-align:left;padding:4px">Nome</th><th style="text-align:left;padding:4px">Assinatura</th></tr>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
+      <tr>
+        <td style="padding:2px 0;font-size:13px"><strong>Data:</strong> ${dataFmt}</td>
+        <td style="padding:2px 0;font-size:13px;text-align:right"><strong>Total de ministros:</strong> ${ministros.length}</td>
+      </tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #999">
+      <tr style="background:#085041;color:white">
+        <th style="padding:6px 4px;font-size:11px;width:30px">Nº</th>
+        <th style="padding:6px 4px;font-size:11px;text-align:left">Ministro</th>
+        <th style="padding:6px 4px;font-size:11px">P</th>
+        <th style="padding:6px 4px;font-size:11px">F</th>
+        <th style="padding:6px 4px;font-size:11px">J</th>
+        <th style="padding:6px 4px;font-size:11px;text-align:left">Justificativa</th>
+      </tr>
       ${linhas}
     </table>
-    <p style="text-align:center;margin-top:20px;font-size:10px">Ministério da Eucaristia — Basílica de Nazaré</p>
+    <p style="font-size:11px;color:#555;margin-top:10px">Legenda: <strong>P</strong> – presente &nbsp;/&nbsp; <strong>F</strong> – faltou &nbsp;/&nbsp; <strong>J</strong> – justificou</p>
+    <p style="text-align:center;margin-top:24px;font-size:10px;color:#999">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
+    <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
-  w.print();
+  w.document.close();
+}
+
+const presAdoracaoMap = {};
+
+window.setStatusAdor = function(nome, val){
+  if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={status:'',justificativa:''};
+  presAdoracaoMap[nome].status = presAdoracaoMap[nome].status===val ? '' : val;
+  if(presAdoracaoMap[nome].status!=='J') presAdoracaoMap[nome].justificativa='';
+  renderAdoracao();
+};
+window.setJustAdor = function(nome, val){
+  if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={status:'J',justificativa:''};
+  presAdoracaoMap[nome].justificativa = val;
+};
+
+window.renderAdoracao = function(){
+  const lista = ministros;
+  document.getElementById('ador-body').innerHTML = lista.map(m=>{
+    const pr = presAdoracaoMap[m.nome];
+    const status = pr?.status || '';
+    const faltas = m.faltasAdoracao||0;
+    const cartao = faltas>=3;
+    return `<div style="padding:7px 0;border-bottom:1px solid #eee">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="flex:1;font-size:13px">${m.nome}${cartao?` <span style="font-size:10px;background:#fcebeb;color:#A32D2D;padding:1px 6px;border-radius:20px">🟡 ${faltas}F</span>`:''}</span>
+        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','P')" style="width:30px;height:28px;border:1px solid ${status==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${status==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='P'?'#085041':'#888'}">P</button>
+        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','F')" style="width:30px;height:28px;border:1px solid ${status==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${status==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='F'?'#A32D2D':'#888'}">F</button>
+        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','J')" style="width:30px;height:28px;border:1px solid ${status==='J'?'#BA7517':'#ddd'};border-radius:6px;background:${status==='J'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='J'?'#BA7517':'#888'}">J</button>
+      </div>
+      ${status==='J'?`<input type="text" placeholder="Justificativa da falta..." value="${pr?.justificativa||''}"
+        oninput="setJustAdor('${m.nome.replace(/'/g,"\\'")}',this.value)"
+        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#BA7517;margin-top:4px">`:'' }
+    </div>`;
+  }).join('');
+};
+
+window.salvarAdoracao = async function(){
+  const data=document.getElementById('ador-data').value || new Date().toISOString().split('T')[0];
+  const registros={};
+  ministros.forEach(m=>{
+    const pr=presAdoracaoMap[m.nome];
+    registros[m.id]={status:pr?.status||'',justificativa:pr?.justificativa||''};
+  });
+  await setDoc(doc(db,'adoracoes',data),{data,registros,atualizadoEm:serverTimestamp()});
+  for(const m of ministros){
+    const pr=presAdoracaoMap[m.nome];
+    if(pr?.status==='F'){
+      await updateDoc(doc(db,'ministros',m.id),{faltasAdoracao:(m.faltasAdoracao||0)+1});
+      m.faltasAdoracao=(m.faltasAdoracao||0)+1;
+    }
+  }
+  toast('Adoração salva! Faltas atualizadas.');
+  renderInicio();
+};
+
+window.imprimirReuniao = function(){
+  const data = document.getElementById('reun-data').value;
+  imprimirListaPFJ('Lista de Presença — Reunião', data, presReuniaoMap);
+};
+
+window.imprimirAdoracao = function(){
+  const data = document.getElementById('ador-data').value;
+  imprimirListaPFJ('Lista de Presença — Adoração', data, presAdoracaoMap);
 };
 
 window.renderReforco = async function(){
@@ -1016,10 +1118,12 @@ window.compartilharReforco=function(){
   const key=`reforco_${tipo}_${MES_ATUAL}`;
   const lista=(reforcos[key]?.ministros)||[];
   if(!lista.length){toast('Adicione ministros ao reforço.','warn');return;}
-  let txt=`🔔 *REFORÇO — ${rf.label.toUpperCase()}*\nJunho 2026\n\n`;
+  let txt=`🔔 *REFORÇO — ${rf.label.toUpperCase()}*\n${CAL.mesNome}/${CAL.ano}\n\n`;
   lista.forEach(m=>txt+=`• ${m}\n`);
-  txt+='\n_Basílica Santuário de Nossa Senhora de Nazaré_';
-  window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
+  txt+='\n_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
+  try{ navigator.clipboard.writeText(txt); } catch(e){}
+  toast('Reforço copiado! Ao abrir o WhatsApp, cole no grupo Coordenação MESCE.','ok');
+  setTimeout(()=>window.open(GRUPO_WA,'_blank'), 1200);
 };
 
 window.renderRelatorios = async function(){
@@ -1613,15 +1717,22 @@ window.imprimirQR = function(){
   const img = canvas.toDataURL('image/png');
   const w = window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><title>QR Code - ${qrMinistroAtual.nome}</title>
-  <style>body{font-family:Arial,sans-serif;text-align:center;padding:30px} .logo{font-size:13px;color:#085041;font-weight:700} h2{color:#085041;margin:10px 0 4px} p{font-size:11px;color:#666} @media print{button{display:none}}</style></head>
+  <style>body{font-family:Arial,sans-serif;text-align:center;padding:24px} h2{color:#085041;margin:10px 0 4px} p{font-size:11px;color:#666} @media print{button{display:none}}</style></head>
   <body>
-  <p class="logo">🕊️ Ministério Extraordinário da Sagrada Comunhão Eucaristia</p>
-  <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+  <div style="display:flex;align-items:center;justify-content:center;gap:14px;border-bottom:2px solid #085041;padding-bottom:10px;margin-bottom:14px">
+    <img src="${APP_URL}/${LOGO_BASILICA}" style="width:48px;height:48px">
+    <div>
+      <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+      <p style="font-size:12px;color:#085041;font-weight:700;margin:2px 0 0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+    </div>
+    <img src="${APP_URL}/${LOGO_MESCE}" style="width:48px;height:48px">
+  </div>
   <h2>${qrMinistroAtual.nome}</h2>
   <p>QR Code de identificação</p>
   <img src="${img}" style="width:200px;height:200px;margin:16px 0">
   <p style="font-size:10px;color:#aaa">Apresente este código para registrar sua presença</p>
   <button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#085041;color:white;border:none;border-radius:6px;cursor:pointer">🖨️ Imprimir</button>
+  <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   w.document.close();
 };
@@ -1742,24 +1853,49 @@ window.imprimirEscala = function(){
   const esc=escalas[key]||{};
   const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
   const w=window.open('','_blank');
+
+  let periodoLabel = '';
+  if(tipo==='dom'){
+    periodoLabel = `Escala Dominical — ${CAL.mesNome}/${CAL.ano} · Domingos: ${DOMINGOS_MES.join(', ')}`;
+  } else {
+    const semInfo = SEMANAS_MES[sem];
+    periodoLabel = `Escala Semanal — ${semInfo?.label||''} (${semInfo?.periodo||''})`;
+  }
+
   let linhas='';
   horas.forEach(h=>{
     const g=esc[h]||{ministros:[],responsavel:''};
     if(g.ministros.length){
-      linhas+=`<tr style="background:#f5f5f3"><td colspan="2" style="padding:6px 8px;font-weight:700;font-size:13px">⏰ ${h}</td></tr>`;
-      if(g.responsavel) linhas+=`<tr><td colspan="2" style="padding:4px 8px;font-size:11px;color:#633806">★ Responsável: ${g.responsavel}</td></tr>`;
-      g.ministros.forEach((m,i)=>{ linhas+=`<tr style="border-bottom:1px solid #eee"><td style="padding:5px 8px;font-size:12px">${i+1}. ${m}</td><td style="width:180px;border-left:1px solid #eee;padding:5px 8px">&nbsp;</td></tr>`; });
+      let datasLabel = '';
+      if(tipo==='dom'){
+        datasLabel = DOMINGOS_MES.join(', ');
+      } else {
+        const semDias = (SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
+        datasLabel = semDias.map(d=>`${d.dia} ${d.data}`).join(', ');
+      }
+      linhas+=`<tr style="background:#085041;color:white"><td colspan="2" style="padding:6px 8px;font-weight:700;font-size:13px">⏰ ${h} — ${datasLabel}</td></tr>`;
+      if(g.responsavel) linhas+=`<tr><td colspan="2" style="padding:4px 8px;font-size:11px;color:#633806;background:#faeeda">★ Responsável: ${g.responsavel}</td></tr>`;
+      g.ministros.forEach((m,i)=>{ linhas+=`<tr style="border-bottom:1px solid #eee"><td style="padding:5px 8px;font-size:12px">${i+1}. ${m}</td><td style="width:140px;border-left:1px solid #eee;padding:5px 8px;text-align:center;font-size:11px;color:#888">P / F / S</td></tr>`; });
     }
   });
-  w.document.write(`<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px;font-size:12px">
-    <div style="text-align:center;margin-bottom:16px">
-      <h2 style="margin:0;color:#085041">Basílica Santuário de Nossa Senhora de Nazaré</h2>
-      <h3 style="margin:4px 0">Ministério da Sagrada Eucaristia</h3>
-      <p>Escala ${tipo==='dom'?'Dominical':'Semanal'} — Junho 2026</p>
+
+  if(!linhas) linhas = '<tr><td style="padding:12px;text-align:center;color:#888;font-size:12px">Nenhum ministro escalado.</td></tr>';
+
+  w.document.write(`<!DOCTYPE html><html><head><title>Escala</title></head>
+  <body style="font-family:Arial,sans-serif;padding:24px;font-size:12px;color:#1a1a1a">
+    <div style="display:flex;align-items:center;gap:16px;border-bottom:2px solid #085041;padding-bottom:10px;margin-bottom:14px">
+      <img src="${APP_URL}/${LOGO_BASILICA}" style="width:60px;height:60px">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h2 style="margin:2px 0;color:#085041">Escala de Serviço</h2>
+        <p style="font-size:11px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" style="width:60px;height:60px">
     </div>
+    <p style="font-size:13px;font-weight:600;color:#085041;margin-bottom:10px">${periodoLabel}</p>
     <table style="width:100%;border-collapse:collapse;border:1px solid #ddd">${linhas}</table>
-    <p style="text-align:center;margin-top:12px;font-size:10px;color:#888">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
-    <button onclick="window.print()" style="margin-top:10px;padding:8px 20px;background:#085041;color:white;border:none;border-radius:6px;cursor:pointer">🖨️ Imprimir</button>
+    <p style="text-align:center;margin-top:16px;font-size:10px;color:#999">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
+    <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   w.document.close();
 };
@@ -2023,7 +2159,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
         <strong>P</strong> presente · <strong>F</strong> faltou · <strong>J</strong> justificou — faltas sem justificativa contam para cartão amarelo (3 faltas = alerta)
       </p>
       <div id="ador-body"></div>
-      <button class="btn-g" onclick="salvarAdoracao()">💾 Salvar adoração</button>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn-g" onclick="salvarAdoracao()" style="margin:0;flex:1">💾 Salvar</button>
+        <button class="btn-o" onclick="imprimirAdoracao()" style="margin:0;flex:1">🖨️ Imprimir lista</button>
+      </div>
     </div>
     </div>
   </div>
@@ -2221,52 +2360,6 @@ function tabPres(tipo,btn){
   if(tipo==='missa') renderPresenca();
 }
 
-const presAdoracaoMap={};
-function renderAdoracao(){
-  if(!window._ministros) return;
-  document.getElementById('ador-body').innerHTML=window._ministros.map(m=>{
-    const pr=presAdoracaoMap[m.nome];
-    const status=pr?.status||'';
-    const faltas=m.faltasAdoracao||0;
-    const cartao=faltas>=3;
-    return `<div style="padding:7px 0;border-bottom:1px solid #eee">
-      <div style="display:flex;align-items:center;gap:6px">
-        <span style="flex:1;font-size:13px">${m.nome}${cartao?` <span style="font-size:10px;background:#fcebeb;color:#A32D2D;padding:1px 6px;border-radius:20px">🟡 ${faltas}F</span>`:''}</span>
-        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','P')" style="width:30px;height:28px;border:1px solid ${status==='P'?'#1D9E75':'#ddd'};border-radius:6px;background:${status==='P'?'#e1f5ee':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='P'?'#085041':'#888'}">P</button>
-        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','F')" style="width:30px;height:28px;border:1px solid ${status==='F'?'#A32D2D':'#ddd'};border-radius:6px;background:${status==='F'?'#fcebeb':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='F'?'#A32D2D':'#888'}">F</button>
-        <button onclick="setStatusAdor('${m.nome.replace(/'/g,"\\'")}','J')" style="width:30px;height:28px;border:1px solid ${status==='J'?'#BA7517':'#ddd'};border-radius:6px;background:${status==='J'?'#faeeda':'white'};cursor:pointer;font-size:11px;font-weight:700;color:${status==='J'?'#BA7517':'#888'}">J</button>
-      </div>
-      ${status==='J'?`<input type="text" placeholder="Justificativa da falta..." value="${pr?.justificativa||''}"
-        oninput="setJustAdor('${m.nome.replace(/'/g,"\\'")}',this.value)"
-        style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#BA7517;margin-top:4px">`:'' }
-    </div>`;
-  }).join('');
-}
-function setStatusAdor(nome,val){
-  if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={status:'',justificativa:''};
-  presAdoracaoMap[nome].status = presAdoracaoMap[nome].status===val ? '' : val;
-  if(presAdoracaoMap[nome].status!=='J') presAdoracaoMap[nome].justificativa='';
-  renderAdoracao();
-}
-function setJustAdor(nome,val){ if(!presAdoracaoMap[nome]) presAdoracaoMap[nome]={status:'J',justificativa:''}; presAdoracaoMap[nome].justificativa=val; }
-async function salvarAdoracao(){
-  const data=document.getElementById('ador-data').value || new Date().toISOString().split('T')[0];
-  const registros={};
-  ministros.forEach(m=>{
-    const pr=presAdoracaoMap[m.nome];
-    registros[m.id]={status:pr?.status||'',justificativa:pr?.justificativa||''};
-  });
-  await setDoc(doc(db,'adoracoes',data),{data,registros,atualizadoEm:serverTimestamp()});
-  for(const m of ministros){
-    const pr=presAdoracaoMap[m.nome];
-    if(pr?.status==='F'){
-      await updateDoc(doc(db,'ministros',m.id),{faltasAdoracao:(m.faltasAdoracao||0)+1});
-      m.faltasAdoracao=(m.faltasAdoracao||0)+1;
-    }
-  }
-  toast('Adoração salva! Faltas atualizadas.');
-  renderInicio();
-}
 setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500);
 </script>
 </body>
