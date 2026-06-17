@@ -686,11 +686,11 @@ window.buscarEscaladosPara = async function(dataDDMM, hora, diaSemana){
 window.proximasDatasComMissa = function(){
   const out = [];
   const hoje = new Date();
-  for(let i=0;i<14;i++){
+  const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  for(let i=-3;i<=24;i++){
     const d = new Date(hoje); d.setDate(hoje.getDate()+i);
     const dd = String(d.getDate()).padStart(2,'0');
     const mm = String(d.getMonth()+1).padStart(2,'0');
-    const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
     out.push({data:`${dd}/${mm}`, diaSemana:DIAS_NOME[d.getDay()], iso:d.toISOString().split('T')[0]});
   }
   return out;
@@ -724,17 +724,51 @@ window.compartilharEscala = function(){
 
 let presQrInstances = {};
 
-window.popularSeletorDatasPresenca = function(){
+window.popularSeletorDatasPresenca = async function(){
   const sel = document.getElementById('pres-data');
   if(!sel || sel.options.length) return;
-  proximasDatasComMissa().forEach(d=>{
+  const datas = proximasDatasComMissa();
+  datas.forEach(d=>{
     const opt = document.createElement('option');
     opt.value = JSON.stringify({data:d.data, diaSemana:d.diaSemana, iso:d.iso});
     opt.textContent = `${d.diaSemana}, ${d.data}`;
     sel.appendChild(opt);
   });
+  // Posiciona automaticamente na primeira data que JÁ tem escala montada (eficiente: 1 leitura por dia distinto)
+  await autoPosicionarDataComEscala(datas);
   renderPresenca();
 };
+
+// Procura, de forma eficiente, a primeira data da lista que tem escala montada
+// e seleciona ela. Cacheia documentos de escala já lidos para não repetir leituras.
+async function autoPosicionarDataComEscala(datas){
+  const sel = document.getElementById('pres-data');
+  const cache = {};
+  for(const d of datas){
+    const info = {data:d.data, diaSemana:d.diaSemana, iso:d.iso};
+    const horas = horariosDoDia(d.diaSemana);
+    if(!horas.length) continue;
+    // chave do documento (1 por dia distinto, cacheado)
+    let key = null;
+    if(d.diaSemana==='Domingo'){ key = `escala_dom_${getMesAtual()}`; }
+    else {
+      let sem=null;
+      Object.entries(SEMANAS_MES).forEach(([k,v])=>{ if(v.dias.some(x=>x.data===d.data && x.dia===d.diaSemana)) sem=k; });
+      if(sem) key = `escala_sem_sem${sem}_${getMesAtual()}`;
+    }
+    if(!key) continue;
+    if(!(key in cache)){
+      try{ const snap = await getDoc(doc(db,'escalas',key)); cache[key] = snap.exists()?snap.data():{}; }
+      catch(e){ cache[key] = {}; }
+    }
+    const escalaDia = cache[key];
+    const temAlguem = horas.some(h => (escalaDia[h]?.ministros||[]).length);
+    if(temAlguem){
+      sel.value = JSON.stringify(info);
+      return;
+    }
+  }
+}
 
 // Retorna a lista de horários de missa para um dia da semana
 function horariosDoDia(diaSemana){
@@ -766,7 +800,7 @@ let presListaAtual = null;
 
 window.renderPresenca = async function(){
   const sel = document.getElementById('pres-data');
-  if(!sel || !sel.options.length){ popularSeletorDatasPresenca(); return; }
+  if(!sel || !sel.options.length){ await popularSeletorDatasPresenca(); return; }
   const info = JSON.parse(sel.value);
   const horas = horariosDoDia(info.diaSemana);
   const body = document.getElementById('pres-body');
