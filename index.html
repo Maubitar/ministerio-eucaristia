@@ -1670,10 +1670,10 @@ window.abrirPerfil = function(id){
   const m=ministros.find(x=>x.id===id);
   if(!m) return;
   const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+  const linha=(rotulo,valor)=> valor ? `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #f0f0f0"><span style="font-size:11px;color:#888">${rotulo}</span><span style="font-size:12px;text-align:right;font-weight:500">${valor}</span></div>` : '';
+  const nascFmt = m.nascimento ? m.nascimento.split('-').reverse().join('/') : '';
   document.getElementById('mp-nome').textContent=m.nome;
   document.getElementById('mp-body').innerHTML=`
-    <p style="font-size:11px;color:#888;margin-bottom:3px">WhatsApp</p>
-    <p style="font-size:13px;margin-bottom:10px">${m.tel||'Não cadastrado'} ${m.tel?`<a href="https://wa.me/55${m.tel.replace(/\D/g,'')}" target="_blank" style="color:#1D9E75;font-size:11px;margin-left:6px">Abrir ↗</a>`:''}</p>
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <div style="flex:1;background:#f5f5f3;border-radius:8px;padding:8px;text-align:center">
         <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${m.faltasReuniao||0}</p>
@@ -1688,13 +1688,23 @@ window.abrirPerfil = function(id){
         <p style="font-size:10px;color:#888;margin:0">Situação</p>
       </div>
     </div>
+    <div style="background:#fafafa;border-radius:8px;padding:8px 12px;margin-bottom:12px">
+      ${linha('WhatsApp', m.tel ? `${m.tel} <a href="https://wa.me/55${m.tel.replace(/\D/g,'')}" target="_blank" style="color:#1D9E75;margin-left:4px">↗</a>` : '<span style="color:#BA7517">não cadastrado</span>')}
+      ${linha('Nascimento', nascFmt)}
+      ${linha('Endereço', m.endereco)}
+      ${linha('Estado civil', m.estadoCivil)}
+      ${linha('Paróquia', m.paroquia)}
+      ${linha('Dizimista', m.dizimista)}
+      ${linha('RG', m.rg)}
+      ${linha('CPF', m.cpf)}
+    </div>
     <p style="font-size:11px;color:#888;margin-bottom:5px">Disponibilidades dominicais</p>
     <div style="margin-bottom:10px">${(m.dispDom||[]).length?(m.dispDom).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
     <p style="font-size:11px;color:#888;margin-bottom:5px">Disponibilidades semanais</p>
     <div style="margin-bottom:14px">${(m.dispSem||[]).length?(m.dispSem).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e6f1fb;color:#185FA5;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
     <div style="display:flex;gap:6px;margin-bottom:6px">
-      <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Editar disponibilidades</button>
-      ${m.tel?`<button onclick="window.open('https://wa.me/55${m.tel.replace(/\D/g,'')}','_blank')" style="padding:9px 12px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;cursor:pointer">📱</button>`:''}
+      <button onclick="editarDados('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:600;cursor:pointer">✏️ Editar dados</button>
+      <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Disponibilidades</button>
     </div>
     <button onclick="solicitarDisp('${id}')" style="width:100%;padding:9px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px">📲 Pedir disponibilidade pelo WhatsApp</button>
     <button onclick="verQRCode('${id}')" style="width:100%;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">📱 Ver QR Code do ministro</button>`;
@@ -1739,19 +1749,68 @@ window.togCad=function(h,tipo){
   else{set.add(h);btn.style.background=tipo==='dom'?'#e1f5ee':'#e6f1fb';btn.style.color=tipo==='dom'?'#085041':'#185FA5';btn.style.borderColor=tipo==='dom'?'#1D9E75':'#185FA5';}
 };
 window.salvarCadastro=async function(){
-  const nome=document.getElementById('cad-nome').value.trim();
-  const tel=document.getElementById('cad-tel').value.trim();
-  const nasc=document.getElementById('cad-nasc').value;
+  const g=id=>document.getElementById(id);
+  const nome=g('cad-nome').value.trim();
+  const tel=g('cad-tel').value.trim();
+  const nasc=g('cad-nasc').value;
   if(!nome){toast('Nome obrigatório.','err');return;}
   if(selCadDom.size+selCadSem.size<2){toast('Selecione pelo menos 2 disponibilidades.','warn');return;}
-  await addDoc(collection(db,'ministros'),{nome,tel,nascimento:nasc,ativo:true,dispDom:[...selCadDom],dispSem:[...selCadSem],numero:ministros.length+1,faltasReuniao:0,faltasAdoracao:0,criadoEm:serverTimestamp()});
+  await addDoc(collection(db,'ministros'),{
+    nome, tel, nascimento:nasc,
+    endereco:g('cad-endereco').value.trim(),
+    estadoCivil:g('cad-civil').value,
+    paroquia:g('cad-paroquia').value.trim(),
+    dizimista:g('cad-dizimista').value,
+    rg:g('cad-rg').value.trim(),
+    cpf:g('cad-cpf').value.trim(),
+    ativo:true, dispDom:[...selCadDom], dispSem:[...selCadSem],
+    numero:ministros.length+1, faltasReuniao:0, faltasAdoracao:0, criadoEm:serverTimestamp()
+  });
   selCadDom.clear();selCadSem.clear();
-  ['cad-nome','cad-tel','cad-nasc'].forEach(id=>document.getElementById(id).value='');
+  ['cad-nome','cad-tel','cad-nasc','cad-endereco','cad-paroquia','cad-rg','cad-cpf'].forEach(id=>g(id).value='');
+  ['cad-civil','cad-dizimista'].forEach(id=>g(id).value='');
+  g('cad-paroquia').value='Basílica Santuário de Nossa Senhora de Nazaré';
   document.querySelectorAll('#cad-dom button,#cad-sem button').forEach(b=>{b.style.background='white';b.style.color='#333';b.style.borderColor='#ddd';});
   fecharModal('modal-cad');
   await carregarMinistros();
   renderMinistros('');
   toast('Ministro cadastrado!');
+};
+
+let editandoDadosId=null;
+window.editarDados=function(id){
+  const m=ministros.find(x=>x.id===id);
+  if(!m) return;
+  editandoDadosId=id;
+  const g=k=>document.getElementById(k);
+  g('ed-nome').value=m.nome||'';
+  g('ed-tel').value=m.tel||'';
+  g('ed-nasc').value=m.nascimento||'';
+  g('ed-endereco').value=m.endereco||'';
+  g('ed-civil').value=m.estadoCivil||'';
+  g('ed-paroquia').value=m.paroquia||'Basílica Santuário de Nossa Senhora de Nazaré';
+  g('ed-dizimista').value=m.dizimista||'';
+  g('ed-rg').value=m.rg||'';
+  g('ed-cpf').value=m.cpf||'';
+  fecharModal('modal-perfil');
+  g('modal-dados').style.display='flex';
+};
+
+window.salvarDados=async function(){
+  if(!editandoDadosId) return;
+  const g=k=>document.getElementById(k);
+  const nome=g('ed-nome').value.trim();
+  if(!nome){toast('Nome obrigatório.','err');return;}
+  await updateDoc(doc(db,'ministros',editandoDadosId),{
+    nome, tel:g('ed-tel').value.trim(), nascimento:g('ed-nasc').value,
+    endereco:g('ed-endereco').value.trim(), estadoCivil:g('ed-civil').value,
+    paroquia:g('ed-paroquia').value.trim(), dizimista:g('ed-dizimista').value,
+    rg:g('ed-rg').value.trim(), cpf:g('ed-cpf').value.trim()
+  });
+  fecharModal('modal-dados');
+  await carregarMinistros();
+  renderMinistros('');
+  toast('Dados atualizados!');
 };
 
 window.solicitarDisp = function(id){
@@ -2008,8 +2067,8 @@ window.pararScanner = function(){
 };
 
 window.exportarCSV=function(){
-  const linhas=['Nº,Nome,WhatsApp,Nascimento,Disp. Dominical,Disp. Semanal,Faltas Reunião,Faltas Adoração'];
-  ministros.forEach(m=>linhas.push(`${m.numero},"${m.nome}","${m.tel||''}","${m.nascimento||''}","${(m.dispDom||[]).join(';')}","${(m.dispSem||[]).join(';')}",${m.faltasReuniao||0},${m.faltasAdoracao||0}`));
+  const linhas=['Nº,Nome,WhatsApp,Nascimento,Endereço,Estado Civil,Paróquia,Dizimista,RG,CPF,Disp. Dominical,Disp. Semanal,Faltas Reunião,Faltas Adoração'];
+  ministros.forEach(m=>linhas.push(`${m.numero||''},"${m.nome}","${m.tel||''}","${m.nascimento||''}","${m.endereco||''}","${m.estadoCivil||''}","${m.paroquia||''}","${m.dizimista||''}","${m.rg||''}","${m.cpf||''}","${(m.dispDom||[]).join(';')}","${(m.dispSem||[]).join(';')}",${m.faltasReuniao||0},${m.faltasAdoracao||0}`));
   const blob=new Blob(['\uFEFF'+linhas.join('\n')],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ministerio_eucaristia.csv'; a.click();
   toast('CSV exportado!');
@@ -2448,8 +2507,47 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
 <div id="modal-edit" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-edit')">
   <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Editar disponibilidades</p><button onclick="fecharModal('modal-edit')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Dominicais</p><div class="missa-grid" id="edit-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Semanais</p><div class="missa-grid" id="edit-sem"></div><button class="btn-g" onclick="salvarEditDisp()">Salvar disponibilidades</button></div>
 </div>
+<div id="modal-dados" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-dados')">
+  <div class="modal-box" style="max-height:92vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Editar dados do ministro</p><button onclick="fecharModal('modal-dados')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div>
+    <input type="text" id="ed-nome" placeholder="Nome completo *">
+    <input type="tel" id="ed-tel" placeholder="WhatsApp (91) 9 0000-0000">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin:4px 0 2px">Data de nascimento</label>
+    <input type="date" id="ed-nasc">
+    <input type="text" id="ed-endereco" placeholder="Endereço completo">
+    <select id="ed-civil" style="margin-bottom:10px">
+      <option value="">Estado civil...</option>
+      <option>Solteiro(a)</option><option>Casado(a)</option><option>Divorciado(a)</option><option>Viúvo(a)</option><option>União estável</option><option>Religioso(a)</option>
+    </select>
+    <input type="text" id="ed-paroquia" placeholder="Paróquia">
+    <select id="ed-dizimista" style="margin-bottom:10px">
+      <option value="">É dizimista?</option>
+      <option value="Sim">Sim</option><option value="Não">Não</option>
+    </select>
+    <input type="text" id="ed-rg" placeholder="RG">
+    <input type="text" id="ed-cpf" placeholder="CPF" style="margin-bottom:12px">
+    <button class="btn-g" onclick="salvarDados()">Salvar dados</button>
+  </div>
+</div>
 <div id="modal-cad" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-cad')">
-  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Novo ministro</p><button onclick="fecharModal('modal-cad')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div><input type="text" id="cad-nome" placeholder="Nome completo *"><input type="tel" id="cad-tel" placeholder="WhatsApp (91) 9 0000-0000"><input type="date" id="cad-nasc" style="margin-bottom:12px"><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades dominicais (mínimo 2 no total)</p><div class="missa-grid" id="cad-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades semanais</p><div class="missa-grid" id="cad-sem"></div><button class="btn-g" onclick="salvarCadastro()">Salvar ministro</button></div>
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Novo ministro</p><button onclick="fecharModal('modal-cad')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div>
+    <input type="text" id="cad-nome" placeholder="Nome completo *">
+    <input type="tel" id="cad-tel" placeholder="WhatsApp (91) 9 0000-0000">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin:4px 0 2px">Data de nascimento</label>
+    <input type="date" id="cad-nasc">
+    <input type="text" id="cad-endereco" placeholder="Endereço completo">
+    <select id="cad-civil" style="margin-bottom:10px">
+      <option value="">Estado civil...</option>
+      <option>Solteiro(a)</option><option>Casado(a)</option><option>Divorciado(a)</option><option>Viúvo(a)</option><option>União estável</option><option>Religioso(a)</option>
+    </select>
+    <input type="text" id="cad-paroquia" placeholder="Paróquia" value="Basílica Santuário de Nossa Senhora de Nazaré">
+    <select id="cad-dizimista" style="margin-bottom:10px">
+      <option value="">É dizimista?</option>
+      <option value="Sim">Sim</option><option value="Não">Não</option>
+    </select>
+    <input type="text" id="cad-rg" placeholder="RG">
+    <input type="text" id="cad-cpf" placeholder="CPF" style="margin-bottom:12px">
+    <p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades dominicais (mínimo 2 no total)</p><div class="missa-grid" id="cad-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades semanais</p><div class="missa-grid" id="cad-sem"></div><button class="btn-g" onclick="salvarCadastro()">Salvar ministro</button></div>
 </div>
 
 <!-- MODAL QR CODE -->
