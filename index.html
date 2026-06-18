@@ -6,6 +6,7 @@
 <title>Ministério da Eucaristia — Basílica de Nazaré</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -759,8 +760,86 @@ window.compartilharEscala = async function(){
   }
 };
 
+// Gera a escala como IMAGEM PNG no padrão da impressão, para anexar no WhatsApp como foto.
+window.gerarImagemEscala = async function(){
+  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
+  const key = tipo==='dom' ? `escala_dom_${getMesAtual()}` : `escala_sem_sem${sem}_${getMesAtual()}`;
+  let esc=escalas[key];
+  if(!esc){
+    try{ const d=await getDoc(doc(db,'escalas',key)); esc=d.exists()?d.data():{}; escalas[key]=esc; }
+    catch(e){ esc={}; }
+  }
+  const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
+
+  let periodoLabel='', subLabel='';
+  if(tipo==='dom'){ periodoLabel='Escala Dominical'; subLabel=`Domingos: ${DOMINGOS_MES.join(' · ')}`; }
+  else { periodoLabel='Escala Semanal'; subLabel=`Semana de ${SEMANAS_MES[sem]?.periodo||''}`; }
+
+  let blocos='';
+  horas.forEach(h=>{
+    const g=esc[h]||{ministros:[],responsavel:''};
+    if(!g.ministros.length) return;
+    const responsavel=g.responsavel;
+    const ord=[...g.ministros].sort((a,b)=>{ if(a===responsavel)return -1; if(b===responsavel)return 1; return a.localeCompare(b,'pt-BR'); });
+    let datasLabel='';
+    if(tipo==='dom'){ datasLabel=DOMINGOS_MES.join(' · '); }
+    else { const sd=(SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h)); datasLabel=sd.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · '); }
+    const linhas=ord.map((m,i)=>{
+      const isResp=m===responsavel;
+      return `<tr><td style="width:42px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:7px 8px;font-size:13px">${i+1}</td><td style="border:1px solid #e2e2e2;padding:7px 8px;font-size:13px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:20px;font-weight:700;margin-left:4px">★ Responsável</span>':''}</td></tr>`;
+    }).join('');
+    blocos+=`<div style="margin-bottom:16px">
+      <div style="background:#085041;color:white;font-weight:700;font-size:15px;padding:7px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:11px;opacity:.85">${datasLabel}</span></div>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="width:42px;text-align:center;background:#f3f5f4;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Nº</th><th style="text-align:left;background:#f3f5f4;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Ministro</th></tr></thead><tbody>${linhas}</tbody></table>
+    </div>`;
+  });
+
+  if(!blocos){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
+
+  toast('Gerando imagem...','ok');
+
+  // Container offscreen com o layout (largura fixa p/ boa qualidade)
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:760px;background:white;padding:28px 32px;font-family:Arial,sans-serif;color:#1a1a1a';
+  wrap.innerHTML=`
+    <div style="display:flex;align-items:center;gap:18px;border-bottom:3px solid #085041;padding-bottom:12px;margin-bottom:6px">
+      <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:66px;height:66px;object-fit:contain">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:11px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1 style="margin:3px 0;color:#085041;font-size:24px">Escala de Serviço</h1>
+        <p style="font-size:12px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:66px;height:66px;object-fit:contain">
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:14px 0 18px;font-size:14px">
+      <div><strong>${subLabel}</strong></div>
+      <div style="font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px">${periodoLabel}</div>
+    </div>
+    ${blocos}
+    <p style="text-align:center;margin-top:20px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>`;
+  document.body.appendChild(wrap);
+
+  try{
+    // espera as imagens das logos carregarem
+    await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=> img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })));
+    const canvas=await html2canvas(wrap,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
+    const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.png`;
+    canvas.toBlob(blob=>{
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=nomeArq;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+      document.getElementById('modal-imagem').style.display='flex';
+    },'image/png');
+  }catch(e){
+    toast('Erro ao gerar imagem: '+e.message,'err');
+  }finally{
+    document.body.removeChild(wrap);
+  }
+};
+
 // Envia a escala personalizada para cada ministro escalado, via WhatsApp individual
-// (wa.me/55<tel>?text=...). Abre conversa já com texto pronto — basta enviar.
 window.enviarEscalaIndividual = async function(){
   const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
   const key = tipo==='dom'
@@ -2388,6 +2467,9 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
       <button class="btn-g" onclick="salvarEscala()" style="margin:0;flex:1;min-width:80px">💾 Salvar Escala</button>
       <button onclick="imprimirEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
     </div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">🖼️ Gerar imagem p/ WhatsApp</button>
+    </div>
     <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
       <button class="btn-w" onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px">📋 Copiar texto</button>
       <button onclick="enviarEscalaIndividual()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer">📲 Enviar a cada ministro</button>
@@ -2710,6 +2792,19 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
       <p style="font-size:12px;color:#085041;margin:0"><strong>💻 No computador:</strong> clique na caixa de mensagem → <strong>Ctrl + V</strong> → Enter.</p>
     </div>
     <button class="btn-g" onclick="fecharModal('modal-copiado')" style="margin:0">Entendi</button>
+  </div>
+</div>
+
+<div id="modal-imagem" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-imagem')">
+  <div class="modal-box" style="max-width:380px;text-align:center">
+    <p style="font-size:34px;margin:0 0 6px">🖼️</p>
+    <p style="font-size:16px;font-weight:700;margin:0 0 10px">Imagem da escala gerada!</p>
+    <p style="font-size:13px;color:#555;margin:0 0 14px;line-height:1.5">A imagem foi <strong>baixada</strong> no seu aparelho (pasta Downloads). Agora é só enviar como foto no WhatsApp:</p>
+    <div style="background:#f0faf5;border-radius:8px;padding:12px;text-align:left;margin-bottom:14px">
+      <p style="font-size:12px;color:#085041;margin:0 0 8px"><strong>📱 No celular:</strong> abra o grupo → toque no 📎/➕ → <strong>Galeria/Fotos</strong> → escolha a imagem da escala → enviar.</p>
+      <p style="font-size:12px;color:#085041;margin:0"><strong>💻 No computador:</strong> abra o grupo → clique no 📎 → <strong>Fotos e vídeos</strong> → escolha a imagem em Downloads → enviar.</p>
+    </div>
+    <button class="btn-g" onclick="fecharModal('modal-imagem')" style="margin:0">Entendi</button>
   </div>
 </div>
 
