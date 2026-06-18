@@ -884,9 +884,23 @@ window.enviarEscalaIndividual = async function(){
 
   // Mensagens espirituais e acolhedoras (o sistema alterna entre elas)
   const tipoTexto = tipo==='dom' ? 'Escala Dominical' : 'Escala Semanal';
+
+  // Para cada horário, monta o rótulo de datas correspondente
+  function datasDoHorario(h){
+    if(tipo==='dom'){
+      return DOMINGOS_MES.join(', ');
+    } else {
+      const sd=(SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
+      return sd.map(d=>`${d.dia} ${d.data}`).join(', ');
+    }
+  }
+
   function montarMensagem(nome, horasMin){
     const primeiro = nome.split(' ')[0];
-    const horasTxt = horasMin.map(h=>`⏰ ${h}`).join('\n');
+    const horasTxt = horasMin.map(h=>{
+      const datas = datasDoHorario(h);
+      return `⏰ *${h}*${datas?`\n📅 ${datas}`:''}`;
+    }).join('\n\n');
     const cab = `🙏 *${tipoTexto}* — ${periodo}`;
     const rodape = `\n\n_Coordenação MESCE 2026_\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
     const modelos = [
