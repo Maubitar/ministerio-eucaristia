@@ -882,11 +882,37 @@ window.enviarEscalaIndividual = async function(){
   const nomes = Object.keys(porMinistro).sort((a,b)=>a.localeCompare(b,'pt-BR'));
   if(!nomes.length){ toast('Nenhum ministro escalado para enviar.','warn'); return; }
 
-  window._envioLista = nomes.map(nome=>{
+  // Mensagens espirituais e acolhedoras (o sistema alterna entre elas)
+  const tipoTexto = tipo==='dom' ? 'Escala Dominical' : 'Escala Semanal';
+  function montarMensagem(nome, horasMin){
+    const primeiro = nome.split(' ')[0];
+    const horasTxt = horasMin.map(h=>`⏰ ${h}`).join('\n');
+    const cab = `🙏 *${tipoTexto}* — ${periodo}`;
+    const rodape = `\n\n_Coordenação MESCE 2026_\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
+    const modelos = [
+      `${cab}\n\nOlá, ${primeiro}! 🕊️\nVocê foi chamado(a) a servir na Casa do Nosso Senhor Jesus. Observe com carinho as datas e horários abaixo, e que seja uma missão abençoada:\n\n${horasTxt}${rodape}`,
+
+      `${cab}\n\nOlá, ${primeiro}! 💛\nO Senhor o(a) chama para um serviço santo junto ao altar. Com amor e dedicação, confira sua escala e que Nossa Senhora de Nazaré interceda por você:\n\n${horasTxt}${rodape}`,
+
+      `${cab}\n\nGraça e paz, ${primeiro}! 🕊️\nVocê foi convocado(a) a levar Jesus Eucarístico aos irmãos. Que seja uma missão de fé e gratidão. Seus horários de serviço:\n\n${horasTxt}\n\n"Eu sou o pão vivo descido do céu." (Jo 6,51)${rodape}`,
+
+      `${cab}\n\nOlá, ${primeiro}! 🙏\nFoi com alegria que lembramos de você para servir ao Senhor neste mês. Que cada momento junto ao altar fortaleça sua fé. Veja sua escala:\n\n${horasTxt}${rodape}`,
+
+      `${cab}\n\nQuerido(a) ${primeiro}, a paz! ✨\nVocê é instrumento das mãos de Deus para levar o Pão da Vida aos irmãos. Sirva com amor e devoção. Estes são seus horários:\n\n${horasTxt}${rodape}`,
+
+      `${cab}\n\nOlá, ${primeiro}! 🕊️\nServir na Eucaristia é um chamado de amor. Que Deus o(a) abençoe e Nossa Senhora de Nazaré o(a) cubra com seu manto. Confira suas datas e horários:\n\n${horasTxt}${rodape}`,
+
+      `${cab}\n\n${primeiro}, que a paz de Cristo esteja com você! 🙌\nCom gratidão, comunicamos sua escala de serviço. Que seja um tempo de bênçãos e renovação da fé:\n\n${horasTxt}${rodape}`
+    ];
+    return modelos;
+  }
+
+  window._envioLista = nomes.map((nome,idx)=>{
     const m = ministros.find(x=>x.nome===nome);
     const tel = (m?.tel||'').replace(/\D/g,'');
     const horasMin = porMinistro[nome];
-    const msg = `🙏 *Escala — Ministério da Eucaristia*\n${tipo==='dom'?'Escala Dominical':'Escala Semanal'}\n${periodo}\n\nOlá, ${nome.split(' ')[0]}! Você está escalado(a) para:\n${horasMin.map(h=>`⏰ ${h}`).join('\n')}\n\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
+    const modelos = montarMensagem(nome, horasMin);
+    const msg = modelos[idx % modelos.length]; // alterna a mensagem entre os ministros
     return { nome, tel, horas:horasMin, msg };
   });
 
