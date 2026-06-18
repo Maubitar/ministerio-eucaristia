@@ -823,12 +823,19 @@ window.gerarImagemEscala = async function(){
   try{
     // espera as imagens das logos carregarem
     await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=> img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })));
-    // escala dinâmica para alta resolução, respeitando o limite de canvas (~16k px)
+    // escala dinâmica para ALTÍSSIMA resolução, respeitando limites de canvas do navegador
     const alturaEstim = wrap.scrollHeight || 1200;
-    const maxLado = 14000;
-    let escalaQual = 4;
+    // Navegadores suportam até ~16384px por lado. Buscamos a maior escala possível.
+    const maxLado = 16000;
+    const maxArea = 250000000; // ~250 MP de segurança
+    let escalaQual = 6; // alvo de altíssima qualidade
+    // respeita limite de largura
     if(BASE_W*escalaQual > maxLado) escalaQual = Math.floor(maxLado/BASE_W);
-    if(alturaEstim*escalaQual > maxLado) escalaQual = Math.max(2, Math.floor(maxLado/alturaEstim));
+    // respeita limite de altura
+    if(alturaEstim*escalaQual > maxLado) escalaQual = Math.floor(maxLado/alturaEstim);
+    // respeita limite de área total
+    if(BASE_W*alturaEstim*escalaQual*escalaQual > maxArea) escalaQual = Math.floor(Math.sqrt(maxArea/(BASE_W*alturaEstim)));
+    escalaQual = Math.max(3, escalaQual); // nunca abaixo de 3x
     const canvas=await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
     const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.png`;
     canvas.toBlob(blob=>{
