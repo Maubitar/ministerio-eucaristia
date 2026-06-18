@@ -786,11 +786,11 @@ window.gerarImagemEscala = async function(){
     else { const sd=(SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h)); datasLabel=sd.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · '); }
     const linhas=ord.map((m,i)=>{
       const isResp=m===responsavel;
-      return `<tr><td style="width:42px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:7px 8px;font-size:13px">${i+1}</td><td style="border:1px solid #e2e2e2;padding:7px 8px;font-size:13px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:20px;font-weight:700;margin-left:4px">★ Responsável</span>':''}</td></tr>`;
+      return `<tr><td style="width:54px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:9px 10px;font-size:16px">${i+1}</td><td style="border:1px solid #e2e2e2;padding:9px 10px;font-size:16px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:12px;background:#faeeda;color:#7a4a06;padding:2px 9px;border-radius:20px;font-weight:700;margin-left:6px">★ Responsável</span>':''}</td></tr>`;
     }).join('');
-    blocos+=`<div style="margin-bottom:16px">
-      <div style="background:#085041;color:white;font-weight:700;font-size:15px;padding:7px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:11px;opacity:.85">${datasLabel}</span></div>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="width:42px;text-align:center;background:#f3f5f4;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Nº</th><th style="text-align:left;background:#f3f5f4;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Ministro</th></tr></thead><tbody>${linhas}</tbody></table>
+    blocos+=`<div style="margin-bottom:20px">
+      <div style="background:#085041;color:white;font-weight:700;font-size:19px;padding:9px 16px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:14px;opacity:.85">${datasLabel}</span></div>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="width:54px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Nº</th><th style="text-align:left;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Ministro</th></tr></thead><tbody>${linhas}</tbody></table>
     </div>`;
   });
 
@@ -798,31 +798,38 @@ window.gerarImagemEscala = async function(){
 
   toast('Gerando imagem...','ok');
 
-  // Container offscreen com o layout (largura fixa p/ boa qualidade)
+  // Container offscreen com o layout — largura base maior = mais nitidez
+  const BASE_W = 900;
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:760px;background:white;padding:28px 32px;font-family:Arial,sans-serif;color:#1a1a1a';
+  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:34px 40px;font-family:Arial,sans-serif;color:#1a1a1a`;
   wrap.innerHTML=`
-    <div style="display:flex;align-items:center;gap:18px;border-bottom:3px solid #085041;padding-bottom:12px;margin-bottom:6px">
-      <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:66px;height:66px;object-fit:contain">
+    <div style="display:flex;align-items:center;gap:22px;border-bottom:4px solid #085041;padding-bottom:16px;margin-bottom:8px">
+      <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
       <div style="flex:1;text-align:center">
-        <p style="font-size:11px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1 style="margin:3px 0;color:#085041;font-size:24px">Escala de Serviço</h1>
-        <p style="font-size:12px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+        <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1 style="margin:4px 0;color:#085041;font-size:30px">Escala de Serviço</h1>
+        <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
       </div>
-      <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:66px;height:66px;object-fit:contain">
+      <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:14px 0 18px;font-size:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:18px 0 22px;font-size:16px">
       <div><strong>${subLabel}</strong></div>
-      <div style="font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px">${periodoLabel}</div>
+      <div style="font-size:15px;color:#085041;font-weight:700;background:#e1f5ee;padding:5px 14px;border-radius:20px">${periodoLabel}</div>
     </div>
     ${blocos}
-    <p style="text-align:center;margin-top:20px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>`;
+    <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>`;
   document.body.appendChild(wrap);
 
   try{
     // espera as imagens das logos carregarem
     await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=> img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })));
-    const canvas=await html2canvas(wrap,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
+    // escala dinâmica para alta resolução, respeitando o limite de canvas (~16k px)
+    const alturaEstim = wrap.scrollHeight || 1200;
+    const maxLado = 14000;
+    let escalaQual = 4;
+    if(BASE_W*escalaQual > maxLado) escalaQual = Math.floor(maxLado/BASE_W);
+    if(alturaEstim*escalaQual > maxLado) escalaQual = Math.max(2, Math.floor(maxLado/alturaEstim));
+    const canvas=await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
     const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.png`;
     canvas.toBlob(blob=>{
       const a=document.createElement('a');
@@ -831,7 +838,7 @@ window.gerarImagemEscala = async function(){
       a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href),2000);
       document.getElementById('modal-imagem').style.display='flex';
-    },'image/png');
+    },'image/png',1.0);
   }catch(e){
     toast('Erro ao gerar imagem: '+e.message,'err');
   }finally{
