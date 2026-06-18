@@ -702,10 +702,18 @@ window.proximasDatasComMissa = function(){
   return out;
 };
 
-window.compartilharEscala = function(){
-  const tipoAtual=document.getElementById('esc-tipo').value;
-  const semAtual=document.getElementById('esc-sem').value;
+window.compartilharEscala = async function(){
   const mesKey=getMesAtual();
+
+  // Busca um documento de escala direto do banco (não depende do cache carregado por aba)
+  async function carregarEscalaDoc(key){
+    if(escalas[key]) return escalas[key];
+    try{
+      const d = await getDoc(doc(db,'escalas',key));
+      escalas[key] = d.exists()? d.data() : {};
+    }catch(e){ escalas[key]={}; }
+    return escalas[key];
+  }
 
   // Bloco de uma escala (dominical ou de uma semana)
   function blocoEscala(titulo, periodoStr, esc, horas){
@@ -726,17 +734,19 @@ window.compartilharEscala = function(){
     return tem? t : '';
   }
 
+  toast('Montando escala completa...','ok');
+
   let txt='';
   // Sempre inclui a dominical
-  const escDom=escalas[`escala_dom_${mesKey}`]||{};
+  const escDom = await carregarEscalaDoc(`escala_dom_${mesKey}`);
   txt += blocoEscala('ESCALA DOMINICAL', `${CAL.mesNome}/${CAL.ano} (domingos: ${DOMINGOS_MES.join(', ')})`, escDom, MISSAS_DOM);
 
   // Inclui todas as semanas que tiverem escala salva
-  Object.keys(SEMANAS_MES).forEach(s=>{
-    const escSem=escalas[`escala_sem_sem${s}_${mesKey}`]||{};
+  for(const s of Object.keys(SEMANAS_MES)){
+    const escSem = await carregarEscalaDoc(`escala_sem_sem${s}_${mesKey}`);
     const bloco = blocoEscala('ESCALA SEMANAL', `Semana de ${SEMANAS_MES[s]?.periodo||''}`, escSem, MISSAS_SEM);
     if(bloco) txt += '\n———————————————\n\n' + bloco;
-  });
+  }
 
   if(!txt.trim()){ toast('Nenhuma escala montada para copiar.','warn'); return; }
   txt+='_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
@@ -751,12 +761,16 @@ window.compartilharEscala = function(){
 
 // Envia a escala personalizada para cada ministro escalado, via WhatsApp individual
 // (wa.me/55<tel>?text=...). Abre conversa já com texto pronto — basta enviar.
-window.enviarEscalaIndividual = function(){
+window.enviarEscalaIndividual = async function(){
   const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
   const key = tipo==='dom'
     ? `escala_dom_${getMesAtual()}`
     : `escala_sem_sem${sem}_${getMesAtual()}`;
-  const esc=escalas[key]||{};
+  let esc=escalas[key];
+  if(!esc){
+    try{ const d=await getDoc(doc(db,'escalas',key)); esc=d.exists()?d.data():{}; escalas[key]=esc; }
+    catch(e){ esc={}; }
+  }
   const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
   const periodo = tipo==='dom'
     ? `${CAL.mesNome}/${CAL.ano} (domingos: ${DOMINGOS_MES.join(', ')})`
@@ -2112,10 +2126,14 @@ function initModais(){
 }
 initModais();
 
-window.imprimirEscala = function(){
+window.imprimirEscala = async function(){
   const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
   const key = tipo==='dom' ? `escala_dom_${getMesAtual()}` : `escala_sem_sem${sem}_${getMesAtual()}`;
-  const esc=escalas[key]||{};
+  let esc=escalas[key];
+  if(!esc){
+    try{ const d=await getDoc(doc(db,'escalas',key)); esc=d.exists()?d.data():{}; escalas[key]=esc; }
+    catch(e){ esc={}; }
+  }
   const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
   const w=window.open('','_blank');
 
