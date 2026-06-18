@@ -94,7 +94,7 @@ function calcularCalendario(ano, mes) {
     });
   }
 
-  return { semanas, domingos, domingosDerramados, mesNome: MESES_NOME[mes], ano };
+  return { semanas, domingos, domingosDerramados, mesNome: MESES_NOME[mes], mes, ano };
 }
 
 const CONFIG_MES = { ano: 2026, mes: 5 };
@@ -685,38 +685,62 @@ window.buscarEscaladosPara = async function(dataDDMM, hora, diaSemana){
 // Retorna lista de {data, diaSemana} para os próximos N dias a partir de hoje (para seletor de data na Presença)
 window.proximasDatasComMissa = function(){
   const out = [];
-  const hoje = new Date();
   const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
-  for(let i=-3;i<=24;i++){
-    const d = new Date(hoje); d.setDate(hoje.getDate()+i);
+  // Cobre o mês inteiro selecionado na escala (CAL.mes/CAL.ano), com margem de alguns dias
+  // antes e depois, para que TODA semana/domingo com escala salva fique acessível.
+  const ini = new Date(CAL.ano, CAL.mes, 1);
+  ini.setDate(ini.getDate()-7);
+  const fim = new Date(CAL.ano, CAL.mes+1, 0);
+  fim.setDate(fim.getDate()+10);
+  const d = new Date(ini);
+  while(d<=fim){
     const dd = String(d.getDate()).padStart(2,'0');
     const mm = String(d.getMonth()+1).padStart(2,'0');
     out.push({data:`${dd}/${mm}`, diaSemana:DIAS_NOME[d.getDay()], iso:d.toISOString().split('T')[0]});
+    d.setDate(d.getDate()+1);
   }
   return out;
 };
 
 window.compartilharEscala = function(){
-  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
-  const key = tipo==='dom'
-    ? `escala_dom_${getMesAtual()}`
-    : `escala_sem_sem${sem}_${getMesAtual()}`;
-  const esc=escalas[key]||{};
-  const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
-  const periodo = tipo==='dom'
-    ? `${CAL.mesNome}/${CAL.ano} (domingos: ${DOMINGOS_MES.join(', ')})`
-    : `${SEMANAS_MES[sem]?.label||sem+'ª semana'} — ${SEMANAS_MES[sem]?.periodo||''}`;
-  let txt=`📋 *ESCALA ${tipo==='dom'?'DOMINICAL':'SEMANAL'}*\n${periodo}\n\n`;
-  horas.forEach(h=>{
-    const g=esc[h]||{ministros:[],responsavel:''};
-    if(g.ministros.length){
-      txt+=`⏰ *${h}*\n`;
-      if(g.responsavel) txt+=`★ Responsável: ${g.responsavel}\n`;
-      g.ministros.forEach(m=>txt+=`• ${m}\n`);
-      txt+='\n';
-    }
+  const tipoAtual=document.getElementById('esc-tipo').value;
+  const semAtual=document.getElementById('esc-sem').value;
+  const mesKey=getMesAtual();
+
+  // Bloco de uma escala (dominical ou de uma semana)
+  function blocoEscala(titulo, periodoStr, esc, horas){
+    let tem=false;
+    let t=`📋 *${titulo}*\n${periodoStr}\n\n`;
+    horas.forEach(h=>{
+      const g=esc[h]||{ministros:[],responsavel:''};
+      if(g.ministros.length){
+        tem=true;
+        t+=`⏰ *${h}*\n`;
+        if(g.responsavel) t+=`★ Responsável: ${g.responsavel}\n`;
+        const resp=g.responsavel;
+        const ord=[...g.ministros].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+        ord.forEach(m=>t+=`• ${m}\n`);
+        t+='\n';
+      }
+    });
+    return tem? t : '';
+  }
+
+  let txt='';
+  // Sempre inclui a dominical
+  const escDom=escalas[`escala_dom_${mesKey}`]||{};
+  txt += blocoEscala('ESCALA DOMINICAL', `${CAL.mesNome}/${CAL.ano} (domingos: ${DOMINGOS_MES.join(', ')})`, escDom, MISSAS_DOM);
+
+  // Inclui todas as semanas que tiverem escala salva
+  Object.keys(SEMANAS_MES).forEach(s=>{
+    const escSem=escalas[`escala_sem_sem${s}_${mesKey}`]||{};
+    const bloco = blocoEscala('ESCALA SEMANAL', `Semana de ${SEMANAS_MES[s]?.periodo||''}`, escSem, MISSAS_SEM);
+    if(bloco) txt += '\n———————————————\n\n' + bloco;
   });
+
+  if(!txt.trim()){ toast('Nenhuma escala montada para copiar.','warn'); return; }
   txt+='_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_';
+
   try{
     navigator.clipboard.writeText(txt);
     document.getElementById('modal-copiado').style.display='flex';
@@ -2095,60 +2119,93 @@ window.imprimirEscala = function(){
   const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
   const w=window.open('','_blank');
 
-  let periodoLabel = '';
+  let periodoLabel = '', subLabel = '';
   if(tipo==='dom'){
-    periodoLabel = `Escala Dominical — ${CAL.mesNome}/${CAL.ano} · Domingos: ${DOMINGOS_MES.join(', ')}`;
+    periodoLabel = 'Escala Dominical';
+    subLabel = `Domingos: ${DOMINGOS_MES.join(' · ')}`;
   } else {
     const semInfo = SEMANAS_MES[sem];
-    periodoLabel = `Escala Semanal — ${semInfo?.label||''} (${semInfo?.periodo||''})`;
+    periodoLabel = 'Escala Semanal';
+    subLabel = `Semana de ${semInfo?.periodo||''}`;
   }
 
-  let linhas='';
+  let blocos='';
   horas.forEach(h=>{
     const g=esc[h]||{ministros:[],responsavel:''};
-    if(g.ministros.length){
-      let datasLabel = '';
-      if(tipo==='dom'){
-        datasLabel = DOMINGOS_MES.join(', ');
-      } else {
-        const semDias = (SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
-        datasLabel = semDias.map(d=>`${d.dia} ${d.data}`).join(', ');
-      }
-      linhas+=`<tr style="background:#085041;color:white">
-        <td style="padding:6px 8px;font-weight:700;font-size:13px">⏰ ${h} — ${datasLabel}</td>
-        <td style="padding:6px 4px;font-weight:700;font-size:11px;text-align:center;width:38px">P</td>
-        <td style="padding:6px 4px;font-weight:700;font-size:11px;text-align:center;width:38px">F</td>
-        <td style="padding:6px 4px;font-weight:700;font-size:11px;text-align:center;width:38px">S</td>
-      </tr>`;
-      g.ministros.forEach((m,i)=>{
-        const isResp = m===g.responsavel;
-        linhas+=`<tr style="border-bottom:1px solid #eee">
-          <td style="padding:5px 8px;font-size:12px;${isResp?'font-weight:700':''}">${i+1}. ${m}${isResp?' ★':''}</td>
-          <td style="border-left:1px solid #eee;height:22px"></td>
-          <td style="border-left:1px solid #eee;height:22px"></td>
-          <td style="border-left:1px solid #eee;height:22px"></td>
-        </tr>`;
-      });
+    if(!g.ministros.length) return;
+    const responsavel=g.responsavel;
+    const ordenados=[...g.ministros].sort((a,b)=>{
+      if(a===responsavel) return -1;
+      if(b===responsavel) return 1;
+      return a.localeCompare(b,'pt-BR');
+    });
+    let datasLabel='';
+    if(tipo==='dom'){
+      datasLabel = DOMINGOS_MES.join(' · ');
+    } else {
+      const semDias=(SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
+      datasLabel = semDias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
     }
+    const linhas = ordenados.map((m,i)=>{
+      const isResp = m===responsavel;
+      return `<tr>
+        <td class="num">${i+1}</td>
+        <td class="nome${isResp?' resp':''}">${m}${isResp?' <span class="star">★ Responsável</span>':''}</td>
+      </tr>`;
+    }).join('');
+    blocos += `
+    <div class="missa">
+      <div class="missa-hora">⏰ ${h} <span class="datas">${datasLabel}</span></div>
+      <table class="tab">
+        <thead><tr><th class="num">Nº</th><th class="nome">Ministro</th></tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div>`;
   });
 
-  if(!linhas) linhas = '<tr><td colspan="4" style="padding:12px;text-align:center;color:#888;font-size:12px">Nenhum ministro escalado.</td></tr>';
+  if(!blocos) blocos = '<p style="text-align:center;color:#888;font-size:13px;padding:20px">Nenhum ministro escalado.</p>';
 
-  w.document.write(`<!DOCTYPE html><html><head><title>Escala</title></head>
-  <body style="font-family:Arial,sans-serif;padding:24px;font-size:12px;color:#1a1a1a">
-    <div style="display:flex;align-items:center;gap:16px;border-bottom:2px solid #085041;padding-bottom:10px;margin-bottom:14px">
-      <img src="${APP_URL}/${LOGO_BASILICA}" style="width:60px;height:60px">
-      <div style="flex:1;text-align:center">
-        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h2 style="margin:2px 0;color:#085041">Escala de Serviço</h2>
-        <p style="font-size:11px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${periodoLabel}</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:28px 32px}
+    .cab{display:flex;align-items:center;gap:18px;border-bottom:3px solid #085041;padding-bottom:12px;margin-bottom:6px}
+    .cab img{width:66px;height:66px;object-fit:contain}
+    .cab .ct{flex:1;text-align:center}
+    .cab .basilica{font-size:11px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
+    .cab h1{margin:3px 0;color:#085041;font-size:24px}
+    .cab .sub{font-size:12px;color:#555;margin:0}
+    .info{display:flex;justify-content:space-between;align-items:flex-end;margin:14px 0 18px;font-size:14px}
+    .info .tipo{font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px}
+    .missa{margin-bottom:16px;page-break-inside:avoid}
+    .missa-hora{background:#085041;color:white;font-weight:700;font-size:15px;padding:7px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center}
+    .missa-hora .datas{font-weight:400;font-size:11px;opacity:.85}
+    table.tab{width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none}
+    table.tab th{background:#f3f5f4;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-transform:uppercase;letter-spacing:.5px;color:#555;text-align:left}
+    table.tab td{border:1px solid #e2e2e2;padding:7px 8px;font-size:13px}
+    .num{width:42px;text-align:center;color:#888}
+    th.num{text-align:center}
+    .nome.resp{font-weight:700}
+    .star{font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:20px;font-weight:700;margin-left:4px}
+    .rodape{text-align:center;margin-top:24px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px}
+    @media print{ body{padding:14px 18px} }
+  </style></head>
+  <body>
+    <div class="cab">
+      <img src="${APP_URL}/${LOGO_BASILICA}">
+      <div class="ct">
+        <p class="basilica">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1>Escala de Serviço</h1>
+        <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
       </div>
-      <img src="${APP_URL}/${LOGO_MESCE}" style="width:60px;height:60px">
+      <img src="${APP_URL}/${LOGO_MESCE}">
     </div>
-    <p style="font-size:13px;font-weight:600;color:#085041;margin-bottom:10px">${periodoLabel}</p>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #ddd">${linhas}</table>
-    <p style="font-size:10px;color:#666;margin-top:8px">★ = Responsável pelo horário &nbsp;·&nbsp; <strong>P</strong> presente &nbsp;/&nbsp; <strong>F</strong> faltou &nbsp;/&nbsp; <strong>S</strong> substituído</p>
-    <p style="text-align:center;margin-top:12px;font-size:10px;color:#999">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
+    <div class="info">
+      <div><strong>${subLabel}</strong></div>
+      <div class="tipo">${periodoLabel}</div>
+    </div>
+    ${blocos}
+    <p class="rodape">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
     <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   w.document.close();
