@@ -913,6 +913,7 @@ window.renderEscala = async function(){
     const g = escalas[key][hora] || {ministros:[], responsavel:''};
     const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
     const disponíveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+    const plantonistas = ministros.filter(m=>m.plantao && !(m[dispKey]||[]).includes(hora));
     const jaEscalados = new Set(g.ministros);
 
     let datasLabel = '';
@@ -932,7 +933,7 @@ window.renderEscala = async function(){
         <span style="font-size:11px;color:#888">${g.ministros.length} escalado(s)</span>
         <button onclick="verDisponiveis('${key}','${hora}','${dispKey}')"
           style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
-          👥 ${disponíveis.length} disponíveis
+          👥 ${disponíveis.length} disponíveis${plantonistas.length?` <span style="color:#185FA5">+${plantonistas.length}🔔</span>`:''}
         </button>
       </div>
       ${g.responsavel?`<div style="font-size:11px;background:#faeeda;color:#633806;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${g.responsavel}</div>`:'' }
@@ -972,41 +973,56 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
   const ac = document.getElementById(acId);
   if(!ac) return;
 
-  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
+  // Disponíveis no horário OU ministros de plantão (sempre disponíveis em qualquer horário)
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora) || m.plantao);
   const matches = v.length>=1
     ? disponiveis.filter(m=>normalizarBusca(m.nome).includes(v))
     : disponiveis;
 
-  if(!matches.length){ ac.style.display='none'; return; }
-
   const jaEscalados = new Set((escalas[key]?.[hora]?.ministros)||[]);
 
+  // Ministros que combinam com a busca mas NÃO estão disponíveis (nem plantão) — só com busca digitada
+  const indisponiveis = v.length>=2
+    ? ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !(m[dispKey]||[]).includes(hora) && !m.plantao)
+    : [];
+
+  if(!matches.length && !indisponiveis.length){ ac.style.display='none'; return; }
+
   ac.style.display='block';
-  ac.innerHTML = matches.slice(0,10).map((m,idx)=>{
+  let html = '';
+
+  // 1) Disponíveis (e plantão)
+  html += matches.slice(0,10).map((m,idx)=>{
     const jaEsc = jaEscalados.has(m.nome);
-    const outroH = jaEscaladoNoutroHorario(key, hora, m.nome); // dupla escala?
+    const outroH = jaEscaladoNoutroHorario(key, hora, m.nome);
+    const ehPlantao = m.plantao && !(m[dispKey]||[]).includes(hora); // disponível só por ser plantão
     const primeiro = idx===0;
-    const bgBase = jaEsc ? '#f0faf5' : (outroH ? '#fdf6e3' : (primeiro ? '#eef7f2' : 'white'));
+    const bgBase = jaEsc ? '#f0faf5' : (outroH ? '#fdf6e3' : (ehPlantao ? '#eef7f9' : (primeiro ? '#eef7f2' : 'white')));
     const dim = (outroH && !jaEsc) ? 'opacity:.6;' : '';
     return `<div onmousedown="addMin('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
       style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;background:${bgBase};${dim}${primeiro?'border-left:3px solid #1D9E75;':''}"
       onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${bgBase}'">
-      <span>${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}${(outroH&&!jaEsc)?` <span style="font-size:10px;color:#BA7517;font-weight:600">⚠️ já em ${outroH}</span>`:''}</span>
-      <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')}</span>
+      <span>${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}${ehPlantao?' <span style="font-size:10px;color:#185FA5;font-weight:600">🔔 plantão</span>':''}${(outroH&&!jaEsc)?` <span style="font-size:10px;color:#BA7517;font-weight:600">⚠️ já em ${outroH}</span>`:''}</span>
+      <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')||(m.plantao?'plantão':'')}</span>
     </div>`;
   }).join('');
 
-  if(v.length>=2 && !disponiveis.filter(m=>normalizarBusca(m.nome).includes(v)).length){
-    const fora = ministros.filter(m=>normalizarBusca(m.nome).includes(v)).slice(0,3);
-    if(fora.length){
-      ac.innerHTML += `<div style="padding:6px 12px;font-size:11px;color:#BA7517;border-top:1px solid #eee;font-weight:500">⚠️ Sem disponibilidade em ${hora}:</div>`;
-      ac.innerHTML += fora.map(m=>`<div onmousedown="addMinForaDisp('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
-        style="padding:8px 12px;cursor:pointer;font-size:12px;color:#BA7517;background:#faeeda"
-        onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">
-        ${m.nome} <span style="font-size:10px">(fora do horário)</span>
-      </div>`).join('');
-    }
+  // 2) Indisponíveis que casam com a busca — "escalar mesmo assim" (exceção + log)
+  if(indisponiveis.length){
+    html += `<div style="padding:6px 12px;font-size:11px;color:#BA7517;border-top:1px solid #eee;font-weight:600;background:#fffdf7">⚠️ Sem disponibilidade em ${hora} — escalar como exceção:</div>`;
+    html += indisponiveis.slice(0,5).map(m=>{
+      const jaEsc = jaEscalados.has(m.nome);
+      if(jaEsc) return '';
+      return `<div onmousedown="addMinForaDisp('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
+        style="padding:8px 12px;cursor:pointer;font-size:12px;color:#9a6a10;background:#faeeda;opacity:.92;display:flex;justify-content:space-between;align-items:center"
+        onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.92'">
+        <span>${m.nome} <span style="font-size:10px">(fora do horário)</span></span>
+        <span style="font-size:10px;font-weight:700;color:#BA7517">+ exceção</span>
+      </div>`;
+    }).join('');
   }
+
+  ac.innerHTML = html;
 };
 
 // Verifica se o ministro já está escalado em OUTRO horário da mesma escala (dupla escala)
@@ -1062,21 +1078,30 @@ window.addMinForaDisp = function(key, hora, nome, acId){
 };
 
 window.verDisponiveis = function(key, hora, dispKey){
-  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora))
-    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora) || m.plantao)
+    .sort((a,b)=>{
+      // plantão-only vão para o fim
+      const aPlant = !(a[dispKey]||[]).includes(hora) && a.plantao;
+      const bPlant = !(b[dispKey]||[]).includes(hora) && b.plantao;
+      if(aPlant!==bPlant) return aPlant?1:-1;
+      return a.nome.localeCompare(b.nome,'pt-BR');
+    });
   const tipo = dispKey==='dispDom'?'Dominical':'Semanal';
   const jaEscalados = new Set((escalas[key]?.[hora]?.ministros)||[]);
+  const qtdReal = disponiveis.filter(m=>(m[dispKey]||[]).includes(hora)).length;
+  const qtdPlant = disponiveis.length - qtdReal;
   document.getElementById('vd-titulo').textContent = `${tipo} — ${hora}`;
-  document.getElementById('vd-count').textContent = `${disponiveis.length} ministros disponíveis`;
+  document.getElementById('vd-count').textContent = `${qtdReal} disponíveis${qtdPlant?` + ${qtdPlant} de plantão`:''}`;
   document.getElementById('vd-body').innerHTML = disponiveis.length
     ? disponiveis.map((m,i)=>{
         const jaEsc = jaEscalados.has(m.nome);
+        const ehPlantao = !(m[dispKey]||[]).includes(hora) && m.plantao;
         return `
         <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
-          <div style="width:28px;height:28px;border-radius:50%;background:#e6f1fb;color:#185FA5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="width:28px;height:28px;border-radius:50%;background:${ehPlantao?'#e6f1fb':'#e1f5ee'};color:${ehPlantao?'#185FA5':'#085041'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
           <div style="flex:1">
-            <p style="font-size:13px;margin:0">${m.nome}</p>
-            <p style="font-size:10px;color:#888;margin:0">${[...(m.dispDom||[]),...(m.dispSem||[])].join(' · ')}</p>
+            <p style="font-size:13px;margin:0">${m.nome}${ehPlantao?' <span style="font-size:10px;color:#185FA5;font-weight:600">🔔 plantão</span>':''}</p>
+            <p style="font-size:10px;color:#888;margin:0">${[...(m.dispDom||[]),...(m.dispSem||[])].join(' · ')||'sem horário fixo'}</p>
           </div>
           <button onclick="addMinDoModal('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}',this)"
             ${jaEsc?'disabled':''}
