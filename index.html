@@ -1129,9 +1129,67 @@ window.remMin = function(key, hora, mi){
   renderEscala();
 };
 
-window.setResp = function(key, hora, mi){
+// ===== MEMÓRIA DO RESPONSÁVEL (anti-repetição) =====
+// Índice: para cada nome, lista de {mesKey, hora, tipo} em que já foi responsável.
+let _histResponsaveis = null; // cache; null = ainda não carregado
+
+const MESES_NOME_CURTO = {jan:'jan',fev:'fev',mar:'mar',abr:'abr',mai:'mai',jun:'jun',jul:'jul',ago:'ago',set:'set',out:'out',nov:'nov',dez:'dez'};
+function mesKeyLegivel(mesKey){
+  // ex: 'jun2026' -> 'jun/2026'
+  const m = (mesKey||'').match(/^([a-z]{3})(\d{4})$/);
+  return m ? `${m[1]}/${m[2]}` : mesKey;
+}
+
+async function carregarHistoricoResponsaveis(forcar){
+  if(_histResponsaveis && !forcar) return _histResponsaveis;
+  const idx = {}; // nome -> [{mesKey,hora,tipo}]
+  try{
+    const snap = await getDocs(collection(db,'escalas'));
+    snap.docs.forEach(d=>{
+      const id = d.id; // escala_dom_jun2026  ou  escala_sem_sem2_jun2026
+      const dados = d.data();
+      let tipo='', mesKey='';
+      let mDom = id.match(/^escala_dom_(.+)$/);
+      let mSem = id.match(/^escala_sem_sem\d+_(.+)$/);
+      if(mDom){ tipo='Dominical'; mesKey=mDom[1]; }
+      else if(mSem){ tipo='Semanal'; mesKey=mSem[1]; }
+      else return;
+      Object.entries(dados).forEach(([hora,g])=>{
+        if(g && g.responsavel){
+          if(!idx[g.responsavel]) idx[g.responsavel]=[];
+          idx[g.responsavel].push({mesKey, hora, tipo});
+        }
+      });
+    });
+  }catch(e){}
+  _histResponsaveis = idx;
+  return idx;
+}
+
+// Retorna texto curto com os meses em que a pessoa já foi responsável (todos)
+function resumoResponsavel(nome){
+  const lista = (_histResponsaveis||{})[nome] || [];
+  if(!lista.length) return '';
+  // agrupa por mês (únicos), ordenado
+  const meses = [...new Set(lista.map(x=>x.mesKey))];
+  return meses.map(mesKeyLegivel).join(', ');
+}
+
+window.setResp = async function(key, hora, mi){
   const nome = escalas[key][hora].ministros[mi];
-  escalas[key][hora].responsavel = escalas[key][hora].responsavel===nome?'':nome;
+  const ehRemover = escalas[key][hora].responsavel===nome;
+
+  if(!ehRemover){
+    // Vai DEFINIR como responsável — verifica histórico
+    await carregarHistoricoResponsaveis();
+    const resumo = resumoResponsavel(nome);
+    if(resumo){
+      const ok = confirm(`📋 MEMÓRIA DO RESPONSÁVEL\n\n${nome} já foi responsável em:\n${resumo}\n\nVocês costumam rodar o responsável a cada mês.\nDeseja mesmo defini-lo(a) como responsável de ${hora}?`);
+      if(!ok) return;
+    }
+  }
+
+  escalas[key][hora].responsavel = ehRemover?'':nome;
   renderEscala();
 };
 
@@ -1144,6 +1202,7 @@ window.salvarEscala = async function(){
   const totalEscalados = Object.values(dados).reduce((acc,g)=>acc+(g?.ministros?.length||0),0);
   try{
     await setDoc(doc(db,'escalas',key), dados);
+    _histResponsaveis = null; // invalida cache da memória do responsável
     const ref = tipo==='dom' ? 'Escala dominical' : `Escala ${SEMANAS_MES[sem]?.label||'semana '+sem}`;
     toast(`✓ ${ref} salva com ${totalEscalados} ministro(s)! A Lista de Presença já está pronta na aba Presença.`);
   }catch(e){
@@ -2197,11 +2256,27 @@ async function relEscalas(){
   if(!escalasData.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma escala salva ainda.</p>';return;}
 
   const contMin={}, contResp={};
+  // Responsáveis por mês: mesKey -> [{hora, tipo, nome}]
+  const porMes = {};
+  function mesLegivel(mk){ const m=(mk||'').match(/^([a-z]{3})(\d{4})$/); return m?`${m[1]}/${m[2]}`:mk; }
+  const ordemMes = {jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
+
   escalasData.forEach(esc=>{
+    const id = esc.id;
+    let tipo='', mesKey='';
+    let mDom = id.match(/^escala_dom_(.+)$/), mSem = id.match(/^escala_sem_sem\d+_(.+)$/);
+    if(mDom){ tipo='Dominical'; mesKey=mDom[1]; }
+    else if(mSem){ tipo='Semanal'; mesKey=mSem[1]; }
     Object.entries(esc).forEach(([hora,g])=>{
       if(typeof g==='object'&&g.ministros){
         g.ministros.forEach(m=>{ contMin[m]=(contMin[m]||0)+1; });
-        if(g.responsavel) contResp[g.responsavel]=(contResp[g.responsavel]||0)+1;
+        if(g.responsavel){
+          contResp[g.responsavel]=(contResp[g.responsavel]||0)+1;
+          if(mesKey){
+            if(!porMes[mesKey]) porMes[mesKey]=[];
+            porMes[mesKey].push({hora, tipo, nome:g.responsavel});
+          }
+        }
       }
     });
   });
@@ -2209,21 +2284,43 @@ async function relEscalas(){
   const dados=ministros.map(m=>({nome:m.nome,escalado:contMin[m.nome]||0,responsavel:contResp[m.nome]||0}))
     .filter(m=>m.escalado>0).sort((a,b)=>b.responsavel-a.responsavel);
 
-  document.getElementById('rel-body').innerHTML=dados.length?`
-    <p style="font-size:12px;color:#888;margin-bottom:10px">Histórico de escalas salvas (${escalasData.length} escalas)</p>
+  // Ordena os meses (mais recente primeiro)
+  const mesesOrd = Object.keys(porMes).sort((a,b)=>{
+    const ma=a.match(/^([a-z]{3})(\d{4})$/), mb=b.match(/^([a-z]{3})(\d{4})$/);
+    if(!ma||!mb) return 0;
+    if(ma[2]!==mb[2]) return mb[2]-ma[2];
+    return (ordemMes[mb[1]]||0)-(ordemMes[ma[1]]||0);
+  });
+
+  const blocoResponsaveis = mesesOrd.map(mk=>{
+    // responsáveis únicos do mês, dominical primeiro
+    const itens = porMes[mk].sort((a,b)=>(a.tipo===b.tipo?0:(a.tipo==='Dominical'?-1:1)));
+    const chips = itens.map(it=>`<span style="display:inline-block;font-size:11px;background:#faeeda;color:#633806;padding:2px 9px;border-radius:20px;margin:2px">★ ${it.hora} ${it.tipo==='Semanal'?'(sem)':''}: ${primeiroNomes(it.nome)}</span>`).join('');
+    return `<div style="margin-bottom:10px;padding:10px;background:#faf9f5;border-radius:8px">
+      <p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 6px;text-transform:capitalize">📅 ${mesLegivel(mk)}</p>
+      <div>${chips||'<span style="font-size:11px;color:#aaa">Sem responsáveis definidos</span>'}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('rel-body').innerHTML=`
+    <p style="font-size:13px;font-weight:700;color:#1a1a1a;margin:0 0 8px">🗂️ Responsáveis por mês (arquivo)</p>
+    <p style="font-size:11px;color:#888;margin-bottom:10px">Consulte quem já foi responsável de cada horário, mês a mês — para não repetir.</p>
+    ${blocoResponsaveis || '<p style="font-size:12px;color:#888">Nenhum responsável arquivado ainda.</p>'}
+
+    <p style="font-size:13px;font-weight:700;color:#1a1a1a;margin:18px 0 8px">📊 Totais por ministro</p>
+    ${dados.length?`
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:6px 4px">Ministro</th>
         <th style="text-align:center;padding:6px 4px">Escalado</th>
         <th style="text-align:center;padding:6px 4px">Responsável</th>
       </tr></thead>
-      <tbody>${dados.slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
+      <tbody>${dados.slice(0,40).map(m=>`<tr style="border-bottom:1px solid #eee">
         <td style="padding:6px 4px">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;padding:6px 4px;font-weight:600">${m.escalado}x</td>
         <td style="text-align:center;padding:6px 4px">${m.responsavel>0?`<span style="background:#faeeda;color:#633806;padding:1px 7px;border-radius:20px;font-weight:600">★ ${m.responsavel}x</span>`:'—'}</td>
       </tr>`).join('')}</tbody>
-    </table>`
-    :'<p style="font-size:12px;color:#888">Nenhum dado de escala disponível.</p>';
+    </table>`:'<p style="font-size:12px;color:#888">Nenhum dado.</p>'}`;
 }
 
 window.verTodasEscalas = async function(){
@@ -3573,7 +3670,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <option value="reunioes">Presença — Reuniões</option>
       <option value="adoracoes">Presença — Adorações</option>
       <option value="faltas">Faltas disciplinares</option>
-      <option value="escalas">Histórico de escalas</option>
+      <option value="escalas">🗂️ Histórico de escalas e responsáveis</option>
       <option value="eventos">Eventos especiais</option>
     </select>
     <div id="rel-body"><p style="font-size:12px;color:#888">Selecione um relatório acima.</p></div>
