@@ -175,8 +175,8 @@ function showSplash(){
 
 const formDom=new Set(), formSem=new Set();
 
-// Página de IDENTIFICAÇÃO do ministro (somente leitura, SEM acesso ao app da coordenação).
-// Mostra apenas nome + QR Code de presença. É o que o ministro recebe pelo WhatsApp.
+// CARTEIRINHA DIGITAL do ministro (somente leitura, SEM acesso ao app da coordenação).
+// Padrão crachá/CNH digital: foto, dados, validade 1 ano, selo de autenticidade e QR Code.
 async function modoIdentificacao(id){
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
   let m;
@@ -185,31 +185,116 @@ async function modoIdentificacao(id){
     if(!d.exists()) throw new Error('não encontrado');
     m = {id:d.id, ...d.data()};
   }catch(e){
-    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com a Coordenação MESCE.</div>';
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Carteirinha inválida ou expirada.<br>Fale com a Coordenação MESCE.</div>';
     return;
   }
 
+  // Datas de emissão e validade (1 ano). Usa a data de emissão salva, ou gera agora.
+  const hoje = new Date();
+  let emissao;
+  if(m.carteiraEmitidaEm){
+    emissao = new Date(m.carteiraEmitidaEm);
+    if(isNaN(emissao)) emissao = hoje;
+  } else {
+    emissao = hoje;
+    // Salva a emissão na primeira vez que a carteirinha é aberta
+    try{ await updateDoc(doc(db,'ministros',id),{carteiraEmitidaEm: hoje.toISOString()}); }catch(e){}
+  }
+  const validade = new Date(emissao); validade.setFullYear(validade.getFullYear()+1);
+  const fmtData = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  const vencida = hoje > validade;
+
+  // Número de registro (estável, derivado do id) e selo de autenticidade
+  const registro = m.numero ? String(m.numero).padStart(4,'0') : id.slice(-6).toUpperCase();
+  const selo = id.slice(-8).toUpperCase();
+  const iniciais = (m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
+
   document.body.innerHTML = `
-  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:0 auto;padding:24px 18px 40px;background:#f8f8f6;min-height:100vh">
-    <div style="text-align:center;margin-bottom:18px">
-      <p style="font-size:14px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Coordenação MESCE</p>
-      <p style="font-size:11px;color:#888">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:0 auto;padding:20px 16px 36px;background:#eef1f0;min-height:100vh">
+
+    <!-- CARTEIRINHA -->
+    <div style="background:white;border-radius:18px;overflow:hidden;box-shadow:0 6px 24px rgba(8,80,65,.18);border:1px solid #e0e6e3">
+
+      <!-- Cabeçalho institucional -->
+      <div style="background:linear-gradient(135deg,#085041 0%,#0a6e57 100%);padding:16px 18px;display:flex;align-items:center;gap:12px;position:relative">
+        <img src="${APP_URL}/${LOGO_BASILICA}" style="width:46px;height:46px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0">
+        <div style="flex:1;text-align:center;color:white;line-height:1.25">
+          <p style="font-size:11px;font-weight:700;margin:0;letter-spacing:.3px">MINISTÉRIO EXTRAORDINÁRIO</p>
+          <p style="font-size:11px;font-weight:700;margin:0;letter-spacing:.3px">DA SAGRADA COMUNHÃO EUCARÍSTICA</p>
+          <p style="font-size:9px;opacity:.85;margin:3px 0 0">Carteira de Identificação</p>
+        </div>
+        <img src="${APP_URL}/${LOGO_MESCE}" style="width:46px;height:46px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0">
+      </div>
+
+      <!-- Corpo: foto + dados -->
+      <div style="padding:18px;display:flex;gap:16px">
+        <!-- Foto / placeholder -->
+        <div style="flex-shrink:0;text-align:center">
+          ${m.foto
+            ? `<img src="${m.foto}" style="width:96px;height:120px;object-fit:cover;border-radius:10px;border:2px solid #e1f5ee">`
+            : `<div style="width:96px;height:120px;border-radius:10px;background:linear-gradient(135deg,#e1f5ee,#d0ebe2);border:2px dashed #9cc9bb;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#085041">
+                 <span style="font-size:30px;font-weight:700">${iniciais}</span>
+                 <span style="font-size:8px;color:#5a9080;margin-top:4px">SEM FOTO</span>
+               </div>`}
+        </div>
+        <!-- Dados -->
+        <div style="flex:1;min-width:0">
+          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Nome</p>
+          <p style="font-size:15px;font-weight:700;color:#1a1a1a;margin:1px 0 8px;line-height:1.2">${m.nome}</p>
+
+          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Função</p>
+          <p style="font-size:11px;font-weight:600;color:#085041;margin:1px 0 8px;line-height:1.3">Ministro(a) Extraordinário(a) da Sagrada Comunhão Eucarística</p>
+
+          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Paróquia</p>
+          <p style="font-size:11px;color:#333;margin:1px 0 8px;line-height:1.3">Basílica Santuário de Nossa Senhora de Nazaré</p>
+
+          <div style="display:flex;gap:14px">
+            <div>
+              <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Registro</p>
+              <p style="font-size:13px;font-weight:700;color:#085041;margin:1px 0 0">Nº ${registro}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Validade + QR + selo -->
+      <div style="padding:0 18px 16px;display:flex;gap:14px;align-items:center">
+        <div style="flex:1">
+          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Emissão</p>
+          <p style="font-size:12px;font-weight:600;color:#333;margin:1px 0 6px">${fmtData(emissao)}</p>
+          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Validade</p>
+          <p style="font-size:12px;font-weight:700;color:${vencida?'#A32D2D':'#1D9E75'};margin:1px 0 0">${fmtData(validade)} ${vencida?'⚠️ VENCIDA':'✓'}</p>
+        </div>
+        <div id="ident-qr" style="flex-shrink:0;background:white;padding:4px;border-radius:8px;border:1px solid #eee"></div>
+      </div>
+
+      <!-- Rodapé: selo de autenticidade -->
+      <div style="background:#f0faf5;padding:10px 18px;border-top:1px solid #e1f5ee;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <p style="font-size:9px;color:#085041;font-weight:700;margin:0">✓ DOCUMENTO AUTÊNTICO</p>
+          <p style="font-size:9px;color:#888;margin:1px 0 0">Coordenação MESCE · Cód: ${selo}</p>
+        </div>
+        <p style="font-size:8px;color:#aaa;text-align:right;line-height:1.3;margin:0">Validação pelo<br>QR Code ao lado</p>
+      </div>
     </div>
-    <div style="background:white;border-radius:16px;padding:26px 20px;box-shadow:0 2px 10px rgba(0,0,0,.07);text-align:center">
-      <p style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">Crachá de Identificação</p>
-      <p style="font-size:20px;font-weight:700;color:#085041;margin-bottom:18px">${m.nome}</p>
-      <div id="ident-qr" style="display:flex;justify-content:center;margin-bottom:16px"></div>
-      <p style="font-size:12px;color:#666;line-height:1.5;max-width:300px;margin:0 auto">Apresente este QR Code à Coordenação para registrar sua presença nas missas.</p>
+
+    <!-- Instruções de uso -->
+    <div style="background:white;border-radius:14px;padding:14px 16px;margin-top:14px;box-shadow:0 2px 8px rgba(0,0,0,.05)">
+      <p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 8px">📱 Como usar sua carteirinha</p>
+      <p style="font-size:11px;color:#666;line-height:1.6;margin:0">
+        • <strong>Presença</strong>: apresente o QR Code à Coordenação nas missas, reuniões e adorações.<br>
+        • <strong>Identificação</strong>: use em hospitais e visitas para se identificar como ministro.<br>
+        • <strong>Guarde este link</strong> ou adicione à tela inicial do celular para acesso rápido.
+      </p>
     </div>
-    <p style="font-size:11px;color:#aaa;text-align:center;margin-top:18px;line-height:1.5">Este é seu crachá pessoal de presença.<br>Guarde este link para acesso rápido. 🙏</p>
+    <p style="font-size:10px;color:#aaa;text-align:center;margin-top:14px;line-height:1.5">Carteira digital emitida pela Coordenação MESCE.<br>Basílica Santuário de Nossa Senhora de Nazaré 🙏</p>
   </div>`;
 
   // Gera o QR Code (mesma identificação usada no scanner de presença)
   try{
     const url = `${APP_URL}/?ministro=${id}`;
     new QRCode(document.getElementById('ident-qr'), {
-      text: url, width: 220, height: 220,
+      text: url, width: 92, height: 92,
       colorDark: '#085041', colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.H
     });
@@ -2216,7 +2301,7 @@ window.abrirPerfil = function(id){
       <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Disponibilidades</button>
     </div>
     <button onclick="solicitarDisp('${id}')" style="width:100%;padding:9px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px">📲 Pedir disponibilidade pelo WhatsApp</button>
-    <button onclick="verQRCode('${id}')" style="width:100%;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">📱 Ver QR Code do ministro</button>`;
+    <button onclick="verQRCode('${id}')" style="width:100%;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🪪 Carteirinha digital / QR Code</button>`;
   document.getElementById('modal-perfil').style.display='flex';
 };
 
@@ -2622,10 +2707,15 @@ window.verQRCode = function(id){
   document.getElementById('modal-qr').style.display='flex';
 };
 
+window.abrirCarteirinha = function(){
+  if(!qrMinistroAtual) return;
+  window.open(`${APP_URL}/?ministro=${qrMinistroAtual.id}`,'_blank');
+};
+
 window.enviarQRWhatsApp = function(){
   if(!qrMinistroAtual) return;
   const url = `${APP_URL}/?ministro=${qrMinistroAtual.id}`;
-  const txt = `Olá, ${qrMinistroAtual.nome.split(' ')[0]}! 🙏\n\nSeu QR Code de identificação no *Ministério da Eucaristia* da Basílica de Nazaré:\n\n${url}\n\nGuarde este link — ele é seu código único de presença!\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
+  const txt = `Olá, ${qrMinistroAtual.nome.split(' ')[0]}! 🙏\n\nAqui está sua *Carteira Digital de Ministro* da Coordenação MESCE — Basílica de Nazaré:\n\n${url}\n\nApresente o QR Code dela para registrar presença nas missas, reuniões e adorações, e para se identificar como ministro. Guarde este link! 🕊️\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
   const tel = (typeof formatarTelBR==='function') ? formatarTelBR(qrMinistroAtual.tel) : (qrMinistroAtual.tel||'').replace(/\D/g,'');
   const waUrl = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
   window.open(waUrl,'_blank');
@@ -3322,10 +3412,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="fecharModal('modal-qr')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <div id="qr-canvas" style="display:flex;justify-content:center;margin-bottom:16px"></div>
-    <p style="font-size:11px;color:#666;margin-bottom:14px;line-height:1.5">Este QR Code identifica o ministro no sistema. Use para registrar presença.</p>
+    <p style="font-size:11px;color:#666;margin-bottom:12px;line-height:1.5">Carteira digital do ministro (foto, validade de 1 ano e QR Code). Envie pelo WhatsApp ou abra para visualizar.</p>
+    <button onclick="abrirCarteirinha()" style="width:100%;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px">🪪 Abrir carteirinha digital</button>
     <div style="display:flex;gap:8px">
-      <button onclick="enviarQRWhatsApp()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer">📱 Enviar WhatsApp</button>
-      <button onclick="imprimirQR()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
+      <button onclick="enviarQRWhatsApp()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer">📲 Enviar WhatsApp</button>
+      <button onclick="imprimirQR()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir QR</button>
     </div>
   </div>
 </div>
