@@ -9,7 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = {
   apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
@@ -158,6 +158,7 @@ window.addEventListener('load', async()=>{
     db = getFirestore(app);
     window._db = db;
     await carregarMinistros();
+    escutarMinistrosTempoReal();
     setTimeout(()=>{ if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
     document.getElementById('loading').style.display='none';
     document.getElementById('app').style.display='block';
@@ -265,6 +266,33 @@ async function carregarMinistros(){
   document.getElementById('h-total').textContent = ministros.length;
   document.getElementById('m-total').textContent = ministros.length;
   window._ministros = ministros;
+}
+
+// Escuta mudanças nos ministros em TEMPO REAL — quando um ministro marca disponibilidade
+// pelo link, ou você edita dados, o app atualiza sozinho sem precisar recarregar.
+let _unsubMinistros = null;
+function escutarMinistrosTempoReal(){
+  if(_unsubMinistros) return; // já escutando
+  try{
+    _unsubMinistros = onSnapshot(collection(db,'ministros'), snap=>{
+      ministros = snap.docs.map(d=>({id:d.id,...d.data()}))
+        .filter(m=>m.ativo!==false)
+        .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+      window._ministros = ministros;
+      const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.length;
+      const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.length;
+      // Re-renderiza a tela ativa para refletir as mudanças (sem interromper edição de escala)
+      const ativa = document.querySelector('.sec[style*="block"]');
+      if(ativa){
+        const idAtiva = ativa.id.replace('s-','');
+        if(idAtiva==='ministros'){
+          if(typeof filtrarMin==='function') filtrarMin();
+          else if(typeof renderMinistros==='function') renderMinistros('');
+        }
+        else if(idAtiva==='inicio' && typeof renderInicio==='function') renderInicio();
+      }
+    }, err=>{ /* silencioso: se falhar, app continua com carga manual */ });
+  }catch(e){}
 }
 
 function toast(msg, tipo='ok'){
@@ -2072,7 +2100,7 @@ window.solicitarDisp = function(id){
   const m = ministros.find(x=>x.id===id);
   if(!m) return;
   const link = `${APP_URL}/?disp=${id}`;
-  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é do *Ministério da Eucaristia* da Basílica de Nazaré.\n\nPor favor, acesse o link abaixo e marque os horários de missa em que você pode servir:\n\n${link}\n\nLeva menos de 1 minuto. Que Deus abençoe! 🕊️`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é da *Coordenação MESCE* da Basílica de Nazaré.\n\nPor favor, toque no link abaixo para marcar os horários de missa em que você pode servir:\n\n${link}\n\nLeva menos de 1 minuto. Que Deus abençoe! 🕊️`;
   const tel = (m.tel||'').replace(/\D/g,'');
   const url = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
   window.open(url,'_blank');
