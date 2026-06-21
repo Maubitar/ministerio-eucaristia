@@ -286,14 +286,69 @@ window.nav = function(id, btn){
     presenca: ()=>{ if(!window.presModo) window.presModo='dom'; renderPresenca(); },
     reforco: ()=>renderReforco(),
     relatorios: ()=>renderRelatorios(),
+    inicio: ()=>renderInicio(),
   };
   if(fns[id]) fns[id]();
 };
 
-function renderInicio(){
-  const mes = new Date().getMonth()+1;
+// Navega para uma seção a partir de atalhos do dashboard, ativando o botão correto da barra inferior
+window.irPara = function(id){
+  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5};
+  const botoes = document.querySelectorAll('.nb');
+  const btn = botoes[mapa[id]] || null;
+  nav(id, btn);
+  window.scrollTo({top:0, behavior:'smooth'});
+};
+
+async function renderInicio(){
+  // Saudação por horário
+  const agora = new Date();
+  const h = agora.getHours();
+  const saud = h<12 ? 'Bom dia' : (h<18 ? 'Boa tarde' : 'Boa noite');
+  const elSaud = document.getElementById('dash-saudacao');
+  if(elSaud) elSaud.textContent = `${saud}! 🙏`;
+  const elData = document.getElementById('dash-data');
+  if(elData) elData.textContent = agora.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+
+  // Próxima missa com escala
+  const elProx = document.getElementById('dash-proxima');
+  if(elProx){
+    const datas = (typeof proximasDatasComMissa==='function') ? proximasDatasComMissa() : [];
+    const hojeISO = agora.toISOString().split('T')[0];
+    const futuras = datas.filter(d=>d.iso>=hojeISO);
+    const prox = futuras.find(d=>d.diaSemana==='Domingo') || futuras[0];
+    if(prox){
+      elProx.innerHTML = `📍 <strong>Próxima missa:</strong> ${prox.diaSemana}, ${prox.data} — confira a escala e marque a presença.`;
+    } else {
+      elProx.innerHTML = `📍 Monte a escala do mês para começar.`;
+    }
+  }
+
+  // Métricas
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  const elTotal = document.getElementById('m-total');
+  if(elTotal) elTotal.textContent = ativos.length;
+
+  const mes = agora.getMonth()+1;
   const aniv = ministros.filter(m=>m.nascimento && parseInt(m.nascimento.split('-')[1])===mes);
   document.getElementById('m-aniv').textContent = aniv.length;
+
+  // Conta escalas montadas no mês (dominical + semanas)
+  const elEsc = document.getElementById('m-escalas');
+  if(elEsc){
+    let cont = 0;
+    try{
+      const mesKey = getMesAtual();
+      const chaves = [`escala_dom_${mesKey}`, ...Object.keys(SEMANAS_MES).map(s=>`escala_sem_sem${s}_${mesKey}`)];
+      for(const k of chaves){
+        let e = escalas[k];
+        if(!e){ const d=await getDoc(doc(db,'escalas',k)); e=d.exists()?d.data():{}; escalas[k]=e; }
+        const temMin = Object.values(e).some(g=>(g?.ministros||[]).length);
+        if(temMin) cont++;
+      }
+    }catch(e){}
+    elEsc.textContent = cont;
+  }
 
   const alertas = ministros.filter(m=>(m.faltasReuniao||0)+(m.faltasAdoracao||0)>=3);
   document.getElementById('m-alertas').textContent = alertas.length;
@@ -2435,6 +2490,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
 .metric{background:#f5f5f3;border-radius:10px;padding:10px;text-align:center}
 .metric .v{font-size:22px;font-weight:700}.metric .l{font-size:10px;color:#888;margin-top:1px}
+/* ===== Dashboard premium ===== */
+.dash-hero{background:linear-gradient(135deg,#085041 0%,#0a6e57 60%,#1D9E75 100%);border-radius:16px;padding:18px 18px 16px;margin-bottom:14px;color:white;box-shadow:0 4px 16px rgba(8,80,65,.25);position:relative;overflow:hidden}
+.dash-hero::after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;background:rgba(255,255,255,.07);border-radius:50%}
+.dash-hero-top{display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:1}
+.dash-saudacao{font-size:19px;font-weight:700;margin:0;line-height:1.2}
+.dash-data{font-size:12px;opacity:.85;margin:3px 0 0;text-transform:capitalize}
+.dash-selo{font-size:11px;font-weight:700;letter-spacing:1px;background:rgba(255,255,255,.18);padding:5px 11px;border-radius:20px;backdrop-filter:blur(4px)}
+.dash-proxima{margin-top:14px;background:rgba(255,255,255,.13);border-radius:10px;padding:10px 12px;font-size:13px;position:relative;z-index:1;line-height:1.4}
+.dash-proxima strong{font-weight:700}
+.dash-atalhos{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.atalho{background:white;border:none;border-radius:12px;padding:12px 4px 10px;display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.06);transition:transform .12s,box-shadow .12s}
+.atalho:active{transform:scale(.95)}
+.atalho:hover{box-shadow:0 3px 10px rgba(0,0,0,.1)}
+.atalho-ic{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px}
+.atalho-tx{font-size:11px;font-weight:600;color:#333;text-align:center;line-height:1.2}
 input,select{width:100%;padding:9px 12px;border:1.5px solid #e8e8e8;border-radius:8px;font-size:14px;font-family:inherit;background:white;margin-bottom:8px;transition:border-color .15s}
 input:focus,select:focus{outline:none;border-color:#1D9E75}
 .btn-g{padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px}
@@ -2493,11 +2563,42 @@ input:focus,select:focus{outline:none;border-color:#1D9E75}
 
 <!-- INÍCIO -->
 <div id="s-inicio" class="sec" style="display:block">
-  <div class="metrics">
-    <div class="metric"><div class="v" id="m-total">0</div><div class="l">Ministros</div></div>
-    <div class="metric"><div class="v">—</div><div class="l">Frequência</div></div>
-    <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários</div></div>
+  <div id="dash-hero" class="dash-hero">
+    <div class="dash-hero-top">
+      <div>
+        <p class="dash-saudacao" id="dash-saudacao">Bem-vindo</p>
+        <p class="dash-data" id="dash-data"></p>
+      </div>
+      <div class="dash-selo">MESCE</div>
+    </div>
+    <div class="dash-proxima" id="dash-proxima"></div>
   </div>
+
+  <div class="dash-atalhos">
+    <button class="atalho" onclick="irPara('escala')">
+      <span class="atalho-ic" style="background:#e1f5ee;color:#085041">📅</span>
+      <span class="atalho-tx">Montar<br>Escala</span>
+    </button>
+    <button class="atalho" onclick="irPara('presenca')">
+      <span class="atalho-ic" style="background:#e6f1fb;color:#185FA5">✓</span>
+      <span class="atalho-tx">Marcar<br>Presença</span>
+    </button>
+    <button class="atalho" onclick="irPara('ministros')">
+      <span class="atalho-ic" style="background:#faeeda;color:#BA7517">👤</span>
+      <span class="atalho-tx">Ministros</span>
+    </button>
+    <button class="atalho" onclick="irPara('relatorios')">
+      <span class="atalho-ic" style="background:#f0e6fb;color:#6B3FA0">📊</span>
+      <span class="atalho-tx">Relatórios</span>
+    </button>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="v" id="m-total">0</div><div class="l">Ministros ativos</div></div>
+    <div class="metric"><div class="v" id="m-escalas">0</div><div class="l">Escalas montadas</div></div>
+    <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários no mês</div></div>
+  </div>
+
   <div class="card">
     <p class="ct">🟡 Alertas disciplinares <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
     <div id="dash-alertas"></div>
