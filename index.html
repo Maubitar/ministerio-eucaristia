@@ -208,44 +208,108 @@ async function modoDisponibilidade(id){
 
   document.body.innerHTML = `
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:20px 16px 40px;background:#f8f8f6;min-height:100vh">
-    <div style="text-align:center;margin-bottom:20px">
-      <p style="font-size:13px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Ministério da Eucaristia</p>
+    <div style="text-align:center;margin-bottom:18px">
+      <p style="font-size:14px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Coordenação MESCE</p>
+      <p style="font-size:11px;color:#888">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
       <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
     </div>
+
     <div style="background:white;border-radius:14px;padding:20px 16px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
-      <p style="font-size:16px;font-weight:700;margin-bottom:4px">Olá, ${m.nome.split(' ')[0]}! 🙏</p>
-      <p style="font-size:13px;color:#666;margin-bottom:18px;line-height:1.5">Marque abaixo os horários de missa em que você pode servir. Selecione no mínimo <strong>2 horários</strong>.</p>
-      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px">⛪ MISSAS DOMINICAIS</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
-        ${MISSAS_DOM.map(h=>btn(h,'dom')).join('')}
-      </div>
-      <p style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">📅 MISSAS SEMANAIS (seg a sáb)</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
-        ${MISSAS_SEM.map(h=>btn(h,'sem')).join('')}
-      </div>
-      <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:10px;padding:12px;margin-bottom:20px">
-        <p style="font-size:12px;font-weight:700;color:#a07d2a;margin-bottom:8px">🎂 SUA DATA DE NASCIMENTO</p>
-        <p style="font-size:11px;color:#8a6a1e;margin-bottom:8px;line-height:1.4">Informe o dia e mês do seu aniversário, para recebermos uma bênção da Coordenação no seu dia 🙏</p>
+      <p style="font-size:17px;font-weight:700;margin-bottom:4px">Olá, ${m.nome.split(' ')[0]}! 🙏</p>
+      <p style="font-size:13px;color:#666;margin-bottom:18px;line-height:1.5">Confira e complete seu cadastro na MESCE. Leva poucos minutos e mantém seus dados sempre atualizados.</p>
+
+      <!-- DADOS PESSOAIS -->
+      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #e1f5ee">👤 DADOS PESSOAIS</p>
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Nome completo</label>
+      <input type="text" id="f-nome" value="${(m.nome||'').replace(/"/g,'&quot;')}" placeholder="Seu nome completo" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px">
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">WhatsApp / Telefone</label>
+      <input type="tel" id="f-tel" value="${(m.tel||'').replace(/"/g,'&quot;')}" placeholder="(91) 9 0000-0000" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px">
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Endereço</label>
+      <input type="text" id="f-endereco" value="${(m.endereco||'').replace(/"/g,'&quot;')}" placeholder="Rua, número, bairro" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px">
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Estado civil</label>
+      <select id="f-civil" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:18px;background:white">
+        ${['','Solteiro(a)','Casado(a)','Divorciado(a)','Viúvo(a)','União estável','Religioso(a)'].map(o=>`<option value="${o}" ${m.estadoCivil===o?'selected':''}>${o||'Selecione...'}</option>`).join('')}
+      </select>
+
+      <!-- ANIVERSÁRIO -->
+      <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:10px;padding:12px;margin-bottom:18px">
+        <p style="font-size:12px;font-weight:700;color:#a07d2a;margin-bottom:6px">🎂 DATA DE NASCIMENTO</p>
+        <p style="font-size:11px;color:#8a6a1e;margin-bottom:8px;line-height:1.4">Para recebermos uma bênção da Coordenação no seu dia 🙏</p>
         <div style="display:flex;gap:8px">
-          <select id="form-nasc-dia" style="flex:1;margin:0">
+          <select id="form-nasc-dia" style="flex:1;margin:0;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;background:white">
             <option value="">Dia</option>
             ${Array.from({length:31},(_,i)=>{const d=String(i+1).padStart(2,'0');const sel=(formNascDia===d)?'selected':'';return `<option value="${d}" ${sel}>${d}</option>`;}).join('')}
           </select>
-          <select id="form-nasc-mes" style="flex:1.4;margin:0">
+          <select id="form-nasc-mes" style="flex:1.4;margin:0;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;background:white">
             <option value="">Mês</option>
             ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((nm,i)=>{const v=String(i+1).padStart(2,'0');const sel=(formNascMes===v)?'selected':'';return `<option value="${v}" ${sel}>${nm}</option>`;}).join('')}
           </select>
         </div>
       </div>
+
+      <!-- DOCUMENTOS -->
+      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #e1f5ee">📄 DOCUMENTOS</p>
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <div style="flex:1">
+          <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">RG</label>
+          <input type="text" id="f-rg" value="${(m.rg||'').replace(/"/g,'&quot;')}" placeholder="0000000" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">CPF</label>
+          <input type="text" id="f-cpf" value="${(m.cpf||'').replace(/"/g,'&quot;')}" placeholder="000.000.000-00" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px">
+        </div>
+      </div>
+
+      <!-- PARÓQUIA / DÍZIMO -->
+      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #e1f5ee">⛪ VIDA PAROQUIAL</p>
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Paróquia</label>
+      <input type="text" id="f-paroquia" value="${(m.paroquia||'Basílica Santuário de Nossa Senhora de Nazaré').replace(/"/g,'&quot;')}" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px">
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">É dizimista?</label>
+      <select id="f-dizimista" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:18px;background:white">
+        ${['','Sim','Não'].map(o=>`<option value="${o}" ${m.dizimista===o?'selected':''}>${o||'Selecione...'}</option>`).join('')}
+      </select>
+
+      <!-- DISPONIBILIDADE -->
+      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #e1f5ee">🕐 DISPONIBILIDADE PARA SERVIR</p>
+      <p style="font-size:11px;color:#666;margin-bottom:10px;line-height:1.4">Marque os horários em que você pode servir. Selecione no mínimo <strong>2 horários</strong>.</p>
+      <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px">⛪ Missas Dominicais</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        ${MISSAS_DOM.map(h=>btn(h,'dom')).join('')}
+      </div>
+      <p style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">📅 Missas Semanais (seg a sáb)</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        ${MISSAS_SEM.map(h=>btn(h,'sem')).join('')}
+      </div>
+
+      <!-- MINISTRO DE PLANTÃO -->
+      <div id="plantao-box" onclick="togPlantao()" style="background:${m.plantao?'#e1f5ee':'#f8f8f6'};border:1.5px solid ${m.plantao?'#1D9E75':'#e0e0e0'};border-radius:10px;padding:14px;margin-bottom:20px;cursor:pointer;display:flex;align-items:center;gap:12px">
+        <div id="plantao-check" style="width:26px;height:26px;border-radius:7px;border:2px solid ${m.plantao?'#1D9E75':'#bbb'};background:${m.plantao?'#1D9E75':'white'};display:flex;align-items:center;justify-content:center;color:white;font-size:16px;font-weight:700;flex-shrink:0">${m.plantao?'✓':''}</div>
+        <div>
+          <p style="font-size:13px;font-weight:700;color:#085041;margin:0">🔔 Quero ser ministro de plantão</p>
+          <p style="font-size:11px;color:#777;margin:2px 0 0;line-height:1.4">Posso servir em qualquer horário quando houver necessidade (substituições, emergências).</p>
+        </div>
+      </div>
+
       <button id="btn-salvar-disp" onclick="salvarFormDisp('${m.id}')"
-        style="width:100%;padding:15px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">
-        ✓ Confirmar disponibilidade
+        style="width:100%;padding:16px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">
+        ✓ Confirmar cadastro
       </button>
       <p id="form-msg" style="font-size:12px;text-align:center;margin-top:10px;color:#888"></p>
     </div>
-    <p style="font-size:10px;color:#aaa;text-align:center;margin-top:16px">Seus dados são atualizados automaticamente no sistema do ministério.</p>
+    <p style="font-size:10px;color:#aaa;text-align:center;margin-top:16px">Seus dados são guardados com segurança no sistema da Coordenação MESCE.</p>
   </div>`;
+
+  window._formPlantao = !!m.plantao;
 }
+
+window.togPlantao = function(){
+  window._formPlantao = !window._formPlantao;
+  const on = window._formPlantao;
+  const box = document.getElementById('plantao-box');
+  const chk = document.getElementById('plantao-check');
+  if(box){ box.style.background = on?'#e1f5ee':'#f8f8f6'; box.style.borderColor = on?'#1D9E75':'#e0e0e0'; }
+  if(chk){ chk.style.border = '2px solid '+(on?'#1D9E75':'#bbb'); chk.style.background = on?'#1D9E75':'white'; chk.textContent = on?'✓':''; }
+};
 
 window.togFormDisp = function(h, tipo, el){
   const set = tipo==='dom'?formDom:formSem;
@@ -257,17 +321,33 @@ window.togFormDisp = function(h, tipo, el){
 
 window.salvarFormDisp = async function(id){
   const msg = document.getElementById('form-msg');
+  const g = k => document.getElementById(k);
+  const nome = g('f-nome')?.value.trim();
+  if(!nome){ msg.textContent='⚠️ Informe seu nome completo.'; msg.style.color='#BA7517'; window.scrollTo({top:0,behavior:'smooth'}); return; }
   if(formDom.size+formSem.size < 2){
-    msg.textContent='⚠️ Selecione pelo menos 2 horários.';
+    msg.textContent='⚠️ Selecione pelo menos 2 horários de disponibilidade.';
     msg.style.color='#BA7517';
     return;
   }
   const b=document.getElementById('btn-salvar-disp');
   b.disabled=true; b.textContent='Salvando...';
-  const dados = {dispDom:[...formDom],dispSem:[...formSem],dispAtualizadaEm:serverTimestamp()};
+  const dados = {
+    nome,
+    tel: g('f-tel')?.value.trim() || '',
+    endereco: g('f-endereco')?.value.trim() || '',
+    estadoCivil: g('f-civil')?.value || '',
+    rg: g('f-rg')?.value.trim() || '',
+    cpf: g('f-cpf')?.value.trim() || '',
+    paroquia: g('f-paroquia')?.value.trim() || '',
+    dizimista: g('f-dizimista')?.value || '',
+    plantao: !!window._formPlantao,
+    dispDom:[...formDom], dispSem:[...formSem],
+    dispAtualizadaEm:serverTimestamp(),
+    cadastroAtualizadoEm:serverTimestamp()
+  };
   // Nascimento (se informado)
-  const dia=document.getElementById('form-nasc-dia')?.value;
-  const mesN=document.getElementById('form-nasc-mes')?.value;
+  const dia=g('form-nasc-dia')?.value;
+  const mesN=g('form-nasc-mes')?.value;
   if(dia && mesN){
     dados.nascimento = `1900-${mesN}-${dia}`;
     dados.nascimentoAtualizadoEm = serverTimestamp();
@@ -277,14 +357,14 @@ window.salvarFormDisp = async function(id){
     document.body.innerHTML = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center;background:#f8f8f6">
       <div style="font-size:56px;margin-bottom:14px">✅</div>
-      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Tudo registrado!</p>
-      <p style="font-size:13px;color:#666;max-width:300px;line-height:1.6">Obrigado! Sua disponibilidade${dia&&mesN?' e data de aniversário':''} já foram atualizadas no sistema da Coordenação MESCE.</p>
+      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Cadastro confirmado!</p>
+      <p style="font-size:13px;color:#666;max-width:320px;line-height:1.6">Obrigado, ${nome.split(' ')[0]}! Seus dados foram registrados com sucesso no sistema da Coordenação MESCE.${dados.plantao?'<br><br>🔔 Você se inscreveu como <strong>ministro de plantão</strong> — gratidão pela disponibilidade!':''}</p>
       <p style="font-size:12px;color:#085041;margin-top:18px;font-weight:600">Que Deus abençoe seu serviço! 🙏</p>
     </div>`;
   }catch(e){
     msg.textContent='Erro ao salvar. Tente novamente.';
     msg.style.color='#A32D2D';
-    b.disabled=false; b.textContent='✓ Confirmar disponibilidade';
+    b.disabled=false; b.textContent='✓ Confirmar cadastro';
   }
 };
 
@@ -2082,6 +2162,7 @@ window.abrirPerfil = function(id){
       ${linha('Estado civil', m.estadoCivil)}
       ${linha('Paróquia', m.paroquia)}
       ${linha('Dizimista', m.dizimista)}
+      ${linha('Plantão', m.plantao ? '🔔 Sim, ministro de plantão' : '')}
       ${linha('RG', m.rg)}
       ${linha('CPF', m.cpf)}
     </div>
@@ -2204,7 +2285,7 @@ window.solicitarDisp = function(id){
   const m = ministros.find(x=>x.id===id);
   if(!m) return;
   const link = `${APP_URL}/?disp=${id}`;
-  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é da *Coordenação MESCE* da Basílica de Nazaré.\n\nPor favor, toque no link abaixo para marcar os horários de missa em que você pode servir:\n\n${link}\n\nLeva menos de 1 minuto. Que Deus abençoe! 🕊️`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é da *Coordenação MESCE* da Basílica de Nazaré.\n\nPor favor, toque no link abaixo para confirmar e completar seu *cadastro na MESCE* (dados, disponibilidade de missas e aniversário):\n\n${link}\n\nLeva poucos minutos. Que Deus abençoe! 🕊️`;
   const tel = (m.tel||'').replace(/\D/g,'');
   const url = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
   window.open(url,'_blank');
@@ -2575,8 +2656,8 @@ window.pararScanner = function(){
 };
 
 window.exportarCSV=function(){
-  const linhas=['Nº,Nome,WhatsApp,Nascimento,Endereço,Estado Civil,Paróquia,Dizimista,RG,CPF,Disp. Dominical,Disp. Semanal,Faltas Reunião,Faltas Adoração'];
-  ministros.forEach(m=>linhas.push(`${m.numero||''},"${m.nome}","${m.tel||''}","${m.nascimento||''}","${m.endereco||''}","${m.estadoCivil||''}","${m.paroquia||''}","${m.dizimista||''}","${m.rg||''}","${m.cpf||''}","${(m.dispDom||[]).join(';')}","${(m.dispSem||[]).join(';')}",${m.faltasReuniao||0},${m.faltasAdoracao||0}`));
+  const linhas=['Nº,Nome,WhatsApp,Nascimento,Endereço,Estado Civil,Paróquia,Dizimista,Plantão,RG,CPF,Disp. Dominical,Disp. Semanal,Faltas Reunião,Faltas Adoração'];
+  ministros.forEach(m=>linhas.push(`${m.numero||''},"${m.nome}","${m.tel||''}","${m.nascimento||''}","${m.endereco||''}","${m.estadoCivil||''}","${m.paroquia||''}","${m.dizimista||''}","${m.plantao?'Sim':''}","${m.rg||''}","${m.cpf||''}","${(m.dispDom||[]).join(';')}","${(m.dispSem||[]).join(';')}",${m.faltasReuniao||0},${m.faltasAdoracao||0}`));
   const blob=new Blob(['\uFEFF'+linhas.join('\n')],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ministerio_eucaristia.csv'; a.click();
   toast('CSV exportado!');
