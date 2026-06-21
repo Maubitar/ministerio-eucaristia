@@ -381,13 +381,37 @@ async function renderInicio(){
   const alertas = ministros.filter(m=>(m.faltasReuniao||0)+(m.faltasAdoracao||0)>=3);
   document.getElementById('m-alertas').textContent = alertas.length;
 
+  // Aniversariantes de HOJE
+  const dia = agora.getDate();
+  const anivHoje = ministros.filter(m=>{
+    if(!m.nascimento) return false;
+    const p = m.nascimento.split('-');
+    return parseInt(p[1])===mes && parseInt(p[2])===dia;
+  });
+  const cardHoje = document.getElementById('card-aniv-hoje');
+  const elHoje = document.getElementById('dash-aniv-hoje');
+  if(cardHoje && elHoje){
+    if(anivHoje.length){
+      cardHoje.style.display='block';
+      elHoje.innerHTML = anivHoje.map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0e6c8">
+          <div style="width:38px;height:38px;border-radius:50%;background:#E8C66B;color:#6b4e10;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="flex:1"><p style="font-size:14px;font-weight:600;margin:0">${primeiroNomes(m.nome)}</p>
+          <p style="font-size:11px;color:#a07d2a;margin:0">🎂 Faz aniversário hoje!</p></div>
+          <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:7px 12px;border:none;border-radius:20px;background:#085041;color:white;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
+        </div>`).join('');
+    } else {
+      cardHoje.style.display='none';
+    }
+  }
+
   document.getElementById('dash-aniv').innerHTML = aniv.length
-    ? aniv.slice(0,5).map(m=>`
+    ? aniv.slice(0,8).map(m=>`
         <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #eee">
           <div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
           <div style="flex:1"><p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
           <p style="font-size:11px;color:#888;margin:0">${m.nascimento.split('-').reverse().join('/')}</p></div>
-          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${m.nascimento.split('-')[2]}/${m.nascimento.split('-')[1]}</span>
+          <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:5px 10px;border:1.5px solid #e1f5ee;border-radius:20px;background:#f5faf8;color:#085041;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
         </div>`).join('')
     : '<p style="font-size:12px;color:#888">Cadastre nascimentos para ver aniversariantes.</p>';
 
@@ -2108,6 +2132,85 @@ window.solicitarDisp = function(id){
 
 window.fecharModal=function(id){ document.getElementById(id).style.display='none'; };
 
+// Gera um cartão de aniversário sereno/religioso (tons dourados) com o nome do ministro,
+// como imagem PNG para baixar e enviar no WhatsApp.
+window.gerarCartaoAniversario = async function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const primeiro = primeiroNomes(m.nome);
+  toast('Gerando cartão...','ok');
+
+  const BASE_W = 900, BASE_H = 1100;
+  const wrap = document.createElement('div');
+  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;height:${BASE_H}px;overflow:hidden;font-family:Georgia,'Times New Roman',serif`;
+  wrap.innerHTML = `
+    <div style="width:100%;height:100%;position:relative;
+      background:radial-gradient(circle at 50% 28%, #fff7e0 0%, #f7e6b8 38%, #e9cf8a 70%, #d4b56a 100%);">
+      <!-- brilho/raios suaves -->
+      <div style="position:absolute;inset:0;background:
+        radial-gradient(circle at 50% 26%, rgba(255,255,255,.85) 0%, rgba(255,255,255,0) 26%);"></div>
+      <div style="position:absolute;top:0;left:0;right:0;bottom:0;border:18px solid transparent;
+        border-image:linear-gradient(135deg,#caa64e,#f3e2a8,#caa64e) 1;"></div>
+
+      <!-- conteúdo -->
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:70px 60px;text-align:center">
+        <div style="font-size:74px;margin-bottom:6px">✝️</div>
+        <p style="font-size:26px;letter-spacing:3px;color:#8a6a1e;margin:0 0 4px;text-transform:uppercase;font-weight:bold">Feliz Aniversário</p>
+        <div style="width:160px;height:2px;background:linear-gradient(90deg,transparent,#b8923c,transparent);margin:10px 0 26px"></div>
+
+        <p style="font-size:34px;color:#5c4410;margin:0 0 2px;font-style:italic">Que Deus abençoe</p>
+        <p style="font-size:52px;color:#6b3f06;margin:6px 0 4px;font-weight:bold;line-height:1.1">${primeiro}</p>
+        <div style="width:120px;height:2px;background:linear-gradient(90deg,transparent,#b8923c,transparent);margin:18px 0 26px"></div>
+
+        <p style="font-size:25px;color:#5c4410;line-height:1.6;max-width:680px;margin:0">
+          Que neste novo ano de vida o Senhor derrame sobre você
+          <strong>saúde, paz e muitas bênçãos</strong>.
+          Que Nossa Senhora de Nazaré interceda sempre por você
+          e ilumine seu caminho de fé e serviço. 🕊️
+        </p>
+
+        <div style="position:absolute;bottom:64px;left:0;right:0;text-align:center">
+          <div style="font-size:40px;margin-bottom:10px">🎂🙏🎉</div>
+          <p style="font-size:21px;color:#7a5a16;font-weight:bold;margin:0">Coordenação MESCE</p>
+          <p style="font-size:16px;color:#8a6a1e;margin:3px 0 0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+          <p style="font-size:15px;color:#9a7a2e;margin:2px 0 0">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  try{
+    const canvas = await html2canvas(wrap,{scale:3,backgroundColor:null,useCORS:true,logging:false});
+    canvas.toBlob(blob=>{
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`feliz_aniversario_${primeiro.split(' ')[0].toLowerCase()}.png`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+      // modal com instrução + botão de abrir WhatsApp do aniversariante
+      const tel=(m.tel||'').replace(/\D/g,'');
+      const msgWa = `🎉 Feliz Aniversário, ${primeiro.split(' ')[0]}! Que Deus te abençoe grandemente. Um abraço da Coordenação MESCE! 🙏🎂`;
+      const linkWa = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(msgWa)}` : '';
+      const corpo = document.getElementById('cartao-corpo');
+      if(corpo){
+        corpo.innerHTML = `
+          <p style="font-size:13px;color:#555;margin:0 0 14px;line-height:1.5">O cartão de <strong>${primeiro.split(' ')[0]}</strong> foi baixado! 🎂<br>Agora envie como foto no WhatsApp:</p>
+          <div style="background:#f0faf5;border-radius:8px;padding:12px;text-align:left;margin-bottom:14px">
+            <p style="font-size:12px;color:#085041;margin:0 0 8px"><strong>📱 Celular:</strong> abra a conversa → 📎 → Galeria → escolha o cartão → enviar.</p>
+            <p style="font-size:12px;color:#085041;margin:0"><strong>💻 Computador:</strong> abra a conversa → 📎 → Fotos → escolha em Downloads → enviar.</p>
+          </div>
+          ${linkWa ? `<a href="${linkWa}" target="_blank" style="display:block;text-decoration:none;text-align:center;padding:11px;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;margin-bottom:8px">📲 Abrir conversa de ${primeiro.split(' ')[0]}</a>` : '<p style="font-size:12px;color:#BA7517;text-align:center;margin-bottom:8px">⚠️ Este ministro não tem WhatsApp cadastrado.</p>'}
+          <button class="btn-g" onclick="fecharModal('modal-cartao')" style="margin:0">Entendi</button>`;
+      }
+      document.getElementById('modal-cartao').style.display='flex';
+    },'image/png',1.0);
+  }catch(e){
+    toast('Erro ao gerar cartão: '+e.message,'err');
+  }finally{
+    document.body.removeChild(wrap);
+  }
+};
+
 let updateFileContent = null;
 const GH_TOKEN = 'COLE_SEU_TOKEN_NOVO_AQUI';
 const GH_API_URL = 'https://api.github.com/repos/Maubitar/ministerio-eucaristia/contents/index.html';
@@ -2641,6 +2744,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p class="ct">🟡 Alertas disciplinares <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
     <div id="dash-alertas"></div>
   </div>
+  <div class="card" id="card-aniv-hoje" style="display:none;border:1.5px solid #E8C66B;background:linear-gradient(135deg,#fffdf7 0%,#fdf6e3 100%)">
+    <p class="ct">🎉 Aniversariantes de HOJE</p>
+    <div id="dash-aniv-hoje"></div>
+  </div>
   <div class="card"><p class="ct">🎂 Aniversariantes do mês</p><div id="dash-aniv"></div></div>
 </div>
 
@@ -3031,6 +3138,14 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <p style="font-size:12px;color:#085041;margin:0"><strong>💻 No computador:</strong> abra o grupo → clique no 📎 → <strong>Fotos e vídeos</strong> → escolha a imagem em Downloads → enviar.</p>
     </div>
     <button class="btn-g" onclick="fecharModal('modal-imagem')" style="margin:0">Entendi</button>
+  </div>
+</div>
+
+<div id="modal-cartao" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-cartao')">
+  <div class="modal-box" style="max-width:380px;text-align:center">
+    <p style="font-size:34px;margin:0 0 6px">🎂</p>
+    <p style="font-size:16px;font-weight:700;margin:0 0 10px">Cartão de aniversário</p>
+    <div id="cartao-corpo"></div>
   </div>
 </div>
 
