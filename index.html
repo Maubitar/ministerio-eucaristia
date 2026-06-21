@@ -984,12 +984,14 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
   ac.style.display='block';
   ac.innerHTML = matches.slice(0,10).map((m,idx)=>{
     const jaEsc = jaEscalados.has(m.nome);
+    const outroH = jaEscaladoNoutroHorario(key, hora, m.nome); // dupla escala?
     const primeiro = idx===0;
-    const bgBase = jaEsc ? '#f0faf5' : (primeiro ? '#eef7f2' : 'white');
+    const bgBase = jaEsc ? '#f0faf5' : (outroH ? '#fdf6e3' : (primeiro ? '#eef7f2' : 'white'));
+    const dim = (outroH && !jaEsc) ? 'opacity:.6;' : '';
     return `<div onmousedown="addMin('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
-      style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;background:${bgBase};${primeiro?'border-left:3px solid #1D9E75;':''}"
+      style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;background:${bgBase};${dim}${primeiro?'border-left:3px solid #1D9E75;':''}"
       onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${bgBase}'">
-      <span>${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}</span>
+      <span>${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}${(outroH&&!jaEsc)?` <span style="font-size:10px;color:#BA7517;font-weight:600">⚠️ já em ${outroH}</span>`:''}</span>
       <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')}</span>
     </div>`;
   }).join('');
@@ -1007,10 +1009,44 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
   }
 };
 
+// Verifica se o ministro já está escalado em OUTRO horário da mesma escala (dupla escala)
+function jaEscaladoNoutroHorario(key, horaAtual, nome){
+  const esc = escalas[key]||{};
+  for(const h of Object.keys(esc)){
+    if(h===horaAtual) continue;
+    if((esc[h]?.ministros||[]).includes(nome)) return h;
+  }
+  return null;
+}
+
+// Registra um log de exceção (governança) no Firestore
+async function registrarLogEscala(tipo, detalhe){
+  try{
+    await addDoc(collection(db,'logs_escala'), {
+      tipo, detalhe, em: serverTimestamp(),
+      data: new Date().toISOString()
+    });
+  }catch(e){ /* log não deve travar a operação */ }
+}
+
 window.addMin = function(key, hora, nome, acId){
   if(!escalas[key]) escalas[key]={};
   if(!escalas[key][hora]) escalas[key][hora]={ministros:[],responsavel:''};
-  if(!escalas[key][hora].ministros.includes(nome)) escalas[key][hora].ministros.push(nome);
+  if(escalas[key][hora].ministros.includes(nome)){ return; } // já está
+
+  // GOVERNANÇA: verifica dupla escala (já escalado noutro horário desta escala)
+  const outroHorario = jaEscaladoNoutroHorario(key, hora, nome);
+  if(outroHorario){
+    const ok = confirm(`⚠️ EXCEÇÃO — Dupla escala\n\n${nome} já está escalado(a) no horário ${outroHorario} desta mesma escala.\n\nDeseja escalá-lo(a) também em ${hora}?`);
+    if(!ok){
+      if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+      return;
+    }
+    registrarLogEscala('dupla_escala', `${nome} escalado(a) em ${outroHorario} e ${hora} (escala ${key})`);
+    toast(`⚠️ Exceção registrada: ${nome.split(' ')[0]} em 2 horários`,'warn');
+  }
+
+  escalas[key][hora].ministros.push(nome);
   if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
   const inpId = acId ? acId.replace('ac-','inp-') : null;
   if(inpId){ const inp=document.getElementById(inpId); if(inp) inp.value=''; }
@@ -1018,7 +1054,9 @@ window.addMin = function(key, hora, nome, acId){
 };
 
 window.addMinForaDisp = function(key, hora, nome, acId){
-  if(confirm(`${nome} não tem disponibilidade para ${hora}.\nDeseja adicionar mesmo assim?`)){
+  if(confirm(`⚠️ EXCEÇÃO — Sem disponibilidade\n\n${nome} NÃO marcou disponibilidade para ${hora}.\n\nDeseja escalá-lo(a) mesmo assim?`)){
+    registrarLogEscala('sem_disponibilidade', `${nome} escalado(a) em ${hora} sem disponibilidade (escala ${key})`);
+    toast(`⚠️ Exceção registrada: ${nome.split(' ')[0]} sem disponibilidade`,'warn');
     addMin(key, hora, nome, acId);
   }
 };
@@ -1977,6 +2015,7 @@ window.renderRelatorios = async function(){
   const tab=document.getElementById('rel-tab').value;
   document.getElementById('rel-body').innerHTML='<p style="color:#888;font-size:13px;padding:8px 0">Carregando...</p>';
   if(tab==='atualizacao') await relAtualizacao();
+  if(tab==='excecoes') await relExcecoes();
   if(tab==='missas') await relFrequencia();
   if(tab==='reunioes') await relReunioes();
   if(tab==='adoracoes') await relAdoracoes();
@@ -2032,6 +2071,38 @@ async function relAtualizacao(){
     <p style="font-size:12px;font-weight:700;color:#085041;margin:16px 0 4px">✅ Completos (${fezTudo.length})</p>
     ${fezTudo.length ? fezTudo.map(linha).join('') : '<p style="font-size:12px;color:#888">Ninguém completou ainda.</p>'}
   `;
+}
+
+// Relatório de exceções (log de governança): dupla escala e escalas sem disponibilidade
+async function relExcecoes(){
+  let docs=[];
+  try{
+    const snap = await getDocs(collection(db,'logs_escala'));
+    docs = snap.docs.map(d=>({id:d.id,...d.data()}))
+      .sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  }catch(e){ docs=[]; }
+
+  if(!docs.length){
+    document.getElementById('rel-body').innerHTML = '<p style="font-size:13px;color:#1D9E75;padding:8px 0">✓ Nenhuma exceção registrada. Todas as escalas seguiram o padrão (ministros disponíveis, sem dupla escala).</p>';
+    return;
+  }
+
+  const rotulo = t => t==='dupla_escala' ? '🔁 Dupla escala' : (t==='sem_disponibilidade' ? '⚠️ Sem disponibilidade' : '⚠️ Exceção');
+  const cor = t => t==='dupla_escala' ? '#BA7517' : '#A32D2D';
+
+  document.getElementById('rel-body').innerHTML = `
+    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} exceção(ões) registrada(s). Cada vez que um ministro é escalado fora do padrão, fica este registro.</p>
+    ${docs.map(d=>{
+      const dt = d.data ? new Date(d.data) : null;
+      const dataFmt = dt ? `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}` : '';
+      return `<div style="padding:9px 0;border-bottom:1px solid #eee">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+          <span style="font-size:12px;font-weight:700;color:${cor(d.tipo)}">${rotulo(d.tipo)}</span>
+          <span style="font-size:10px;color:#aaa">${dataFmt}</span>
+        </div>
+        <p style="font-size:12px;color:#444;margin:0;line-height:1.4">${d.detalhe||''}</p>
+      </div>`;
+    }).join('')}`;
 }
 
 async function relFrequencia(){
@@ -3472,6 +3543,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p class="ct">📊 Relatórios</p>
     <select id="rel-tab" onchange="renderRelatorios()" style="margin-bottom:12px">
       <option value="atualizacao">✅ Quem atualizou cadastro</option>
+      <option value="excecoes">⚠️ Exceções na escala (log)</option>
       <option value="missas">Presença — Missas</option>
       <option value="reunioes">Presença — Reuniões</option>
       <option value="adoracoes">Presença — Adorações</option>
