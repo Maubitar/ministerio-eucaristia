@@ -357,6 +357,17 @@ async function modoDisponibilidade(id){
 
       <!-- DADOS PESSOAIS -->
       <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #e1f5ee">👤 DADOS PESSOAIS</p>
+
+      <!-- FOTO -->
+      <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:16px">
+        <div id="foto-preview" style="width:120px;height:150px;border-radius:12px;overflow:hidden;border:2px solid #e1f5ee;background:linear-gradient(135deg,#e1f5ee,#d0ebe2);display:flex;align-items:center;justify-content:center;margin-bottom:8px">
+          ${m.foto ? `<img src="${m.foto}" style="width:100%;height:100%;object-fit:cover">` : `<span style="font-size:34px;color:#085041;font-weight:700">${iniciais(m.nome||'?')}</span>`}
+        </div>
+        <input type="file" id="f-foto-input" accept="image/*" style="display:none" onchange="processarFotoForm(this)">
+        <button type="button" onclick="document.getElementById('f-foto-input').click()" style="padding:8px 16px;border:1.5px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:12px;font-weight:600;cursor:pointer">📷 ${m.foto?'Trocar foto':'Adicionar foto'}</button>
+        <p style="font-size:10px;color:#aaa;margin-top:5px;text-align:center">Foto de rosto para sua carteirinha</p>
+      </div>
+
       <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Nome completo</label>
       <input type="text" id="f-nome" value="${(m.nome||'').replace(/"/g,'&quot;')}" placeholder="Seu nome completo" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px">
       <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">WhatsApp / Telefone</label>
@@ -437,7 +448,23 @@ async function modoDisponibilidade(id){
   </div>`;
 
   window._formPlantao = !!m.plantao;
+  window._fotoFormAtual = m.foto || null; // foto comprimida (base64) a salvar
 }
+
+// Processa a foto escolhida no formulário do ministro: comprime e mostra preview.
+window.processarFotoForm = async function(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const prev = document.getElementById('foto-preview');
+  if(prev) prev.innerHTML = '<span style="font-size:11px;color:#085041">Processando...</span>';
+  try{
+    const dataUrl = await comprimirFoto(file);
+    window._fotoFormAtual = dataUrl;
+    if(prev) prev.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover">`;
+  }catch(e){
+    if(prev) prev.innerHTML = '<span style="font-size:10px;color:#A32D2D;text-align:center">Erro na foto.<br>Tente outra.</span>';
+  }
+};
 
 window.togPlantao = function(){
   window._formPlantao = !window._formPlantao;
@@ -482,6 +509,11 @@ window.salvarFormDisp = async function(id){
     dispAtualizadaEm:serverTimestamp(),
     cadastroAtualizadoEm:serverTimestamp()
   };
+  // Foto (se enviada/alterada)
+  if(window._fotoFormAtual){
+    dados.foto = window._fotoFormAtual;
+    dados.fotoAtualizadaEm = serverTimestamp();
+  }
   // Nascimento (se informado)
   const dia=g('form-nasc-dia')?.value;
   const mesN=g('form-nasc-mes')?.value;
@@ -674,6 +706,44 @@ async function renderInicio(){
 }
 
 function iniciais(nome){ return nome.split(' ').map(x=>x[0]).slice(0,2).join(''); }
+
+// Comprime uma imagem (File) para um JPEG pequeno em base64, ideal para foto de carteirinha.
+// Reduz para no máximo maxW x maxH mantendo proporção, e qualidade ~0.7. Resultado ~30-60KB.
+window.comprimirFoto = function(file, maxW=260, maxH=340, qualidade=0.72){
+  return new Promise((resolve, reject)=>{
+    if(!file || !file.type.startsWith('image/')){ reject(new Error('Arquivo não é imagem')); return; }
+    const reader = new FileReader();
+    reader.onload = e=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        // Recorta para proporção de retrato (3:4) centralizado, depois redimensiona
+        const alvoRatio = maxW/maxH;
+        const imgRatio = w/h;
+        let sx=0, sy=0, sw=w, sh=h;
+        if(imgRatio > alvoRatio){
+          // imagem mais larga: corta as laterais
+          sw = h*alvoRatio; sx = (w-sw)/2;
+        } else {
+          // imagem mais alta: corta topo/baixo
+          sh = w/alvoRatio; sy = (h-sh)/2;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = maxW; canvas.height = maxH;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, maxW, maxH);
+        try{
+          const dataUrl = canvas.toDataURL('image/jpeg', qualidade);
+          resolve(dataUrl);
+        }catch(err){ reject(err); }
+      };
+      img.onerror = ()=>reject(new Error('Erro ao carregar imagem'));
+      img.src = e.target.result;
+    };
+    reader.onerror = ()=>reject(new Error('Erro ao ler arquivo'));
+    reader.readAsDataURL(file);
+  });
+};
 function primeiroNomes(nome){ return nome.split(' ').slice(0,3).join(' '); }
 function normalizarBusca(txt){
   return (txt||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
@@ -2271,6 +2341,25 @@ function renderMinistros(filtro){
   }).join('')+(lista.length>30?`<p style="font-size:11px;color:#888;text-align:center;padding:8px">Mostrando 30 de ${lista.length}</p>`:'');
 }
 
+// Coordenação adiciona/troca a foto do ministro direto pelo perfil.
+window.processarFotoPerfil = async function(id, input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const box = document.getElementById('perfil-foto');
+  if(box) box.innerHTML = '<span style="font-size:10px;color:#085041">Processando...</span>';
+  try{
+    const dataUrl = await comprimirFoto(file);
+    await updateDoc(doc(db,'ministros',id),{foto:dataUrl, fotoAtualizadaEm:serverTimestamp()});
+    const m = ministros.find(x=>x.id===id);
+    if(m) m.foto = dataUrl;
+    if(box) box.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover">`;
+    toast('Foto atualizada!');
+  }catch(e){
+    if(box) box.innerHTML = '<span style="font-size:10px;color:#A32D2D;text-align:center">Erro.<br>Tente outra.</span>';
+    toast('Erro ao processar foto.','err');
+  }
+};
+
 window.abrirPerfil = function(id){
   const m=ministros.find(x=>x.id===id);
   if(!m) return;
@@ -2279,6 +2368,13 @@ window.abrirPerfil = function(id){
   const nascFmt = m.nascimento ? m.nascimento.split('-').reverse().join('/') : '';
   document.getElementById('mp-nome').textContent=m.nome;
   document.getElementById('mp-body').innerHTML=`
+    <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px">
+      <div id="perfil-foto" style="width:96px;height:120px;border-radius:10px;overflow:hidden;border:2px solid #e1f5ee;background:linear-gradient(135deg,#e1f5ee,#d0ebe2);display:flex;align-items:center;justify-content:center">
+        ${m.foto ? `<img src="${m.foto}" style="width:100%;height:100%;object-fit:cover">` : `<span style="font-size:30px;color:#085041;font-weight:700">${iniciais(m.nome)}</span>`}
+      </div>
+      <input type="file" id="perfil-foto-input" accept="image/*" style="display:none" onchange="processarFotoPerfil('${id}',this)">
+      <button onclick="document.getElementById('perfil-foto-input').click()" style="margin-top:6px;padding:5px 12px;border:1.5px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:11px;font-weight:600;cursor:pointer">📷 ${m.foto?'Trocar foto':'Adicionar foto'}</button>
+    </div>
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <div style="flex:1;background:#f5f5f3;border-radius:8px;padding:8px;text-align:center">
         <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${m.faltasReuniao||0}</p>
@@ -2765,21 +2861,28 @@ let scannerInterval = null;
 
 window.abrirScanner = function(){
   document.getElementById('modal-scanner').style.display='flex';
-  document.getElementById('scanner-resultado').textContent='';
   document.getElementById('scanner-status').textContent='Iniciando câmera...';
+  _scanLidos = new Set();
+  _scanPausado = false;
+  const cont=document.getElementById('scanner-contador'); if(cont) cont.textContent='';
+  const fb=document.getElementById('scanner-feedback'); if(fb) fb.style.display='none';
   const video = document.getElementById('scanner-video');
   navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
     .then(stream=>{
       scannerStream = stream;
       video.srcObject = stream;
       video.play();
-      document.getElementById('scanner-status').textContent='Aponte para o QR Code do ministro';
-      scannerInterval = setInterval(()=>lerQRFrame(video),500);
+      document.getElementById('scanner-status').textContent='Aponte para o QR Code de cada ministro';
+      scannerInterval = setInterval(()=>lerQRFrame(video),350);
     })
     .catch(()=>{ document.getElementById('scanner-status').textContent='⚠️ Câmera não disponível. Use HTTPS.'; });
 };
 
+let _scanLidos = new Set();   // ids já lidos nesta sessão (evita duplicidade)
+let _scanPausado = false;     // pausa durante o feedback de 2s
+
 function lerQRFrame(video){
+  if(_scanPausado) return;
   if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
   const canvas = document.getElementById('scanner-canvas');
   const ctx = canvas.getContext('2d');
@@ -2791,22 +2894,53 @@ function lerQRFrame(video){
     if(window.jsQR){
       const code = jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
       if(code && code.data.includes('ministro=')){
-        const urlObj = new URL(code.data);
-        const id = urlObj.searchParams.get('ministro');
+        let id=null;
+        try{ id = new URL(code.data).searchParams.get('ministro'); }catch(e){ return; }
         const m = ministros.find(x=>x.id===id);
-        if(m){
-          pararScanner();
-          document.getElementById('scanner-resultado').textContent='✓ '+m.nome;
-          toast('✓ Presença confirmada: '+m.nome.split(' ')[0]);
-          if(presAtual!==undefined){
-            if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
-            presAtual[id].status='P';
-            renderPresenca();
-          }
+        if(!m) return;
+
+        // Evita duplicidade: se já leu este ministro nesta sessão, ignora
+        if(_scanLidos.has(id)){
+          mostrarFeedbackScan(m, true);
+          return;
         }
+        _scanLidos.add(id);
+
+        // Registra presença AUTOMATICAMENTE (escrita otimista)
+        if(typeof presAtual!=='undefined'){
+          if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
+          presAtual[id].status='P';
+          if(typeof renderPresenca==='function') renderPresenca();
+        }
+        mostrarFeedbackScan(m, false);
       }
     }
   }catch(e){}
+}
+
+// Mostra foto + nome por 2 segundos, depois volta a ler automaticamente.
+function mostrarFeedbackScan(m, jaLido){
+  _scanPausado = true;
+  const fb = document.getElementById('scanner-feedback');
+  if(fb){
+    const fotoHtml = m.foto
+      ? `<img src="${m.foto}" style="width:88px;height:110px;object-fit:cover;border-radius:10px;border:3px solid ${jaLido?'#BA7517':'#1D9E75'}">`
+      : `<div style="width:88px;height:110px;border-radius:10px;background:#e1f5ee;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#085041;border:3px solid ${jaLido?'#BA7517':'#1D9E75'}">${iniciais(m.nome)}</div>`;
+    fb.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;animation:none">
+        ${fotoHtml}
+        <p style="font-size:16px;font-weight:700;color:#1a1a1a;margin:0;text-align:center">${m.nome}</p>
+        <p style="font-size:13px;font-weight:700;margin:0;color:${jaLido?'#BA7517':'#1D9E75'}">${jaLido?'⚠️ Já registrado':'✓ Presença confirmada'}</p>
+      </div>`;
+    fb.style.display='flex';
+  }
+  if(!jaLido) toast('✓ Presença: '+m.nome.split(' ')[0]);
+  const cont=document.getElementById('scanner-contador');
+  if(cont) cont.textContent = `✓ ${_scanLidos.size} presença(s) registrada(s) nesta leitura`;
+  setTimeout(()=>{
+    if(fb) fb.style.display='none';
+    _scanPausado = false; // volta a ler automaticamente
+  }, 2000);
 }
 
 window.pararScanner = function(){
@@ -2814,6 +2948,9 @@ window.pararScanner = function(){
   if(scannerInterval) clearInterval(scannerInterval);
   scannerStream = null;
   scannerInterval = null;
+  _scanLidos.clear();
+  _scanPausado = false;
+  const fb=document.getElementById('scanner-feedback'); if(fb) fb.style.display='none';
   document.getElementById('modal-scanner').style.display='none';
 };
 
@@ -3443,10 +3580,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </div>
       <button onclick="pararScanner()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
-    <video id="scanner-video" style="width:100%;border-radius:10px;background:#000;max-height:280px"></video>
+    <div style="position:relative">
+      <video id="scanner-video" style="width:100%;border-radius:10px;background:#000;max-height:280px"></video>
+      <div id="scanner-feedback" style="display:none;position:absolute;inset:0;background:rgba(255,255,255,.96);border-radius:10px;align-items:center;justify-content:center;backdrop-filter:blur(2px)"></div>
+    </div>
     <canvas id="scanner-canvas" style="display:none"></canvas>
-    <p id="scanner-resultado" style="font-size:13px;margin-top:12px;color:#085041;font-weight:600;min-height:20px"></p>
-    <p id="scanner-status" style="font-size:11px;color:#888;margin-top:4px">Câmera iniciando...</p>
+    <p id="scanner-contador" style="font-size:12px;margin-top:10px;color:#085041;font-weight:700;min-height:18px"></p>
+    <p id="scanner-resultado" style="display:none"></p>
+    <p id="scanner-status" style="font-size:11px;color:#888;margin-top:2px">Câmera iniciando...</p>
+    <p style="font-size:10px;color:#aaa;margin-top:6px;line-height:1.4">📷 Leitura contínua: aponte para cada crachá, a presença é registrada automaticamente.</p>
   </div>
 </div>
 
