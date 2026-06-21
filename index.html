@@ -132,9 +132,7 @@ window.addEventListener('load', async()=>{
   if(ministroId){
     const app2 = initializeApp(FB);
     db = getFirestore(app2);
-    await carregarMinistros();
-    showTab('ministros');
-    setTimeout(()=>verMinistro(ministroId), 800);
+    modoIdentificacao(ministroId);
     return;
   }
   const dispId = params.get('disp');
@@ -176,6 +174,48 @@ function showSplash(){
 }
 
 const formDom=new Set(), formSem=new Set();
+
+// Página de IDENTIFICAÇÃO do ministro (somente leitura, SEM acesso ao app da coordenação).
+// Mostra apenas nome + QR Code de presença. É o que o ministro recebe pelo WhatsApp.
+async function modoIdentificacao(id){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
+  let m;
+  try{
+    const d = await getDoc(doc(db,'ministros',id));
+    if(!d.exists()) throw new Error('não encontrado');
+    m = {id:d.id, ...d.data()};
+  }catch(e){
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com a Coordenação MESCE.</div>';
+    return;
+  }
+
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:0 auto;padding:24px 18px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:18px">
+      <p style="font-size:14px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Coordenação MESCE</p>
+      <p style="font-size:11px;color:#888">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+    <div style="background:white;border-radius:16px;padding:26px 20px;box-shadow:0 2px 10px rgba(0,0,0,.07);text-align:center">
+      <p style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">Crachá de Identificação</p>
+      <p style="font-size:20px;font-weight:700;color:#085041;margin-bottom:18px">${m.nome}</p>
+      <div id="ident-qr" style="display:flex;justify-content:center;margin-bottom:16px"></div>
+      <p style="font-size:12px;color:#666;line-height:1.5;max-width:300px;margin:0 auto">Apresente este QR Code à Coordenação para registrar sua presença nas missas.</p>
+    </div>
+    <p style="font-size:11px;color:#aaa;text-align:center;margin-top:18px;line-height:1.5">Este é seu crachá pessoal de presença.<br>Guarde este link para acesso rápido. 🙏</p>
+  </div>`;
+
+  // Gera o QR Code (mesma identificação usada no scanner de presença)
+  try{
+    const url = `${APP_URL}/?ministro=${id}`;
+    new QRCode(document.getElementById('ident-qr'), {
+      text: url, width: 220, height: 220,
+      colorDark: '#085041', colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  }catch(e){}
+}
+
 async function modoDisponibilidade(id){
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
   let m;
