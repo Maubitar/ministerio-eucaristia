@@ -1157,8 +1157,9 @@ window.enviarEscalaIndividual = async function(){
 
 function renderEnvioLista(lista){
   document.getElementById('envio-body').innerHTML = lista.map(item=>{
-    const temTel = item.tel && item.tel.length>=10;
-    const link = temTel ? `https://wa.me/55${item.tel}?text=${encodeURIComponent(item.msg)}` : '';
+    const telFmt = (typeof formatarTelBR==='function') ? formatarTelBR(item.tel) : item.tel;
+    const temTel = !!telFmt;
+    const link = temTel ? `https://wa.me/${telFmt}?text=${encodeURIComponent(item.msg)}` : '';
     return `<div class="envio-row" data-nome="${normalizarBusca(item.nome)}" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
       <div style="flex:1">
         <p style="font-size:13px;margin:0;font-weight:500">${item.nome}</p>
@@ -1781,8 +1782,8 @@ async function relAtualizacao(){
   const linha = (m)=>{
     const temDisp = (m.dispDom||[]).length+(m.dispSem||[]).length>=2;
     const temNasc = !!m.nascimento;
-    const tel = (m.tel||'').replace(/\D/g,'');
-    const linkCobranca = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(`Olá, ${m.nome.split(' ')[0]}! 🙏 Aqui é da Coordenação MESCE. Notamos que falta atualizar seu cadastro (disponibilidade de missas e/ou data de aniversário). Por favor, acesse: ${APP_URL}/?disp=${m.id} — leva menos de 1 minuto. Que Deus abençoe!`)}` : '';
+    const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+    const linkCobranca = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(`Olá, ${m.nome.split(' ')[0]}! 🙏 Aqui é da Coordenação MESCE. Notamos que falta atualizar seu cadastro (disponibilidade de missas e/ou data de aniversário). Por favor, acesse: ${APP_URL}/?disp=${m.id} — leva menos de 1 minuto. Que Deus abençoe!`)}` : '';
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
       <div style="flex:1">
         <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
@@ -2156,7 +2157,7 @@ window.abrirPerfil = function(id){
       </div>
     </div>
     <div style="background:#fafafa;border-radius:8px;padding:8px 12px;margin-bottom:12px">
-      ${linha('WhatsApp', m.tel ? `${m.tel} <a href="https://wa.me/55${m.tel.replace(/\D/g,'')}" target="_blank" style="color:#1D9E75;margin-left:4px">↗</a>` : '<span style="color:#BA7517">não cadastrado</span>')}
+      ${linha('WhatsApp', m.tel ? `${m.tel} ${formatarTelBR(m.tel)?`<a href="https://wa.me/${formatarTelBR(m.tel)}" target="_blank" style="color:#1D9E75;margin-left:4px">↗</a>`:'<span style="color:#BA7517;font-size:10px">⚠ sem DDD</span>'}` : '<span style="color:#BA7517">não cadastrado</span>')}
       ${linha('Nascimento', nascFmt)}
       ${linha('Endereço', m.endereco)}
       ${linha('Estado civil', m.estadoCivil)}
@@ -2281,13 +2282,32 @@ window.salvarDados=async function(){
   toast('Dados atualizados!');
 };
 
+// Normaliza número brasileiro para o formato do WhatsApp (55 + DDD + número).
+// Retorna '' se o número for inválido (curto demais ou sem DDD).
+window.formatarTelBR = function(telBruto){
+  let t = (telBruto||'').replace(/\D/g,'');      // só dígitos
+  if(!t) return '';
+  t = t.replace(/^0+/,'');                         // remove zeros à esquerda (ex: 091)
+  if(t.startsWith('55') && t.length>=12) t = t.slice(2); // tira 55 se já veio (revalida abaixo)
+  // Agora t deve ser DDD(2) + número(8 ou 9) = 10 ou 11 dígitos
+  if(t.length===10 || t.length===11){
+    return '55'+t;
+  }
+  // número sem DDD (8 ou 9 dígitos) — não dá para saber o DDD com segurança
+  return '';
+};
+
 window.solicitarDisp = function(id){
   const m = ministros.find(x=>x.id===id);
   if(!m) return;
   const link = `${APP_URL}/?disp=${id}`;
   const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é da *Coordenação MESCE* da Basílica de Nazaré.\n\nPor favor, toque no link abaixo para confirmar e completar seu *cadastro na MESCE* (dados, disponibilidade de missas e aniversário):\n\n${link}\n\nLeva poucos minutos. Que Deus abençoe! 🕊️`;
-  const tel = (m.tel||'').replace(/\D/g,'');
-  const url = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
+  const tel = formatarTelBR(m.tel);
+  if(!tel){
+    toast('⚠️ Telefone do ministro inválido ou sem DDD. Corrija em "Editar dados".','warn');
+    return;
+  }
+  const url = `https://wa.me/${tel}?text=${encodeURIComponent(txt)}`;
   window.open(url,'_blank');
 };
 
@@ -2391,9 +2411,9 @@ window.gerarCartaoAniversario = async function(id){
       a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href),2000);
       // modal com instrução + botão de abrir WhatsApp do aniversariante
-      const tel=(m.tel||'').replace(/\D/g,'');
+      const tel=formatarTelBR(m.tel);
       const msgWa = `🎉 Feliz Aniversário, ${primeiro.split(' ')[0]}! Que Deus te abençoe grandemente. Um abraço da Coordenação MESCE! 🙏🎂`;
-      const linkWa = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(msgWa)}` : '';
+      const linkWa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(msgWa)}` : '';
       const corpo = document.getElementById('cartao-corpo');
       if(corpo){
         corpo.innerHTML = `
@@ -2566,8 +2586,8 @@ window.enviarQRWhatsApp = function(){
   if(!qrMinistroAtual) return;
   const url = `${APP_URL}/?ministro=${qrMinistroAtual.id}`;
   const txt = `Olá, ${qrMinistroAtual.nome.split(' ')[0]}! 🙏\n\nSeu QR Code de identificação no *Ministério da Eucaristia* da Basílica de Nazaré:\n\n${url}\n\nGuarde este link — ele é seu código único de presença!\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
-  const tel = (qrMinistroAtual.tel||'').replace(/\D/g,'');
-  const waUrl = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(qrMinistroAtual.tel) : (qrMinistroAtual.tel||'').replace(/\D/g,'');
+  const waUrl = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
   window.open(waUrl,'_blank');
 };
 
