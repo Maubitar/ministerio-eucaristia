@@ -607,6 +607,15 @@ window.irPara = function(id){
   window.scrollTo({top:0, behavior:'smooth'});
 };
 
+// Vai para Relatórios já selecionando um relatório específico
+window.irRelatorio = function(tipo){
+  irPara('relatorios');
+  setTimeout(()=>{
+    const sel=document.getElementById('rel-tab');
+    if(sel){ sel.value=tipo; if(typeof renderRelatorios==='function') renderRelatorios(); }
+  },150);
+};
+
 async function renderInicio(){
   // Saudação por horário
   const agora = new Date();
@@ -3141,6 +3150,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .atalho:hover{box-shadow:0 3px 10px rgba(0,0,0,.1)}
 .atalho-ic{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px}
 .atalho-tx{font-size:11px;font-weight:600;color:#333;text-align:center;line-height:1.2}
+/* ===== Setores (home profissional) ===== */
+.setor{margin-bottom:16px}
+.setor-titulo{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:8px;padding-left:2px}
+.setor-ic{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px}
+.setor-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.setor-btn{background:white;border:1px solid rgba(0,0,0,.04);border-radius:14px;padding:14px 12px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;cursor:pointer;box-shadow:0 1px 5px rgba(0,0,0,.05);transition:transform .12s,box-shadow .12s;text-align:left}
+.setor-btn:active{transform:scale(.97)}
+.setor-btn:hover{box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.sb-ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.sb-tx{font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.2}
+.sb-sub{font-size:10px;color:#999;line-height:1.2}
 input,select{width:100%;padding:10px 12px;border:1.5px solid #e8e8e8;border-radius:9px;font-size:14px;font-family:inherit;background:white;margin-bottom:8px;transition:border-color .15s,box-shadow .15s}
 input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.12)}
 .btn-g{padding:11px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px;transition:transform .1s,filter .15s,box-shadow .15s;box-shadow:0 2px 6px rgba(29,158,117,.25)}
@@ -3217,29 +3237,61 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <div class="dash-proxima" id="dash-proxima"></div>
   </div>
 
-  <div class="dash-atalhos">
-    <button class="atalho" onclick="irPara('escala')">
-      <span class="atalho-ic" style="background:#e1f5ee;color:#085041">📅</span>
-      <span class="atalho-tx">Montar<br>Escala</span>
-    </button>
-    <button class="atalho" onclick="irPara('presenca')">
-      <span class="atalho-ic" style="background:#e6f1fb;color:#185FA5">✓</span>
-      <span class="atalho-tx">Marcar<br>Presença</span>
-    </button>
-    <button class="atalho" onclick="irPara('ministros')">
-      <span class="atalho-ic" style="background:#faeeda;color:#BA7517">👤</span>
-      <span class="atalho-tx">Ministros</span>
-    </button>
-    <button class="atalho" onclick="irPara('relatorios')">
-      <span class="atalho-ic" style="background:#f0e6fb;color:#6B3FA0">📊</span>
-      <span class="atalho-tx">Relatórios</span>
-    </button>
-  </div>
-
   <div class="metrics">
     <div class="metric"><div class="v" id="m-total">0</div><div class="l">Ministros ativos</div></div>
     <div class="metric"><div class="v" id="m-escalas">0</div><div class="l">Escalas montadas</div></div>
     <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários no mês</div></div>
+  </div>
+
+  <!-- SETOR: Serviço Litúrgico -->
+  <div class="setor">
+    <p class="setor-titulo"><span class="setor-ic" style="background:#e1f5ee">⛪</span> Serviço Litúrgico</p>
+    <div class="setor-grid">
+      <button class="setor-btn" onclick="irPara('escala')">
+        <span class="sb-ic" style="background:#e1f5ee;color:#085041">📅</span>
+        <span class="sb-tx">Montar Escala</span>
+        <span class="sb-sub">Dominical e semanal</span>
+      </button>
+      <button class="setor-btn" onclick="irPara('presenca')">
+        <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">✓</span>
+        <span class="sb-tx">Marcar Presença</span>
+        <span class="sb-sub">Missas, reuniões, adoração</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- SETOR: Ministros & Cadastros -->
+  <div class="setor">
+    <p class="setor-titulo"><span class="setor-ic" style="background:#faeeda">👥</span> Ministros & Cadastros</p>
+    <div class="setor-grid">
+      <button class="setor-btn" onclick="irPara('ministros')">
+        <span class="sb-ic" style="background:#faeeda;color:#BA7517">👤</span>
+        <span class="sb-tx">Ver Ministros</span>
+        <span class="sb-sub">Perfis, fotos, carteirinhas</span>
+      </button>
+      <button class="setor-btn" onclick="document.getElementById('modal-cad').style.display='flex'">
+        <span class="sb-ic" style="background:#e1f5ee;color:#1D9E75">➕</span>
+        <span class="sb-tx">Novo Ministro</span>
+        <span class="sb-sub">Cadastrar manualmente</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- SETOR: Gestão & Relatórios -->
+  <div class="setor">
+    <p class="setor-titulo"><span class="setor-ic" style="background:#f0e6fb">📊</span> Gestão & Relatórios</p>
+    <div class="setor-grid">
+      <button class="setor-btn" onclick="irPara('relatorios')">
+        <span class="sb-ic" style="background:#f0e6fb;color:#6B3FA0">📊</span>
+        <span class="sb-tx">Relatórios</span>
+        <span class="sb-sub">Frequência, faltas, escalas</span>
+      </button>
+      <button class="setor-btn" onclick="irRelatorio('atualizacao')">
+        <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">✅</span>
+        <span class="sb-tx">Quem Atualizou</span>
+        <span class="sb-sub">Cobrar pendentes</span>
+      </button>
+    </div>
   </div>
 
   <div class="card">
