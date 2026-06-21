@@ -119,6 +119,7 @@ let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos=
 let recognition=null;
 const LOGO_BASILICA = 'logo-basilica.jpg';
 const LOGO_MESCE = 'logo-mesce.jpg';
+const ANIVERSARIOS_IMPORT = [["José Orlando Moares de Oliveira Junior", "01/01"], ["Raquel Netto Lobato de Castilho", "03/01"], ["Maria Ângela Santos da Silva", "04/01"], ["Iaponira Novelino de Oliveira", "06/01"], ["Maurício Bitar Mesquita", "15/01"], ["Alessandra Dione Cardoso Leão", "18/01"], ["Lúcia de Fátima Menezes", "19/01"], ["Danielle Rocha da Silva Barbosa", "21/01"], ["Célia Maria Moura de Lima Pontes", "24/01"], ["Maria Irismar Oliveira de Albuquerque", "24/01"], ["Ivânia Tavares Lobo Corrêa", "27/01"], ["Jaime Pinheiro Maciel", "27/01"], ["Maria Regina Arruda Barreto", "28/01"], ["Heliane Christina Braga Gomes", "02/02"], ["Giuseppe Di Marco", "04/02"], ["Ana Catarina Nunez Lopes Tavares", "13/02"], ["Joseane Cristine Rodrigues dos Santos Borges", "16/02"], ["Tânia Mara Fernandes Costa", "20/02"], ["Glória Maria de Oliveira Silva", "21/02"], ["Andrea Mª dos Santos Sampaio Morais", "27/02"], ["Êdio Virginio de Miranda", "27/02"], ["Lúcia Maria Cabral de Oliveira", "27/02"], ["Consuelo Lima Skeete", "01/03"], ["Eliane Maria Mota de Oliveira", "04/03"], ["Lucileide da Silva Pereira", "08/03"], ["Carlos Reginaldo de Oliveira Santa Brigida", "15/03"], ["José Arcanjo Borges Ramos", "19/03"], ["Claudete Silva Lima", "20/03"], ["Maria de Nazaré Santos de Oliveira", "21/03"], ["Adriana do Socorro Rodrigues C. dos Santos", "22/03"], ["Sônia Gorete Veloso Vieira", "22/03"], ["Brenda Leitão Sodré", "24/03"], ["Ana Cristina Toscano Felício", "04/04"], ["Maria do Socorro dos Santos Nunes", "09/04"], ["Alina de Jesus Almeida Figueiredo", "11/04"], ["Sandra Maria Melo", "14/04"], ["Cláudio Márcio Alves Vieira", "15/04"], ["Gilvana Ramos Souza Gonçalves", "15/04"], ["Angelita Barbosa da Cunha", "17/04"], ["Kayth Rejane de Araújo Cardoso da Veiga", "19/04"], ["Paula Helena Mendes Lima", "23/04"], ["Michel Fernandes Ferreira de Carvalho", "26/04"], ["Benedita Ferreira Iunes", "02/05"], ["Maria Neusa Monteiro", "02/05"], ["Maria do Perpétuo Socorro Melo Santana", "05/05"], ["Carmen Laura Moura Monteiro", "08/05"], ["Jessyka Ysla Soares Ponte Cavalcante", "12/05"], ["Emanuelle Garcia Daibes Marques", "13/05"], ["Maria Helena Francez Brasil", "15/05"], ["Luis Alberto Porto Aleixo", "17/05"], ["Lely Maria Marinho de Mesquita", "23/05"], ["Verônica Ribeiro Solheiro", "23/05"], ["Fátima Angélica Santos Araújo", "27/05"], ["Maria José Oliveira da Costa", "28/05"], ["Raimunda Queiroz de Oliveira", "02/06"], ["Fathiane Allyne Santos Araújo", "04/06"], ["Mário Jorge Alves da Silva", "12/06"], ["Márcia Cristina Santos Vieira", "25/06"], ["Dalmira Monteiro Pontes Simor", "26/06"], ["Sérgio Marques Borges Leal", "27/06"], ["Adriana Vinagre Condurú", "30/06"], ["Raicivany Mota de Carvalho Ferreira", "04/07"], ["Henrique Juvenal Viana dos Santos", "08/07"], ["Maria Liduina Tavares Braga", "19/07"], ["Carlos Sérgio Fernandes da Silva", "22/07"], ["Fábio Geraldo Freitas dos Santos", "23/07"], ["Thaís Helena Picanço Gemaque de Sá", "28/07"], ["Francy Mary Cavalcante Alves", "29/07"], ["Lucélia Vieira Miranda", "13/08"], ["Miguel Ângelo Carvalho de Araújo", "14/08"], ["José Ronaldo Mesquita Alves", "15/08"], ["Alessandra Andréa Silva de Seixas Duarte", "16/08"], ["Márcio André Silva Coelho", "17/08"], ["Laís do Socorro Vieira Miranda", "21/08"], ["Alda Terezinha Pinheiro Rodrigues", "23/08"], ["Maria da Conceição dos Santos Rodrigues", "23/08"], ["Ivani Maria de Souza Pinheiro", "25/08"], ["Maria Clara Marques Penna de Carvalho", "26/08"], ["Fabíola Rocha Neves de Lima", "29/08"], ["Izabela Ribeiro Russo Rodrigues", "29/08"], ["Roberta Medeiros de Rezende", "30/08"], ["Dirce Maria Leite da Cunha Catarino", "02/09"], ["Alzira Modesto Vilhena Filha", "03/09"], ["Sonia Helaine de Souza Santana Maia", "03/09"], ["Rosa Maria Costa Pinheiro de Sousa", "04/09"], ["Leovegildo Moraes França", "08/09"], ["Vera Lúcia Seabra Ribeiro", "10/09"], ["Antonio Fernando Alves Vieira", "11/09"], ["Telma Maria de Oliveira Araújo", "12/09"], ["Carlos Peres Alexandre de Souza", "13/09"], ["Manoel Sidney Santos Ribeiro", "18/09"], ["Lianne Maria Magalhães Dias", "19/09"], ["Lucilene Ferreira da Silva", "19/09"], ["Otávia Dias Santos", "19/09"], ["Rosa Maria Chaves de Sousa", "19/09"], ["Rossana Maria de Andrade Lima", "29/09"], ["Albertina Lúcia da Rocha Fadul", "01/10"], ["Sheila Nazaré de Lima Pereira de Moraes", "03/10"], ["Leila Cátia Costa Farias", "04/10"], ["João Carlos Abreu Corrêa", "05/10"], ["Ozanira Ferreira da Silva", "05/10"], ["Sheila Nazaré Moraes da Costa", "06/10"], ["Marcelo Coelho de Souza Araujo", "07/10"], ["Itla Lima de Freitas Coelho", "08/10"], ["Odaléa Nunes de Almeida Lima", "08/10"], ["Anne dos Santos Soares", "09/10"], ["Diana Mª Coelho de Souza Figueiredo", "09/10"], ["Sandra Pereira Assunção", "15/10"], ["Edna Lúcia Gama Tobias", "16/10"], ["Lourenço Santiago e Silva Júnior", "17/10"], ["May da Costa Mendonça", "18/10"], ["Rita Maria de Freitas Borges Leal", "19/10"], ["José Roberto Pereira Damasceno", "21/10"], ["Danielli Rodrigues da Silva Pinho", "22/10"], ["Maria da Graça Dantas Paixão", "24/10"], ["Amanda Loureiro Pereira Salomão", "28/10"], ["Rosinethe de Avis Abreu", "02/11"], ["Izabel Maria Araújo de Sousa", "05/11"], ["Filomena Savino da Paz", "10/11"], ["Jorge Otávio Bahia de Rezende", "11/11"], ["Moacir Angelino da Costa", "12/11"], ["Irani Nazaré Dias Barros", "18/11"], ["Edna Maria Ferreira Cardoso", "19/11"], ["Vicente Belisário de Sousa Neto", "19/11"], ["Maria Gertrudes Gomes Batista Queiróz", "23/11"], ["Maria Ângela Simões de Almeida", "26/11"], ["Maria Gorete Rodrigues dos Santos", "28/11"], ["Heliana Keyla Marques de Oliveira Alves", "30/11"], ["Ignêz Helena Ramos de Mesquita", "02/12"], ["Maria Cláudia de Souza Reis", "03/12"], ["Gerson Conceição Araújo Farias", "04/12"], ["Joel do Socorro Cunha de Moraes", "05/12"], ["Thais Zumero Toscano", "05/12"], ["Maria Conceição Henriques de Castro", "09/12"], ["Alzinei Simor", "10/12"], ["Danielle Lins Tavares", "10/12"], ["Belermina Sarmanho da Silva", "12/12"], ["Antonio Ramiro Santiago Vidal Jr.", "13/12"], ["Maria da Graça Fonseca Santos", "15/12"], ["Pahulo Andrey Facundo Ramos", "22/12"], ["Irla Naria Albuquerque Marques", "24/12"], ["Maria Jesus Amaral Damasceno", "25/12"], ["João Marcelo Pinto Marques Cunha", "28/12"], ["Inês Oliveira de Souza", "30/12"]];
 
 window.addEventListener('load', async()=>{
   if(window.location.protocol === 'file:'){
@@ -190,6 +191,13 @@ async function modoDisponibilidade(id){
   (m.dispDom||[]).forEach(h=>formDom.add(h));
   (m.dispSem||[]).forEach(h=>formSem.add(h));
 
+  // Pré-preenche nascimento se já existir (formato YYYY-MM-DD)
+  let formNascDia='', formNascMes='';
+  if(m.nascimento){
+    const p = m.nascimento.split('-');
+    if(p.length===3){ formNascMes=p[1]; formNascDia=p[2]; }
+  }
+
   const btn=(h,tipo)=>{
     const sel = tipo==='dom'?formDom.has(h):formSem.has(h);
     const cor = tipo==='dom'?'#085041':'#185FA5';
@@ -212,8 +220,22 @@ async function modoDisponibilidade(id){
         ${MISSAS_DOM.map(h=>btn(h,'dom')).join('')}
       </div>
       <p style="font-size:12px;font-weight:700;color:#185FA5;margin-bottom:8px">📅 MISSAS SEMANAIS (seg a sáb)</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:22px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
         ${MISSAS_SEM.map(h=>btn(h,'sem')).join('')}
+      </div>
+      <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:10px;padding:12px;margin-bottom:20px">
+        <p style="font-size:12px;font-weight:700;color:#a07d2a;margin-bottom:8px">🎂 SUA DATA DE NASCIMENTO</p>
+        <p style="font-size:11px;color:#8a6a1e;margin-bottom:8px;line-height:1.4">Informe o dia e mês do seu aniversário, para recebermos uma bênção da Coordenação no seu dia 🙏</p>
+        <div style="display:flex;gap:8px">
+          <select id="form-nasc-dia" style="flex:1;margin:0">
+            <option value="">Dia</option>
+            ${Array.from({length:31},(_,i)=>{const d=String(i+1).padStart(2,'0');const sel=(formNascDia===d)?'selected':'';return `<option value="${d}" ${sel}>${d}</option>`;}).join('')}
+          </select>
+          <select id="form-nasc-mes" style="flex:1.4;margin:0">
+            <option value="">Mês</option>
+            ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((nm,i)=>{const v=String(i+1).padStart(2,'0');const sel=(formNascMes===v)?'selected':'';return `<option value="${v}" ${sel}>${nm}</option>`;}).join('')}
+          </select>
+        </div>
       </div>
       <button id="btn-salvar-disp" onclick="salvarFormDisp('${m.id}')"
         style="width:100%;padding:15px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">
@@ -242,13 +264,21 @@ window.salvarFormDisp = async function(id){
   }
   const b=document.getElementById('btn-salvar-disp');
   b.disabled=true; b.textContent='Salvando...';
+  const dados = {dispDom:[...formDom],dispSem:[...formSem],dispAtualizadaEm:serverTimestamp()};
+  // Nascimento (se informado)
+  const dia=document.getElementById('form-nasc-dia')?.value;
+  const mesN=document.getElementById('form-nasc-mes')?.value;
+  if(dia && mesN){
+    dados.nascimento = `1900-${mesN}-${dia}`;
+    dados.nascimentoAtualizadoEm = serverTimestamp();
+  }
   try{
-    await updateDoc(doc(db,'ministros',id),{dispDom:[...formDom],dispSem:[...formSem],dispAtualizadaEm:serverTimestamp()});
+    await updateDoc(doc(db,'ministros',id),dados);
     document.body.innerHTML = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center;background:#f8f8f6">
       <div style="font-size:56px;margin-bottom:14px">✅</div>
-      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Disponibilidade registrada!</p>
-      <p style="font-size:13px;color:#666;max-width:300px;line-height:1.6">Obrigado! Suas informações já foram atualizadas no sistema do Ministério da Eucaristia.</p>
+      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Tudo registrado!</p>
+      <p style="font-size:13px;color:#666;max-width:300px;line-height:1.6">Obrigado! Sua disponibilidade${dia&&mesN?' e data de aniversário':''} já foram atualizadas no sistema da Coordenação MESCE.</p>
       <p style="font-size:12px;color:#085041;margin-top:18px;font-weight:600">Que Deus abençoe seu serviço! 🙏</p>
     </div>`;
   }catch(e){
@@ -410,7 +440,7 @@ async function renderInicio(){
         <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #eee">
           <div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
           <div style="flex:1"><p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
-          <p style="font-size:11px;color:#888;margin:0">${m.nascimento.split('-').reverse().join('/')}</p></div>
+          <p style="font-size:11px;color:#888;margin:0">${(m.nascimento.startsWith('1900-')? m.nascimento.slice(5).split('-').reverse().join('/') : m.nascimento.split('-').reverse().join('/'))}</p></div>
           <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:5px 10px;border:1.5px solid #e1f5ee;border-radius:20px;background:#f5faf8;color:#085041;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
         </div>`).join('')
     : '<p style="font-size:12px;color:#888">Cadastre nascimentos para ver aniversariantes.</p>';
@@ -1649,6 +1679,7 @@ window.compartilharReforco=function(){
 window.renderRelatorios = async function(){
   const tab=document.getElementById('rel-tab').value;
   document.getElementById('rel-body').innerHTML='<p style="color:#888;font-size:13px;padding:8px 0">Carregando...</p>';
+  if(tab==='atualizacao') await relAtualizacao();
   if(tab==='missas') await relFrequencia();
   if(tab==='reunioes') await relReunioes();
   if(tab==='adoracoes') await relAdoracoes();
@@ -1656,6 +1687,55 @@ window.renderRelatorios = async function(){
   if(tab==='escalas') await relEscalas();
   if(tab==='eventos') await relEventos();
 };
+
+// Relatório: quem já atualizou disponibilidade e aniversário (para cobrar quem não fez)
+async function relAtualizacao(){
+  const lista = [...ministros].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const comDisp = lista.filter(m=>(m.dispDom||[]).length+(m.dispSem||[]).length>=1 || m.dispAtualizadaEm);
+  const comNasc = lista.filter(m=>m.nascimento);
+  const fezTudo = lista.filter(m=>((m.dispDom||[]).length+(m.dispSem||[]).length>=2) && m.nascimento);
+  const naoFez = lista.filter(m=>!(((m.dispDom||[]).length+(m.dispSem||[]).length>=2) && m.nascimento));
+
+  const pct = lista.length ? Math.round(fezTudo.length/lista.length*100) : 0;
+
+  const linha = (m)=>{
+    const temDisp = (m.dispDom||[]).length+(m.dispSem||[]).length>=2;
+    const temNasc = !!m.nascimento;
+    const tel = (m.tel||'').replace(/\D/g,'');
+    const linkCobranca = tel ? `https://wa.me/55${tel}?text=${encodeURIComponent(`Olá, ${m.nome.split(' ')[0]}! 🙏 Aqui é da Coordenação MESCE. Notamos que falta atualizar seu cadastro (disponibilidade de missas e/ou data de aniversário). Por favor, acesse: ${APP_URL}/?disp=${m.id} — leva menos de 1 minuto. Que Deus abençoe!`)}` : '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+      <div style="flex:1">
+        <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
+        <p style="font-size:11px;margin:2px 0 0">
+          <span style="color:${temDisp?'#1D9E75':'#A32D2D'}">${temDisp?'✓':'✗'} Disponibilidade</span> &nbsp;
+          <span style="color:${temNasc?'#1D9E75':'#A32D2D'}">${temNasc?'✓':'✗'} Aniversário</span>
+        </p>
+      </div>
+      ${(!temDisp||!temNasc)&&tel ? `<a href="${linkCobranca}" target="_blank" style="text-decoration:none;padding:6px 11px;border-radius:20px;background:#25D366;color:white;font-size:11px;font-weight:700;white-space:nowrap">📲 Cobrar</a>` : (temDisp&&temNasc?'<span style="font-size:11px;color:#1D9E75;font-weight:600">✓ OK</span>':'<span style="font-size:10px;color:#aaa">sem tel</span>')}
+    </div>`;
+  };
+
+  document.getElementById('rel-body').innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div style="flex:1;background:#e1f5ee;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:20px;font-weight:700;margin:0;color:#085041">${fezTudo.length}</p>
+        <p style="font-size:10px;color:#666;margin:0">Completo</p>
+      </div>
+      <div style="flex:1;background:#fcebeb;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:20px;font-weight:700;margin:0;color:#A32D2D">${naoFez.length}</p>
+        <p style="font-size:10px;color:#666;margin:0">Pendente</p>
+      </div>
+      <div style="flex:1;background:#f5f5f3;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:20px;font-weight:700;margin:0;color:#185FA5">${pct}%</p>
+        <p style="font-size:10px;color:#666;margin:0">Atualizados</p>
+      </div>
+    </div>
+    <p style="font-size:12px;font-weight:700;color:#A32D2D;margin:10px 0 4px">⏳ Pendentes (${naoFez.length}) — falta disponibilidade ou aniversário</p>
+    ${naoFez.length ? naoFez.map(linha).join('') : '<p style="font-size:12px;color:#1D9E75">✓ Todos atualizaram!</p>'}
+    <p style="font-size:12px;font-weight:700;color:#085041;margin:16px 0 4px">✅ Completos (${fezTudo.length})</p>
+    ${fezTudo.length ? fezTudo.map(linha).join('') : '<p style="font-size:12px;color:#888">Ninguém completou ainda.</p>'}
+  `;
+}
 
 async function relFrequencia(){
   const snap=await getDocs(collection(db,'presencas'));
@@ -2131,6 +2211,48 @@ window.solicitarDisp = function(id){
 };
 
 window.fecharModal=function(id){ document.getElementById(id).style.display='none'; };
+
+// Importa em massa as datas de nascimento da planilha, casando pelo nome (ignora acentos).
+window.importarAniversarios = async function(){
+  if(typeof ANIVERSARIOS_IMPORT==='undefined' || !ANIVERSARIOS_IMPORT.length){
+    toast('Lista de aniversários não encontrada.','err'); return;
+  }
+  const statusEl = document.getElementById('import-aniv-status');
+  if(statusEl){ statusEl.style.display='block'; statusEl.innerHTML='⏳ Importando, aguarde...'; }
+
+  // Index dos ministros por nome normalizado
+  const porNome = {};
+  ministros.forEach(m=>{ porNome[normalizarBusca(m.nome)] = m; });
+
+  let atualizados=0, naoEncontrados=[];
+  for(const [nome, ddmm] of ANIVERSARIOS_IMPORT){
+    const chave = normalizarBusca(nome);
+    let m = porNome[chave];
+    // tentativa secundária: casar pelos 2 primeiros nomes se não achar exato
+    if(!m){
+      const parte = normalizarBusca(nome).split(' ').slice(0,2).join(' ');
+      const cand = ministros.find(x=>normalizarBusca(x.nome).startsWith(parte));
+      if(cand) m=cand;
+    }
+    if(!m){ naoEncontrados.push(nome); continue; }
+    const [dia, mes] = ddmm.split('/');
+    if(!dia || !mes) continue;
+    const nascimento = `1900-${mes.padStart(2,'0')}-${dia.padStart(2,'0')}`;
+    if(m.nascimento === nascimento) { atualizados++; continue; } // já igual
+    try{
+      await updateDoc(doc(db,'ministros',m.id),{nascimento});
+      m.nascimento = nascimento;
+      atualizados++;
+    }catch(e){}
+  }
+
+  if(statusEl){
+    statusEl.innerHTML = `✅ <strong>${atualizados}</strong> nascimento(s) importado(s) com sucesso.` +
+      (naoEncontrados.length ? `<br><span style="color:#BA7517">⚠️ ${naoEncontrados.length} não casaram pelo nome:</span><br><span style="font-size:11px;color:#888">${naoEncontrados.slice(0,20).join(', ')}${naoEncontrados.length>20?'...':''}</span>` : '');
+  }
+  toast(`✓ ${atualizados} aniversários importados!`);
+  if(typeof renderInicio==='function') renderInicio();
+};
 
 // Gera um cartão de aniversário sereno/religioso (tons dourados) com o nome do ministro,
 // como imagem PNG para baixar e enviar no WhatsApp.
@@ -2917,6 +3039,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <div class="card">
     <p class="ct">📊 Relatórios</p>
     <select id="rel-tab" onchange="renderRelatorios()" style="margin-bottom:12px">
+      <option value="atualizacao">✅ Quem atualizou cadastro</option>
       <option value="missas">Presença — Missas</option>
       <option value="reunioes">Presença — Reuniões</option>
       <option value="adoracoes">Presença — Adorações</option>
@@ -2963,6 +3086,13 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
+
+  <div class="card" style="border:1.5px solid #E8C66B">
+    <p class="ct">🎂 Importar aniversários</p>
+    <p style="font-size:12px;color:#666;margin-bottom:10px;line-height:1.5">Preenche as datas de nascimento dos ministros automaticamente a partir da planilha oficial (144 ministros), casando pelo nome. Faça uma vez.</p>
+    <button class="btn-g" onclick="importarAniversarios()" style="margin:0;background:#BA7517">🎂 Importar datas de nascimento</button>
+    <div id="import-aniv-status" style="display:none;margin-top:10px;padding:10px;background:#fdf6e3;border-radius:8px;font-size:13px;color:#333;line-height:1.5"></div>
+  </div>
 
   <div class="card">
     <p class="ct">📖 Manual do S.O.G.I.</p>
