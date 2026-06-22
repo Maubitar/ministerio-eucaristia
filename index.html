@@ -28,6 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
+const APP_VERSAO = '3.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -165,10 +166,25 @@ window.addEventListener('load', async()=>{
     document.getElementById('loading').style.display='none';
     document.getElementById('app').style.display='block';
     renderInicio();
+    verificarVersao();
   } catch(e) {
     document.getElementById('loading-msg').textContent = 'Erro: '+e.message;
   }
 });
+
+// Detecta quando o app foi atualizado para uma nova versão e avisa.
+function verificarVersao(){
+  try{
+    const anterior = localStorage.getItem('sogi_versao');
+    if(anterior && anterior !== APP_VERSAO){
+      // mudou de versão = atualização publicada com sucesso
+      setTimeout(()=>{
+        toast(`✅ Atualizado com sucesso! Nova versão ${APP_VERSAO}`);
+      }, 1200);
+    }
+    localStorage.setItem('sogi_versao', APP_VERSAO);
+  }catch(e){ /* se localStorage indisponível, ignora silenciosamente */ }
+}
 
 function showSplash(){
   const s = document.getElementById('splash');
@@ -597,11 +613,24 @@ function toast(msg, tipo='ok'){
   setTimeout(()=>el.style.opacity='0', tipo==='ok'?3000:4500);
 }
 
+let _navHistorico = [];   // pilha de seções visitadas
+let _navAtual = 'inicio'; // seção atual
+let _navVoltando = false; // evita empilhar quando está voltando
+
 window.nav = function(id, btn){
+  // Empilha a seção atual no histórico (se não for uma ação de "voltar")
+  if(!_navVoltando && id !== _navAtual){
+    _navHistorico.push(_navAtual);
+    if(_navHistorico.length > 30) _navHistorico.shift();
+  }
+  _navAtual = id;
+
   document.querySelectorAll('.sec').forEach(s=>s.style.display='none');
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   document.getElementById('s-'+id).style.display='block';
   if(btn) btn.classList.add('active');
+  // Atualiza visibilidade dos botões "voltar" (some no início ou sem histórico)
+  atualizarBotaoVoltar();
   const fns = {
     ministros: ()=>renderMinistros(''),
     escala: ()=>renderEscala(),
@@ -612,6 +641,27 @@ window.nav = function(id, btn){
   };
   if(fns[id]) fns[id]();
 };
+
+// Volta para a seção anterior que o usuário estava
+window.voltar = function(){
+  if(!_navHistorico.length){ irPara('inicio'); return; }
+  const anterior = _navHistorico.pop();
+  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5};
+  const botoes = document.querySelectorAll('.nb');
+  const btn = botoes[mapa[anterior]] || null;
+  _navVoltando = true;
+  nav(anterior, btn);
+  _navVoltando = false;
+  window.scrollTo({top:0, behavior:'smooth'});
+};
+
+// Mostra/esconde os botões voltar conforme há histórico e não está no início
+function atualizarBotaoVoltar(){
+  const temHistorico = _navHistorico.length > 0;
+  document.querySelectorAll('.btn-voltar').forEach(b=>{
+    b.style.display = temHistorico ? 'inline-flex' : 'none';
+  });
+}
 
 // Navega para uma seção a partir de atalhos do dashboard, ativando o botão correto da barra inferior
 window.irPara = function(id){
@@ -3253,6 +3303,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sb-ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px}
 .sb-tx{font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.2}
 .sb-sub{font-size:10px;color:#999;line-height:1.2}
+.btn-voltar{display:none;align-items:center;gap:5px;background:white;border:1.5px solid #e8e8e8;border-radius:20px;padding:7px 14px 7px 11px;font-size:13px;font-weight:600;color:#085041;cursor:pointer;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);transition:transform .1s,background .15s}
+.btn-voltar:hover{background:#f5faf8}
+.btn-voltar:active{transform:scale(.96)}
 input,select{width:100%;padding:10px 12px;border:1.5px solid #e8e8e8;border-radius:9px;font-size:14px;font-family:inherit;background:white;margin-bottom:8px;transition:border-color .15s,box-shadow .15s}
 input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.12)}
 .btn-g{padding:11px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%;margin-top:4px;transition:transform .1s,filter .15s,box-shadow .15s;box-shadow:0 2px 6px rgba(29,158,117,.25)}
@@ -3399,6 +3452,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <!-- ESCALA -->
 <div id="s-escala" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card">
     <p class="ct">📅 Montar escala</p>
     <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
@@ -3491,6 +3545,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 </div>
 <!-- PRESENÇA -->
 <div id="s-presenca" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card" style="padding:0;overflow:hidden">
     <div style="background:linear-gradient(135deg,#085041 0%,#0a6b56 100%);padding:16px 14px;display:flex;align-items:center;gap:12px">
       <img id="logo-basilica-pres" alt="Basílica de Nazaré" style="width:52px;height:52px;border-radius:8px;background:white;padding:2px;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.25)">
@@ -3560,6 +3615,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <!-- RELATÓRIOS -->
 <div id="s-relatorios" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card">
     <p class="ct">📊 Relatórios</p>
     <select id="rel-tab" onchange="renderRelatorios()" style="margin-bottom:12px">
@@ -3581,6 +3637,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <!-- MINISTROS -->
 <div id="s-ministros" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card">
     <p class="ct">👥 Ministros <span id="min-sem-disp" style="font-size:11px;color:#BA7517;margin-left:6px"></span></p>
     <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()">
@@ -3590,6 +3647,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <!-- MAIS -->
 <div id="s-mais" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card" style="border:1.5px solid #e1f5ee;background:#f8fcfa">
     <p class="ct">🚀 Como atualizar o S.O.G.I.</p>
     <p style="font-size:12px;color:#666;line-height:1.7;margin:0">
