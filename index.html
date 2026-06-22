@@ -2551,19 +2551,23 @@ function renderMinistros(filtro){
   const lista=ministros.filter(m=>normalizarBusca(m.nome).includes(normalizarBusca(filtro)));
   const semDisp=lista.filter(m=>!(m.dispDom?.length||m.dispSem?.length)).length;
   document.getElementById('min-sem-disp').textContent=semDisp>0?`${semDisp} sem disponibilidade`:'';
-  document.getElementById('min-body').innerHTML=lista.slice(0,30).map(m=>{
+  const cabecalho = `<p style="font-size:11px;color:#888;padding:2px 0 8px">${lista.length} ministro(s)${filtro?` encontrado(s) para "${filtro}"`:''}</p>`;
+  document.getElementById('min-body').innerHTML= cabecalho + (lista.length ? lista.map(m=>{
     const semD=!(m.dispDom?.length||m.dispSem?.length);
     const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+    const avatar = m.foto
+      ? `<img src="${m.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+      : `<div style="width:34px;height:34px;border-radius:50%;background:${semD?'#f5f5f3':'#e1f5ee'};color:${semD?'#888':'#085041'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>`;
     return `<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #eee;gap:8px;cursor:pointer" onclick="abrirPerfil('${m.id}')">
-      <div style="width:34px;height:34px;border-radius:50%;background:${semD?'#f5f5f3':'#e1f5ee'};color:${semD?'#888':'#085041'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+      ${avatar}
       <div style="flex:1">
-        <p style="font-size:13px;font-weight:500;margin:0">${m.nome}</p>
+        <p style="font-size:13px;font-weight:500;margin:0">${m.nome}${m.plantao?' <span style="font-size:9px;color:#185FA5;font-weight:600">🔔</span>':''}</p>
         <p style="font-size:11px;color:#888;margin:0">${semD?'⚠️ Sem disponibilidade':[...(m.dispDom||[]),...(m.dispSem||[])].slice(0,3).join(' · ')}</p>
       </div>
       ${faltas>=3?`<span style="font-size:10px;padding:2px 6px;background:#fcebeb;color:#A32D2D;border-radius:20px">🟡</span>`:''}
       <span style="color:#ccc;font-size:18px">›</span>
     </div>`;
-  }).join('')+(lista.length>30?`<p style="font-size:11px;color:#888;text-align:center;padding:8px">Mostrando 30 de ${lista.length}</p>`:'');
+  }).join('') : '<p style="font-size:13px;color:#888;padding:12px 0">Nenhum ministro encontrado.</p>');
 }
 
 // Coordenação adiciona/troca a foto do ministro direto pelo perfil.
