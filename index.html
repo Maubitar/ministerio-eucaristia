@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.3';
+const APP_VERSAO = '3.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -293,14 +293,20 @@ async function modoIdentificacao(id){
       </div>
 
       <!-- Validade + QR + selo -->
-      <div style="padding:0 18px 16px;display:flex;gap:14px;align-items:center">
-        <div style="flex:1">
-          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Emissão</p>
-          <p style="font-size:12px;font-weight:600;color:#333;margin:1px 0 6px">${fmtData(emissao)}</p>
-          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Validade</p>
-          <p style="font-size:12px;font-weight:700;color:${vencida?'#A32D2D':'#1D9E75'};margin:1px 0 0">${fmtData(validade)} ${vencida?'⚠️ VENCIDA':'✓'}</p>
+      <div style="padding:0 18px 14px">
+        <div style="display:flex;gap:14px;align-items:center">
+          <div style="flex:1">
+            <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Emissão</p>
+            <p style="font-size:12px;font-weight:600;color:#333;margin:1px 0 6px">${fmtData(emissao)}</p>
+            <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Validade</p>
+            <p style="font-size:12px;font-weight:700;color:${vencida?'#A32D2D':'#1D9E75'};margin:1px 0 0">${fmtData(validade)} ${vencida?'⚠️ VENCIDA':'✓'}</p>
+          </div>
         </div>
-        <div id="ident-qr" style="flex-shrink:0;background:white;padding:4px;border-radius:8px;border:1px solid #eee"></div>
+        <!-- QR Code grande e centralizado (fácil de escanear no quiosque) -->
+        <div style="display:flex;flex-direction:column;align-items:center;margin-top:14px;padding:14px;background:white;border-radius:12px;border:1px solid #eee">
+          <div id="ident-qr" style="background:white;padding:6px;border-radius:8px"></div>
+          <p style="font-size:10px;color:#888;margin:8px 0 0;text-align:center">Apresente este QR Code à Coordenação<br>para registrar sua presença</p>
+        </div>
       </div>
 
       <!-- Assinatura do Diretor Espiritual -->
@@ -335,12 +341,13 @@ async function modoIdentificacao(id){
   </div>`;
 
   // Gera o QR Code (mesma identificação usada no scanner de presença)
+  // Preto puro e maior = muito mais fácil de escanear, inclusive no modo quiosque.
   try{
     const url = `${APP_URL}/?ministro=${id}`;
     new QRCode(document.getElementById('ident-qr'), {
-      text: url, width: 92, height: 92,
-      colorDark: '#085041', colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.H
+      text: url, width: 180, height: 180,
+      colorDark: '#000000', colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
     });
   }catch(e){}
 }
@@ -3343,10 +3350,26 @@ window.iniciarQuiosque = function(){
   tela.style.display='flex';
 
   const video = document.getElementById('q-video');
+  const statusEl = document.getElementById('q-status-cam');
+  if(statusEl) statusEl.textContent = 'Iniciando câmera...';
+
   navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
     .then(stream=>{
-      _qStream=stream; video.srcObject=stream; video.play();
-      _qInterval=setInterval(()=>qLerFrame(video),300);
+      _qStream=stream;
+      video.srcObject=stream;
+      video.setAttribute('playsinline','');
+      video.muted = true;
+      // Só começa a ler quando o vídeo tiver dimensões reais
+      video.onloadedmetadata = ()=>{
+        video.play().then(()=>{
+          if(statusEl) statusEl.textContent = '📷 Lendo... aproxime a carteirinha';
+          if(_qInterval) clearInterval(_qInterval);
+          _qInterval=setInterval(()=>qLerFrame(video),250);
+        }).catch(()=>{
+          if(statusEl) statusEl.textContent = 'Toque na tela para iniciar a câmera';
+          tela.onclick = ()=>{ video.play(); tela.onclick=null; if(_qInterval) clearInterval(_qInterval); _qInterval=setInterval(()=>qLerFrame(video),250); };
+        });
+      };
     })
     .catch(()=>{ toast('Câmera não disponível. Use HTTPS e permita o acesso.','err'); sairQuiosque(); });
 };
@@ -3354,21 +3377,27 @@ window.iniciarQuiosque = function(){
 function qLerFrame(video){
   if(_qPausado) return;
   if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  if(!video.videoWidth || !video.videoHeight) return; // metadados ainda não prontos
   const canvas=document.getElementById('q-canvas');
   const ctx=canvas.getContext('2d');
   canvas.width=video.videoWidth; canvas.height=video.videoHeight;
-  ctx.drawImage(video,0,0);
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
   try{
     const imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
     if(window.jsQR){
-      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
-      if(code && code.data.includes('ministro=')){
+      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'attemptBoth'});
+      if(code && code.data && code.data.includes('ministro=')){
         let id=null;
-        try{ id=new URL(code.data).searchParams.get('ministro'); }catch(e){ return; }
-        const m=ministros.find(x=>x.id===id);
+        try{ id=new URL(code.data).searchParams.get('ministro'); }catch(e){
+          // fallback: extrai o id manualmente se a URL não parsear
+          const mm = code.data.match(/ministro=([^&\s]+)/); if(mm) id=mm[1];
+        }
+        if(!id) return;
+        const m=ministros.find(x=>x.id===id) || (window.ministros||[]).find(x=>x.id===id);
         if(!m) return;
         if(_qLidos.has(id)){ qFeedback(m,true); return; }
         _qLidos.add(id);
+        if(!_qConfig.registros) _qConfig.registros={};
         _qConfig.registros[id]={status:'P',justificativa:''};
         qSalvarParcial();
         qFeedback(m,false);
@@ -4146,7 +4175,7 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
   </div>
   <div style="width:100%;text-align:center;padding:16px">
     <p style="color:white;font-size:22px;font-weight:700;margin:0">Aproxime sua carteirinha</p>
-    <p style="color:#888;font-size:13px;margin:6px 0 0">Mostre o QR Code da sua carteira digital</p>
+    <p id="q-status-cam" style="color:#1D9E75;font-size:13px;margin:6px 0 0">Iniciando câmera...</p>
     <button onclick="tentarSairQuiosque()" style="margin-top:14px;padding:8px 18px;border:1px solid #444;border-radius:20px;background:transparent;color:#777;font-size:12px;cursor:pointer">🔒 Sair do quiosque</button>
   </div>
 </div>
