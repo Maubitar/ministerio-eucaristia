@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.1';
+const APP_VERSAO = '3.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -3281,6 +3281,137 @@ window.verDisponiveisReforco = function(){
   document.getElementById('modal-vd').style.display='flex';
 };
 
+// ====================== MODO QUIOSQUE (TOTEM) ======================
+let _qStream=null, _qInterval=null, _qLidos=new Set(), _qPausado=false;
+let _qConfig=null; // {tipo, data, horario, senha, registros:{}}
+
+window.abrirQuiosqueCfg = function(){
+  const hoje = new Date().toISOString().slice(0,10);
+  const di = document.getElementById('q-data'); if(di && !di.value) di.value=hoje;
+  qAtualizarHorarios();
+  document.getElementById('modal-quiosque-cfg').style.display='flex';
+};
+
+window.qAtualizarHorarios = function(){
+  const tipo = document.getElementById('q-tipo').value;
+  const sel = document.getElementById('q-horario');
+  const wrap = document.getElementById('q-horario-wrap');
+  if(tipo==='reuniao' || tipo==='adoracao'){
+    wrap.style.display='none';
+    return;
+  }
+  wrap.style.display='block';
+  const horas = tipo==='dom' ? MISSAS_DOM : MISSAS_SEM;
+  sel.innerHTML = horas.map(h=>`<option value="${h}">${h}</option>`).join('');
+};
+
+window.iniciarQuiosque = function(){
+  const tipo = document.getElementById('q-tipo').value;
+  const data = document.getElementById('q-data').value;
+  const horario = (tipo==='reuniao'||tipo==='adoracao') ? '' : document.getElementById('q-horario').value;
+  const senha = document.getElementById('q-senha').value.trim();
+  if(!data){ toast('Escolha a data.','warn'); return; }
+  if(!senha){ toast('Crie uma senha para sair do quiosque.','warn'); return; }
+
+  _qConfig = { tipo, data, horario, senha, registros:{} };
+  _qLidos = new Set();
+  _qPausado = false;
+
+  const rotuloTipo = {dom:'Missa de Domingo', sem:'Missa de Semana', reuniao:'Reunião', adoracao:'Adoração'}[tipo];
+  const dataFmt = data.split('-').reverse().join('/');
+  document.getElementById('q-evento-label').textContent = `${rotuloTipo}${horario?' · '+horario:''} · ${dataFmt}`;
+  document.getElementById('q-contador-tela').textContent = '0 presença(s) registrada(s)';
+
+  document.getElementById('modal-quiosque-cfg').style.display='none';
+  const tela = document.getElementById('quiosque-tela');
+  tela.style.display='flex';
+
+  const video = document.getElementById('q-video');
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+    .then(stream=>{
+      _qStream=stream; video.srcObject=stream; video.play();
+      _qInterval=setInterval(()=>qLerFrame(video),300);
+    })
+    .catch(()=>{ toast('Câmera não disponível. Use HTTPS e permita o acesso.','err'); sairQuiosque(); });
+};
+
+function qLerFrame(video){
+  if(_qPausado) return;
+  if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  const canvas=document.getElementById('q-canvas');
+  const ctx=canvas.getContext('2d');
+  canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+  ctx.drawImage(video,0,0);
+  try{
+    const imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
+    if(window.jsQR){
+      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
+      if(code && code.data.includes('ministro=')){
+        let id=null;
+        try{ id=new URL(code.data).searchParams.get('ministro'); }catch(e){ return; }
+        const m=ministros.find(x=>x.id===id);
+        if(!m) return;
+        if(_qLidos.has(id)){ qFeedback(m,true); return; }
+        _qLidos.add(id);
+        _qConfig.registros[id]={status:'P',justificativa:''};
+        qSalvarParcial();
+        qFeedback(m,false);
+      }
+    }
+  }catch(e){}
+}
+
+function qFeedback(m, jaLido){
+  _qPausado=true;
+  const fb=document.getElementById('q-feedback');
+  const cor = jaLido ? '#BA7517' : '#1D9E75';
+  const fotoHtml = m.foto
+    ? `<img src="${m.foto}" style="width:160px;height:200px;object-fit:cover;border-radius:16px;border:4px solid white">`
+    : `<div style="width:160px;height:200px;border-radius:16px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:54px;font-weight:700;color:white;border:4px solid white">${iniciais(m.nome)}</div>`;
+  fb.style.background = jaLido ? 'rgba(186,117,23,.96)' : 'rgba(8,80,65,.96)';
+  fb.innerHTML = `
+    ${fotoHtml}
+    <p style="color:white;font-size:30px;font-weight:700;margin:0;text-align:center;padding:0 20px">${m.nome}</p>
+    <p style="color:white;font-size:20px;font-weight:600;margin:0">${jaLido?'⚠️ Já registrado':'✓ Presença confirmada'}</p>`;
+  fb.style.display='flex';
+  document.getElementById('q-contador-tela').textContent = `${_qLidos.size} presença(s) registrada(s)`;
+  setTimeout(()=>{ fb.style.display='none'; _qPausado=false; }, 2200);
+}
+
+// Salva incrementalmente no Firestore (cada leitura), para nada se perder
+async function qSalvarParcial(){
+  if(!_qConfig) return;
+  try{
+    let key, dados;
+    if(_qConfig.tipo==='reuniao' || _qConfig.tipo==='adoracao'){
+      key = `${_qConfig.tipo}_${_qConfig.data}`;
+      dados = { data:_qConfig.data, tipo:_qConfig.tipo, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
+    } else {
+      key = `${_qConfig.data}_${_qConfig.horario.replace(':','')}`;
+      dados = { data:_qConfig.data, horario:_qConfig.horario, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
+    }
+    await setDoc(doc(db,'presencas',key), dados, {merge:true});
+  }catch(e){ /* offline: mantém em memória, tenta de novo na próxima leitura */ }
+}
+
+window.tentarSairQuiosque = function(){
+  const s = prompt('Digite a senha para sair do quiosque:');
+  if(s===null) return;
+  if(_qConfig && s===_qConfig.senha){ sairQuiosque(); }
+  else { alert('Senha incorreta.'); }
+};
+
+function sairQuiosque(){
+  if(_qStream) _qStream.getTracks().forEach(t=>t.stop());
+  if(_qInterval) clearInterval(_qInterval);
+  _qStream=null; _qInterval=null;
+  const total = _qLidos.size;
+  _qLidos=new Set(); _qPausado=false;
+  document.getElementById('quiosque-tela').style.display='none';
+  _qConfig=null;
+  if(total>0) toast(`✓ Quiosque encerrado. ${total} presença(s) registrada(s).`);
+}
+
 </script>
 
 <style>
@@ -3606,7 +3737,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </p>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <p id="pres-count" style="font-size:11px;color:#1D9E75;margin:0"></p>
-        <button onclick="abrirScanner()" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:500">📷 Scanner QR</button>
+        <div style="display:flex;gap:6px">
+          <button onclick="abrirScanner()" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:500">📷 Scanner QR</button>
+          <button onclick="abrirQuiosqueCfg()" style="font-size:11px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
+        </div>
       </div>
       <div id="pres-body"></div>
       <div style="display:flex;gap:6px;margin-top:4px">
@@ -3945,5 +4079,59 @@ function tabPres(tipo,btn){
 
 setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500);
 </script>
+
+<!-- MODAL CONFIGURAÇÃO DO QUIOSQUE -->
+<div id="modal-quiosque-cfg" class="modal-bg" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-card" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">🖥️ Modo Quiosque (Totem)</p>
+      <button onclick="document.getElementById('modal-quiosque-cfg').style.display='none'" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin-bottom:14px">Deixe um tablet/celular fixo na entrada. Os ministros aproximam a carteirinha e a presença é registrada sozinha.</p>
+
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Tipo de evento</label>
+    <select id="q-tipo" onchange="qAtualizarHorarios()" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px">
+      <option value="dom">Missa — Domingo</option>
+      <option value="sem">Missa — Semana</option>
+      <option value="reuniao">Reunião</option>
+      <option value="adoracao">Adoração</option>
+    </select>
+
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Data</label>
+    <input type="date" id="q-data" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px">
+
+    <div id="q-horario-wrap">
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Horário</label>
+      <select id="q-horario" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:10px"></select>
+    </div>
+
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha para sair do quiosque</label>
+    <input type="password" id="q-senha" placeholder="Crie uma senha (ex: 1234)" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:16px">
+
+    <button onclick="iniciarQuiosque()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer">▶️ Ativar Quiosque</button>
+  </div>
+</div>
+
+<!-- TELA CHEIA DO QUIOSQUE -->
+<div id="quiosque-tela" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0a0a;flex-direction:column;align-items:center;justify-content:flex-start;overflow:hidden">
+  <div style="width:100%;text-align:center;padding:18px 16px 10px">
+    <p id="q-evento-label" style="color:#9cc9bb;font-size:14px;font-weight:600;margin:0"></p>
+    <p id="q-contador-tela" style="color:#1D9E75;font-size:13px;font-weight:700;margin:4px 0 0">0 presença(s) registrada(s)</p>
+  </div>
+  <div style="position:relative;flex:1;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden">
+    <video id="q-video" style="width:100%;height:100%;object-fit:cover" playsinline></video>
+    <canvas id="q-canvas" style="display:none"></canvas>
+    <!-- moldura de leitura -->
+    <div style="position:absolute;width:min(62vw,320px);height:min(62vw,320px);border:3px solid rgba(255,255,255,.5);border-radius:24px;box-shadow:0 0 0 9999px rgba(0,0,0,.45)"></div>
+    <!-- feedback grande -->
+    <div id="q-feedback" style="display:none;position:absolute;inset:0;background:rgba(8,80,65,.96);flex-direction:column;align-items:center;justify-content:center;gap:16px"></div>
+  </div>
+  <div style="width:100%;text-align:center;padding:16px">
+    <p style="color:white;font-size:22px;font-weight:700;margin:0">Aproxime sua carteirinha</p>
+    <p style="color:#888;font-size:13px;margin:6px 0 0">Mostre o QR Code da sua carteira digital</p>
+    <button onclick="tentarSairQuiosque()" style="margin-top:14px;padding:8px 18px;border:1px solid #444;border-radius:20px;background:transparent;color:#777;font-size:12px;cursor:pointer">🔒 Sair do quiosque</button>
+  </div>
+</div>
+
 </body>
 </html>
