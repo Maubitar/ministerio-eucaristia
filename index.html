@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.4';
+const APP_VERSAO = '3.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -3336,7 +3336,7 @@ window.iniciarQuiosque = function(){
   if(!data){ toast('Escolha a data.','warn'); return; }
   if(!senha){ toast('Crie uma senha para sair do quiosque.','warn'); return; }
 
-  _qConfig = { tipo, data, horario, senha, registros:{} };
+  _qConfig = { tipo, data, horario, senha, registros:{}, camera:'user' };
   _qLidos = new Set();
   _qPausado = false;
 
@@ -3346,20 +3346,28 @@ window.iniciarQuiosque = function(){
   document.getElementById('q-contador-tela').textContent = '0 presença(s) registrada(s)';
 
   document.getElementById('modal-quiosque-cfg').style.display='none';
-  const tela = document.getElementById('quiosque-tela');
-  tela.style.display='flex';
+  document.getElementById('quiosque-tela').style.display='flex';
 
+  // Câmera FRONTAL (interna/selfie): o ministro se vê na tela e posiciona a carteirinha.
+  iniciarCameraQuiosque(_qConfig.camera);
+};
+
+// Inicia (ou reinicia) a câmera do quiosque com o facingMode dado
+function iniciarCameraQuiosque(facing){
   const video = document.getElementById('q-video');
   const statusEl = document.getElementById('q-status-cam');
   if(statusEl) statusEl.textContent = 'Iniciando câmera...';
+  // Para stream anterior, se houver
+  if(_qStream){ _qStream.getTracks().forEach(t=>t.stop()); _qStream=null; }
+  if(_qInterval){ clearInterval(_qInterval); _qInterval=null; }
 
-  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+  navigator.mediaDevices.getUserMedia({video:{facingMode:facing}})
     .then(stream=>{
       _qStream=stream;
       video.srcObject=stream;
+      video.style.transform = (facing==='user') ? 'scaleX(-1)' : 'none'; // espelha só a frontal
       video.setAttribute('playsinline','');
       video.muted = true;
-      // Só começa a ler quando o vídeo tiver dimensões reais
       video.onloadedmetadata = ()=>{
         video.play().then(()=>{
           if(statusEl) statusEl.textContent = '📷 Lendo... aproxime a carteirinha';
@@ -3367,11 +3375,19 @@ window.iniciarQuiosque = function(){
           _qInterval=setInterval(()=>qLerFrame(video),250);
         }).catch(()=>{
           if(statusEl) statusEl.textContent = 'Toque na tela para iniciar a câmera';
+          const tela=document.getElementById('quiosque-tela');
           tela.onclick = ()=>{ video.play(); tela.onclick=null; if(_qInterval) clearInterval(_qInterval); _qInterval=setInterval(()=>qLerFrame(video),250); };
         });
       };
     })
     .catch(()=>{ toast('Câmera não disponível. Use HTTPS e permita o acesso.','err'); sairQuiosque(); });
+}
+
+window.trocarCameraQuiosque = function(){
+  if(!_qConfig) return;
+  _qConfig.camera = (_qConfig.camera==='user') ? 'environment' : 'user';
+  toast(_qConfig.camera==='user' ? 'Câmera frontal (interna)' : 'Câmera traseira (externa)');
+  iniciarCameraQuiosque(_qConfig.camera);
 };
 
 function qLerFrame(video){
@@ -4176,7 +4192,10 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
   <div style="width:100%;text-align:center;padding:16px">
     <p style="color:white;font-size:22px;font-weight:700;margin:0">Aproxime sua carteirinha</p>
     <p id="q-status-cam" style="color:#1D9E75;font-size:13px;margin:6px 0 0">Iniciando câmera...</p>
-    <button onclick="tentarSairQuiosque()" style="margin-top:14px;padding:8px 18px;border:1px solid #444;border-radius:20px;background:transparent;color:#777;font-size:12px;cursor:pointer">🔒 Sair do quiosque</button>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
+      <button onclick="trocarCameraQuiosque()" style="padding:8px 18px;border:1px solid #444;border-radius:20px;background:transparent;color:#999;font-size:12px;cursor:pointer">🔄 Trocar câmera</button>
+      <button onclick="tentarSairQuiosque()" style="padding:8px 18px;border:1px solid #444;border-radius:20px;background:transparent;color:#777;font-size:12px;cursor:pointer">🔒 Sair do quiosque</button>
+    </div>
   </div>
 </div>
 
