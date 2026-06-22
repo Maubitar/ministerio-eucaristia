@@ -554,9 +554,24 @@ function escutarMinistrosTempoReal(){
   if(_unsubMinistros) return; // já escutando
   try{
     _unsubMinistros = onSnapshot(collection(db,'ministros'), snap=>{
-      ministros = snap.docs.map(d=>({id:d.id,...d.data()}))
-        .filter(m=>m.ativo!==false)
-        .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+      // OTIMIZAÇÃO: em vez de reconstruir os 177 ministros (com fotos) a cada mudança,
+      // aplica apenas o que mudou (added/modified/removed). Muito mais leve.
+      let mudou = false;
+      snap.docChanges().forEach(ch=>{
+        const dados = {id:ch.doc.id, ...ch.doc.data()};
+        const idx = ministros.findIndex(m=>m.id===ch.doc.id);
+        if(ch.type==='removed' || dados.ativo===false){
+          if(idx>=0){ ministros.splice(idx,1); mudou=true; }
+        } else if(ch.type==='added'){
+          if(idx<0){ ministros.push(dados); mudou=true; }
+          else { ministros[idx]=dados; mudou=true; }
+        } else if(ch.type==='modified'){
+          if(idx>=0){ ministros[idx]=dados; mudou=true; }
+          else { ministros.push(dados); mudou=true; }
+        }
+      });
+      if(!mudou) return;
+      ministros.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
       window._ministros = ministros;
       const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.length;
       const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.length;
@@ -742,7 +757,15 @@ window.comprimirFoto = function(file, maxW=260, maxH=340, qualidade=0.72){
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, sx, sy, sw, sh, 0, 0, maxW, maxH);
         try{
-          const dataUrl = canvas.toDataURL('image/jpeg', qualidade);
+          // Comprime; se ficar grande demais, reduz a qualidade progressivamente (teto ~120KB)
+          let q = qualidade;
+          let dataUrl = canvas.toDataURL('image/jpeg', q);
+          let tentativas = 0;
+          while(dataUrl.length > 160000 && q > 0.4 && tentativas < 4){
+            q -= 0.12;
+            dataUrl = canvas.toDataURL('image/jpeg', q);
+            tentativas++;
+          }
           resolve(dataUrl);
         }catch(err){ reject(err); }
       };
@@ -2869,134 +2892,6 @@ window.gerarCartaoAniversario = async function(id){
   }
 };
 
-let updateFileContent = null;
-const GH_TOKEN = 'COLE_SEU_TOKEN_NOVO_AQUI';
-const GH_API_URL = 'https://api.github.com/repos/Maubitar/ministerio-eucaristia/contents/index.html';
-
-const CORS_PROXIES = [
-  function(url){ return 'https://corsproxy.io/?' + encodeURIComponent(url); },
-  function(url){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); }
-];
-
-window.handleUpdateDrop = function(e){
-  e.preventDefault();
-  document.getElementById('drop-update').style.borderColor='#ddd';
-  document.getElementById('drop-update').style.background='white';
-  handleUpdateFile(e.dataTransfer.files[0]);
-};
-
-window.handleUpdateFile = function(file){
-  if(!file || !file.name.endsWith('.html')){ toast('Selecione um arquivo .html','err'); return; }
-  const reader = new FileReader();
-  reader.onload = e => {
-    updateFileContent = e.target.result;
-    document.getElementById('update-info').style.display='block';
-    document.getElementById('update-info').textContent = '✓ ' + file.name + ' (' + (file.size/1024).toFixed(1) + ' KB) — pronto para publicar';
-    const btn = document.getElementById('btn-update');
-    btn.disabled = false; btn.style.opacity='1';
-  };
-  reader.readAsText(file);
-};
-
-window.publicarUpdate = async function(){
-  const btn = document.getElementById('btn-update');
-  const status = document.getElementById('update-status');
-  btn.disabled=true; btn.textContent='⏳ Publicando...';
-  status.style.display='block'; status.style.background='#e6f1fb'; status.style.color='#185FA5';
-  status.textContent='Conectando ao GitHub...';
-
-  if(!updateFileContent){
-    toast('Selecione o arquivo primeiro.','err');
-    btn.disabled=false; btn.textContent='🚀 Publicar atualização'; btn.style.opacity='1';
-    return;
-  }
-
-  let sha = null;
-  let proxyIdx = -1;
-
-  for(let i=0; i<CORS_PROXIES.length; i++){
-    try{
-      status.textContent = 'Conectando... (tentativa ' + (i+1) + '/2)';
-      const r = await fetch(CORS_PROXIES[i](GH_API_URL), {
-        headers:{
-          'Authorization':'token '+GH_TOKEN,
-          'User-Agent':'SOGI-App',
-          'Accept':'application/vnd.github.v3+json'
-        }
-      });
-      if(!r.ok) continue;
-      const d = await r.json();
-      if(d.sha){ sha = d.sha; proxyIdx = i; break; }
-    }catch(e){}
-  }
-
-  if(!sha){
-    try{
-      status.textContent = 'Tentando conexão direta...';
-      const r = await fetch(GH_API_URL, {
-        headers:{'Authorization':'token '+GH_TOKEN,'User-Agent':'SOGI-App'}
-      });
-      if(r.ok){
-        const d = await r.json();
-        if(d.sha){ sha = d.sha; proxyIdx = -2; }
-      }
-    }catch(e){}
-  }
-
-  if(!sha){
-    status.style.background='#fde8e8'; status.style.color='#A32D2D';
-    status.innerHTML='❌ Não foi possível conectar ao GitHub.<br><small>Verifique sua conexão. Se persistir, use o método manual.</small>';
-    btn.disabled=false; btn.textContent='🚀 Publicar atualização'; btn.style.opacity='1';
-    return;
-  }
-
-  try{
-    status.textContent='Enviando arquivo atualizado...';
-    const encoded = btoa(unescape(encodeURIComponent(updateFileContent)));
-    const body = JSON.stringify({
-      message:'SOGI update — ' + new Date().toLocaleString('pt-BR'),
-      content: encoded,
-      sha: sha
-    });
-
-    const opts = {
-      method:'PUT',
-      headers:{
-        'Authorization':'token '+GH_TOKEN,
-        'User-Agent':'SOGI-App',
-        'Content-Type':'application/json',
-        'Accept':'application/vnd.github.v3+json'
-      },
-      body: body
-    };
-
-    let r2;
-    if(proxyIdx >= 0){
-      r2 = await fetch(CORS_PROXIES[proxyIdx](GH_API_URL), opts);
-    } else {
-      r2 = await fetch(GH_API_URL, opts);
-    }
-
-    if(r2.ok){
-      status.style.background='#e1f5ee'; status.style.color='#085041';
-      status.innerHTML='✅ Publicado com sucesso!<br><small>O app estará atualizado em ~2 minutos. 🚀</small>';
-      btn.textContent='✅ Publicado!';
-      btn.style.background='#1D9E75';
-      toast('App publicado com sucesso! 🚀');
-      updateFileContent = null;
-      document.getElementById('update-info').textContent='';
-      document.getElementById('update-info').style.display='none';
-    } else {
-      let msg = 'Erro HTTP '+r2.status;
-      try{ const errData = await r2.json(); if(errData.message) msg = errData.message; }catch(e){}
-      throw new Error(msg);
-    }
-  }catch(e){
-    status.style.background='#fde8e8'; status.style.color='#A32D2D';
-    status.innerHTML='❌ Erro ao publicar: '+e.message+'<br><small>Use o método manual: GitHub → index.html → lápis → colar.</small>';
-    btn.disabled=false; btn.textContent='🚀 Publicar atualização'; btn.style.opacity='1';
-  }
-};
 
 let qrMinistroAtual = null;
 window.verQRCode = function(id){
@@ -3691,24 +3586,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <!-- MAIS -->
 <div id="s-mais" class="sec">
-  <div class="card" style="border:2px solid #085041">
-    <p class="ct">🚀 Atualizar S.O.G.I.</p>
-    <p style="font-size:12px;color:#666;margin-bottom:10px">Quando o Claude enviar um novo index.html, baixe e publique aqui em 1 clique.</p>
-    <div id="drop-update"
-      onclick="document.getElementById('file-update').click()"
-      ondragover="event.preventDefault();this.style.borderColor='#085041';this.style.background='#e1f5ee'"
-      ondragleave="this.style.borderColor='#ddd';this.style.background='white'"
-      ondrop="handleUpdateDrop(event)"
-      style="border:2px dashed #ddd;border-radius:10px;padding:16px;text-align:center;cursor:pointer;margin-bottom:10px">
-      <p style="font-size:13px;color:#555;margin:0">📁 Clique ou arraste o <strong>index.html</strong> aqui</p>
-    </div>
-    <input type="file" id="file-update" accept=".html" onchange="handleUpdateFile(this.files[0])" style="display:none">
-    <div id="update-info" style="display:none;padding:8px;background:#f5f5f3;border-radius:8px;font-size:12px;color:#555;margin-bottom:10px"></div>
-    <button id="btn-update" onclick="publicarUpdate()" disabled
-      style="width:100%;padding:12px;border:none;border-radius:8px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;opacity:.4">
-      🚀 Publicar atualização
-    </button>
-    <div id="update-status" style="display:none;margin-top:8px;padding:10px;border-radius:8px;font-size:12px;text-align:center"></div>
+  <div class="card" style="border:1.5px solid #e1f5ee;background:#f8fcfa">
+    <p class="ct">🚀 Como atualizar o S.O.G.I.</p>
+    <p style="font-size:12px;color:#666;line-height:1.7;margin:0">
+      Quando o Claude enviar um novo <strong>index.html</strong>:<br>
+      <strong>1.</strong> Baixe o arquivo (clique no bloco e use o botão de baixar ⬇️).<br>
+      <strong>2.</strong> No GitHub do projeto: <strong>Add file → Upload files</strong>.<br>
+      <strong>3.</strong> Arraste o <strong>index.html</strong> e clique em <strong>Commit changes</strong>.<br>
+      <strong>4.</strong> No app, atualize com <strong>Ctrl + Shift + R</strong>.
+    </p>
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
@@ -3723,25 +3609,26 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <div class="card">
     <p class="ct">📖 Manual do S.O.G.I.</p>
     <p style="font-size:12px;color:#666;line-height:1.7;margin-bottom:10px">
-      <strong>Escala:</strong> escolha mês/ano, defina 4 ou 5 semanas, monte dominical (vale o mês todo) e semanal (por semana). O autocomplete só mostra quem está disponível no horário.<br><br>
-      <strong>Presença:</strong> escolha a data e o horário — a lista é preenchida automaticamente com quem está escalado (com o responsável destacado no topo) e cada ministro tem seu QR Code ao lado do nome. Marque P (presente), F (falta) ou S (substituído).<br><br>
+      <strong>Escala:</strong> escolha mês/ano, defina 4 ou 5 semanas, monte dominical (vale o mês todo) e semanal (por semana). A busca mostra quem está disponível no horário e os ministros de plantão 🔔.<br><br>
+      <strong>Presença:</strong> escolha a data e o horário — a lista vem da Escala (responsável no topo). Marque P (presente), F (falta) ou S (substituído), ou use o Scanner de QR Code.<br><br>
       <strong>Reunião/Adoração:</strong> faltas sem justificativa contam para o cartão amarelo (3 faltas = alerta).<br><br>
-      <strong>Ministros:</strong> toque no nome para ver perfil, editar disponibilidade, pedir disponibilidade por WhatsApp ou gerar QR Code individual.<br><br>
-      <strong>Publicador:</strong> quando o Claude enviar um novo index.html, arraste aqui e clique em Publicar — atualiza o app em ~2 min.
+      <strong>Ministros:</strong> toque no nome para ver perfil, foto, carteirinha digital, editar dados, pedir cadastro por WhatsApp.<br><br>
+      <strong>Carteirinha:</strong> cada ministro tem carteira digital com foto, validade de 1 ano e QR Code — para presença e identificação.<br><br>
+      <strong>Importar aniversários:</strong> preenche as datas de nascimento dos ministros automaticamente.
     </p>
   </div>
 
   <div class="card">
-    <p class="ct">ℹ️ Sistema v2.1</p>
+    <p class="ct">ℹ️ Sistema S.O.G.I. — Coordenação MESCE</p>
     <p style="font-size:12px;color:#888;line-height:1.8">
-      Ministério da Eucaristia — Basílica de Nazaré<br>
-      Firebase: ministerio-eucaristia-nazare<br>
-      Lógica: disponibilidade por horário ✓<br>
-      Justificativa de faltas ✓<br>
+      Basílica Santuário de Nossa Senhora de Nazaré<br>
+      Disponibilidade por horário · Plantão dinâmico ✓<br>
+      Carteirinha digital com foto ✓<br>
+      Scanner de presença contínuo ✓<br>
+      Governança da escala (exceção + log) ✓<br>
+      Memória do responsável ✓<br>
       Cartão amarelo automático ✓<br>
-      QR Code individual ✓<br>
-      Scanner de presença ✓<br>
-      <span style="color:#1D9E75">● Online e sincronizado</span>
+      <span style="color:#1D9E75">● Online e sincronizado em tempo real</span>
     </p>
   </div>
 </div>
