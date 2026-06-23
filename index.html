@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.5';
+const APP_VERSAO = '3.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -163,14 +163,101 @@ window.addEventListener('load', async()=>{
     await carregarMinistros();
     escutarMinistrosTempoReal();
     setTimeout(()=>{ if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
+    await carregarConfigAcesso();
     document.getElementById('loading').style.display='none';
-    document.getElementById('app').style.display='block';
-    renderInicio();
-    verificarVersao();
+    // Mostra a tela de login (o app só abre após autenticar)
+    mostrarLogin();
   } catch(e) {
     document.getElementById('loading-msg').textContent = 'Erro: '+e.message;
   }
 });
+
+// ====================== LOGIN / ACESSO ======================
+let _configAcesso = null; // {usuario, senhaHash}
+
+// Hash simples (não é criptografia forte, mas evita senha em texto puro)
+function hashSenha(txt){
+  let h = 5381;
+  for(let i=0;i<txt.length;i++){ h = ((h<<5)+h) + txt.charCodeAt(i); h = h & 0xffffffff; }
+  return 'h'+(h>>>0).toString(16);
+}
+
+async function carregarConfigAcesso(){
+  try{
+    const d = await getDoc(doc(db,'config','acesso'));
+    if(d.exists()){ _configAcesso = d.data(); }
+    else {
+      // Primeiro acesso: cria admin/admin padrão
+      _configAcesso = { usuario:'admin', senhaHash:hashSenha('admin'), trocarSenha:true };
+      await setDoc(doc(db,'config','acesso'), _configAcesso);
+    }
+  }catch(e){
+    // Se falhar, usa admin/admin em memória para não travar o acesso
+    _configAcesso = { usuario:'admin', senhaHash:hashSenha('admin'), trocarSenha:true };
+  }
+}
+
+function mostrarLogin(){
+  ['logo-basilica-login','logo-mesce-login'].forEach((id,i)=>{
+    const el=document.getElementById(id); if(el) el.src = i===0?LOGO_BASILICA:LOGO_MESCE;
+  });
+  const dica = document.getElementById('login-dica');
+  if(dica && _configAcesso && _configAcesso.trocarSenha){
+    dica.innerHTML = '⚠️ Primeiro acesso: use <strong>admin</strong> / <strong>admin</strong><br>e troque a senha em Configurações.';
+  }
+  document.getElementById('tela-login').style.display='flex';
+  setTimeout(()=>{ const u=document.getElementById('login-user'); if(u) u.focus(); },200);
+}
+
+window.fazerLogin = function(){
+  const u = (document.getElementById('login-user').value||'').trim();
+  const p = document.getElementById('login-pass').value||'';
+  const erro = document.getElementById('login-erro');
+  if(!_configAcesso){ return; }
+  const okUser = u.toLowerCase() === (_configAcesso.usuario||'admin').toLowerCase();
+  const okPass = hashSenha(p) === _configAcesso.senhaHash;
+  if(okUser && okPass){
+    if(erro) erro.style.display='none';
+    document.getElementById('login-pass').value='';
+    document.getElementById('tela-login').style.display='none';
+    document.getElementById('app').style.display='block';
+    renderInicio();
+    verificarVersao();
+    if(_configAcesso.trocarSenha){
+      setTimeout(()=>toast('🔒 Recomendado: troque a senha padrão em "Mais → Configurações"','warn'), 1500);
+    }
+  } else {
+    if(erro) erro.style.display='block';
+    document.getElementById('login-pass').value='';
+  }
+};
+
+window.fazerLogout = function(){
+  if(confirm('Deseja sair? Será necessário entrar com usuário e senha novamente.')){
+    location.reload();
+  }
+};
+
+// Salva novo usuário/senha (aba Configurações)
+window.salvarAcesso = async function(){
+  const u = (document.getElementById('cfg-user').value||'').trim();
+  const p1 = document.getElementById('cfg-pass1').value||'';
+  const p2 = document.getElementById('cfg-pass2').value||'';
+  const atual = document.getElementById('cfg-pass-atual').value||'';
+  if(!u){ toast('Informe o usuário.','warn'); return; }
+  // Confere senha atual
+  if(hashSenha(atual) !== _configAcesso.senhaHash){ toast('Senha atual incorreta.','err'); return; }
+  if(p1.length < 4){ toast('A nova senha precisa ter ao menos 4 caracteres.','warn'); return; }
+  if(p1 !== p2){ toast('A confirmação de senha não confere.','warn'); return; }
+  try{
+    _configAcesso = { usuario:u, senhaHash:hashSenha(p1), trocarSenha:false };
+    await setDoc(doc(db,'config','acesso'), _configAcesso);
+    document.getElementById('cfg-pass-atual').value='';
+    document.getElementById('cfg-pass1').value='';
+    document.getElementById('cfg-pass2').value='';
+    toast('✓ Usuário e senha atualizados com sucesso!');
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
 
 // Detecta quando o app foi atualizado para uma nova versão e avisa de forma visível.
 function verificarVersao(){
@@ -661,6 +748,7 @@ window.nav = function(id, btn){
     reforco: ()=>renderReforco(),
     relatorios: ()=>renderRelatorios(),
     inicio: ()=>renderInicio(),
+    mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _configAcesso) cu.value=_configAcesso.usuario||''; },
   };
   if(fns[id]) fns[id]();
 };
@@ -3574,6 +3662,28 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <p style="font-size:16px;font-weight:700;color:#085041">Ministério da Eucaristia</p>
   <p id="loading-msg" style="font-size:12px;color:#888">Conectando...</p>
 </div>
+
+<!-- TELA DE LOGIN -->
+<div id="tela-login" style="display:none;position:fixed;inset:0;z-index:9000;background:linear-gradient(160deg,#085041 0%,#0a3d33 100%);flex-direction:column;align-items:center;justify-content:center;padding:24px">
+  <div style="display:flex;gap:14px;align-items:center;margin-bottom:18px">
+    <img id="logo-basilica-login" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.4)">
+    <img id="logo-mesce-login" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.4)">
+  </div>
+  <p style="color:white;font-size:20px;font-weight:700;text-align:center;margin:0">Coordenação MESCE</p>
+  <p style="color:rgba(255,255,255,.6);font-size:12px;text-align:center;margin:4px 0 24px">Basílica Santuário de Nossa Senhora de Nazaré</p>
+
+  <div style="background:white;border-radius:18px;padding:24px 20px;width:100%;max-width:340px;box-shadow:0 8px 30px rgba(0,0,0,.25)">
+    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 16px;text-align:center">🔒 Acesso à Coordenação</p>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Usuário</label>
+    <input type="text" id="login-user" autocomplete="username" placeholder="Seu usuário" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha</label>
+    <input type="password" id="login-pass" autocomplete="current-password" placeholder="Sua senha" onkeydown="if(event.key==='Enter')fazerLogin()" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:8px;box-sizing:border-box">
+    <p id="login-erro" style="font-size:12px;color:#A32D2D;margin:0 0 10px;display:none">Usuário ou senha incorretos.</p>
+    <button onclick="fazerLogin()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px">Entrar</button>
+    <p id="login-dica" style="font-size:10px;color:#aaa;text-align:center;margin:12px 0 0;line-height:1.5"></p>
+  </div>
+  <p style="color:rgba(255,255,255,.4);font-size:10px;margin-top:20px">Sistema S.O.G.I. · Acesso restrito</p>
+</div>
 <div id="app">
 <div class="header">
   <div style="display:flex;align-items:center;gap:10px">
@@ -3877,6 +3987,20 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <!-- MAIS -->
 <div id="s-mais" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #e1f5ee">
+    <p class="ct">🔐 Configurações de Acesso</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Altere o usuário e a senha de acesso à coordenação. Para confirmar, digite a senha atual.</p>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha atual</label>
+    <input type="password" id="cfg-pass-atual" placeholder="Digite a senha atual" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Novo usuário</label>
+    <input type="text" id="cfg-user" placeholder="Novo nome de usuário" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Nova senha</label>
+    <input type="password" id="cfg-pass1" placeholder="Mínimo 4 caracteres" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Confirmar nova senha</label>
+    <input type="password" id="cfg-pass2" placeholder="Repita a nova senha" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:14px;box-sizing:border-box">
+    <button onclick="salvarAcesso()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar usuário e senha</button>
+    <button onclick="fazerLogout()" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px">🚪 Sair (bloquear acesso)</button>
+  </div>
   <div class="card" style="border:1.5px solid #e1f5ee;background:#f8fcfa">
     <p class="ct">🚀 Como atualizar o S.O.G.I.</p>
     <p style="font-size:12px;color:#666;line-height:1.7;margin:0">
