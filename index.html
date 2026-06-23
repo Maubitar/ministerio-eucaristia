@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.6';
+const APP_VERSAO = '3.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -491,7 +491,7 @@ async function modoDisponibilidade(id){
         </div>
         <input type="file" id="f-foto-input" accept="image/*" style="display:none" onchange="processarFotoForm(this)">
         <button type="button" onclick="document.getElementById('f-foto-input').click()" style="padding:8px 16px;border:1.5px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:12px;font-weight:600;cursor:pointer">📷 ${m.foto?'Trocar foto':'Adicionar foto'}</button>
-        <p style="font-size:10px;color:#aaa;margin-top:5px;text-align:center">Foto de rosto para sua carteirinha</p>
+        <p style="font-size:10px;color:#A32D2D;margin-top:5px;text-align:center;font-weight:600">📷 Foto obrigatória para a carteirinha</p>
       </div>
 
       <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Nome completo</label>
@@ -614,6 +614,16 @@ window.salvarFormDisp = async function(id){
   const g = k => document.getElementById(k);
   const nome = g('f-nome')?.value.trim();
   if(!nome){ msg.textContent='⚠️ Informe seu nome completo.'; msg.style.color='#BA7517'; window.scrollTo({top:0,behavior:'smooth'}); return; }
+  // FOTO OBRIGATÓRIA (necessária para a carteirinha de identificação)
+  if(!window._fotoFormAtual){
+    msg.innerHTML='📷 <strong>Falta a sua foto!</strong> A foto é obrigatória para gerar sua carteirinha de identificação. Toque em "Adicionar foto" no topo.';
+    msg.style.color='#A32D2D';
+    window.scrollTo({top:0,behavior:'smooth'});
+    // destaca o botão de foto
+    const fb=document.getElementById('foto-preview');
+    if(fb){ fb.style.border='2px solid #A32D2D'; setTimeout(()=>{ fb.style.border='2px solid #e1f5ee'; },2500); }
+    return;
+  }
   if(formDom.size+formSem.size < 2){
     msg.textContent='⚠️ Selecione pelo menos 2 horários de disponibilidade.';
     msg.style.color='#BA7517';
@@ -2951,7 +2961,7 @@ window.solicitarDisp = function(id){
   const m = ministros.find(x=>x.id===id);
   if(!m) return;
   const link = `${APP_URL}/?disp=${id}`;
-  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é da *Coordenação MESCE* da Basílica de Nazaré.\n\nPor favor, toque no link abaixo para confirmar e completar seu *cadastro na MESCE* (dados, disponibilidade de missas e aniversário):\n\n${link}\n\nLeva poucos minutos. Que Deus abençoe! 🕊️`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é da *Coordenação MESCE* da Basílica de Nazaré.\n\nPor favor, toque no link abaixo para confirmar e completar seu *cadastro na MESCE* (dados, disponibilidade de missas, aniversário e *foto* — importante para a carteirinha de identificação):\n\n${link}\n\nLeva poucos minutos. Que Deus abençoe! 🕊️`;
   const tel = formatarTelBR(m.tel);
   if(!tel){
     toast('⚠️ Telefone do ministro inválido ou sem DDD. Corrija em "Editar dados".','warn');
