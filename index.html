@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.1';
+const APP_VERSAO = '4.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -3137,68 +3137,92 @@ window.gerarCartaoAniversario = async function(id){
   const m = ministros.find(x=>x.id===id);
   if(!m) return;
   const primeiro = primeiroNomes(m.nome);
+  const primeiroNome = m.nome.split(' ')[0];
+  // Data do aniversário (dia/mês)
+  let dataAniv = '';
+  if(m.nascimento){
+    const p = m.nascimento.split('-');
+    if(p.length>=3) dataAniv = `${p[2]}/${p[1]}`;
+  }
   toast('Gerando cartão...','ok');
 
-  const BASE_W = 900, BASE_H = 1100;
+  const BASE_W = 1080, BASE_H = 1080;
   const wrap = document.createElement('div');
-  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;height:${BASE_H}px;overflow:hidden;font-family:Georgia,'Times New Roman',serif`;
+  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;height:${BASE_H}px;overflow:hidden;font-family:Arial,Helvetica,sans-serif`;
+
+  const fotoHtml = m.foto
+    ? `<img src="${m.foto}" crossorigin="anonymous" style="width:100%;height:100%;object-fit:cover">`
+    : `<div style="width:100%;height:100%;background:#cfe3e8;display:flex;align-items:center;justify-content:center;font-size:120px;color:#2a8a9e;font-weight:bold">${iniciais(m.nome)}</div>`;
+
+  const logoBas = `${APP_URL}/${LOGO_BASILICA}`;
+  const logoMes = `${APP_URL}/${LOGO_MESCE}`;
+
   wrap.innerHTML = `
-    <div style="width:100%;height:100%;position:relative;
-      background:radial-gradient(circle at 50% 28%, #fff7e0 0%, #f7e6b8 38%, #e9cf8a 70%, #d4b56a 100%);">
-      <!-- brilho/raios suaves -->
-      <div style="position:absolute;inset:0;background:
-        radial-gradient(circle at 50% 26%, rgba(255,255,255,.85) 0%, rgba(255,255,255,0) 26%);"></div>
-      <div style="position:absolute;top:0;left:0;right:0;bottom:0;border:18px solid transparent;
-        border-image:linear-gradient(135deg,#caa64e,#f3e2a8,#caa64e) 1;"></div>
+    <div style="width:100%;height:100%;position:relative;background:linear-gradient(135deg,#2a8fa8 0%,#1f7d96 55%,#176b82 100%);overflow:hidden">
 
-      <!-- conteúdo -->
-      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:70px 60px;text-align:center">
-        <div style="font-size:74px;margin-bottom:6px">✝️</div>
-        <p style="font-size:26px;letter-spacing:3px;color:#8a6a1e;margin:0 0 4px;text-transform:uppercase;font-weight:bold">Feliz Aniversário</p>
-        <div style="width:160px;height:2px;background:linear-gradient(90deg,transparent,#b8923c,transparent);margin:10px 0 26px"></div>
+      <!-- balões decorativos (canto superior esquerdo) -->
+      <div style="position:absolute;top:-30px;left:-20px;font-size:130px;opacity:.55;transform:rotate(-15deg)">🎈</div>
+      <div style="position:absolute;top:60px;left:90px;font-size:90px;opacity:.45">🎈</div>
+      <!-- balões canto inferior direito -->
+      <div style="position:absolute;bottom:-20px;right:30px;font-size:150px;opacity:.6">🎈</div>
+      <div style="position:absolute;bottom:120px;right:160px;font-size:80px;opacity:.4">🎈</div>
+      <!-- confete -->
+      <div style="position:absolute;top:40px;right:60px;font-size:70px;opacity:.5">🎊</div>
 
-        <p style="font-size:34px;color:#5c4410;margin:0 0 2px;font-style:italic">Que Deus abençoe</p>
-        <p style="font-size:52px;color:#6b3f06;margin:6px 0 4px;font-weight:bold;line-height:1.1">${primeiro}</p>
-        <div style="width:120px;height:2px;background:linear-gradient(90deg,transparent,#b8923c,transparent);margin:18px 0 26px"></div>
+      <!-- Título -->
+      <div style="position:absolute;top:70px;left:55px;width:480px">
+        <p style="font-family:'Brush Script MT','Segoe Script',cursive;font-size:90px;color:white;margin:0;line-height:.95;text-shadow:0 2px 6px rgba(0,0,0,.15)">Feliz</p>
+        <p style="font-family:'Brush Script MT','Segoe Script',cursive;font-size:90px;color:white;margin:0;line-height:.95;text-shadow:0 2px 6px rgba(0,0,0,.15)">Aniversário!</p>
+      </div>
 
-        <p style="font-size:25px;color:#5c4410;line-height:1.6;max-width:680px;margin:0">
-          Que neste novo ano de vida o Senhor derrame sobre você
-          <strong>saúde, paz e muitas bênçãos</strong>.
-          Que Nossa Senhora de Nazaré interceda sempre por você
-          e ilumine seu caminho de fé e serviço. 🕊️
+      <!-- Foto estilo polaroid -->
+      <div style="position:absolute;top:120px;right:55px;width:430px;background:white;padding:18px 18px 70px;border-radius:6px;box-shadow:0 14px 40px rgba(0,0,0,.3);transform:rotate(3deg)">
+        <div style="width:100%;height:480px;overflow:hidden;background:#ddd">${fotoHtml}</div>
+        <p style="text-align:center;margin:18px 0 0;font-size:40px;font-weight:bold;color:#1f7d96;font-family:'Comic Sans MS',Arial,sans-serif">${primeiroNome.toUpperCase()}</p>
+        ${dataAniv?`<p style="text-align:center;margin:2px 0 0;font-size:32px;color:#1f7d96;font-family:'Comic Sans MS',Arial,sans-serif">${dataAniv}</p>`:''}
+      </div>
+
+      <!-- Mensagem -->
+      <div style="position:absolute;top:300px;left:55px;width:470px">
+        <p style="font-size:38px;color:white;line-height:1.45;margin:0;font-weight:500;text-shadow:0 1px 3px rgba(0,0,0,.12)">
+          Hoje é dia de agradecer a Deus pelo dom da vida de nossa amiga <strong>${primeiroNome}</strong>. Que Nossa Senhora de Nazaré interceda por ela e por sua família.
         </p>
+        <p style="font-size:36px;color:white;margin:28px 0 0;font-weight:500;text-shadow:0 1px 3px rgba(0,0,0,.12)">Com carinho<br><strong>Coordenação MESCE</strong></p>
+      </div>
 
-        <div style="position:absolute;bottom:64px;left:0;right:0;text-align:center">
-          <div style="font-size:40px;margin-bottom:10px">🎂🙏🎉</div>
-          <p style="font-size:21px;color:#7a5a16;font-weight:bold;margin:0">Coordenação MESCE</p>
-          <p style="font-size:16px;color:#8a6a1e;margin:3px 0 0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-          <p style="font-size:15px;color:#9a7a2e;margin:2px 0 0">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        </div>
+      <!-- Logos no rodapé -->
+      <div style="position:absolute;bottom:45px;left:55px;display:flex;align-items:center;gap:24px">
+        <img src="${logoBas}" crossorigin="anonymous" style="height:120px;width:auto;object-fit:contain">
+        <img src="${logoMes}" crossorigin="anonymous" style="height:120px;width:auto;object-fit:contain">
       </div>
     </div>`;
   document.body.appendChild(wrap);
 
+  // Espera as imagens carregarem antes de renderizar
+  const imgs = wrap.querySelectorAll('img');
+  await Promise.all([...imgs].map(img=> img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })));
+  await new Promise(r=>setTimeout(r,150));
+
   try{
-    const canvas = await html2canvas(wrap,{scale:3,backgroundColor:null,useCORS:true,logging:false});
+    const canvas = await html2canvas(wrap,{scale:2,backgroundColor:null,useCORS:true,allowTaint:false,logging:false});
     canvas.toBlob(blob=>{
       const a=document.createElement('a');
       a.href=URL.createObjectURL(blob);
-      a.download=`feliz_aniversario_${primeiro.split(' ')[0].toLowerCase()}.png`;
+      a.download=`feliz_aniversario_${primeiroNome.toLowerCase()}.png`;
       a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-      // modal com instrução + botão de abrir WhatsApp do aniversariante
       const tel=formatarTelBR(m.tel);
-      const msgWa = `🎉 Feliz Aniversário, ${primeiro.split(' ')[0]}! Que Deus te abençoe grandemente. Um abraço da Coordenação MESCE! 🙏🎂`;
+      const msgWa = `🎉 Feliz Aniversário, ${primeiroNome}! Que Deus te abençoe grandemente. Um abraço da Coordenação MESCE! 🙏🎂`;
       const linkWa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(msgWa)}` : '';
       const corpo = document.getElementById('cartao-corpo');
       if(corpo){
         corpo.innerHTML = `
-          <p style="font-size:13px;color:#555;margin:0 0 14px;line-height:1.5">O cartão de <strong>${primeiro.split(' ')[0]}</strong> foi baixado! 🎂<br>Agora envie como foto no WhatsApp:</p>
+          <p style="font-size:13px;color:#555;margin:0 0 14px;line-height:1.5">O cartão de <strong>${primeiroNome}</strong> foi baixado! 🎂<br>Agora envie como foto no grupo do WhatsApp:</p>
           <div style="background:#f0faf5;border-radius:8px;padding:12px;text-align:left;margin-bottom:14px">
-            <p style="font-size:12px;color:#085041;margin:0 0 8px"><strong>📱 Celular:</strong> abra a conversa → 📎 → Galeria → escolha o cartão → enviar.</p>
-            <p style="font-size:12px;color:#085041;margin:0"><strong>💻 Computador:</strong> abra a conversa → 📎 → Fotos → escolha em Downloads → enviar.</p>
+            <p style="font-size:12px;color:#085041;margin:0 0 8px"><strong>📱 Celular:</strong> abra o grupo → 📎 → Galeria → escolha o cartão → enviar.</p>
+            <p style="font-size:12px;color:#085041;margin:0"><strong>💻 Computador:</strong> abra o grupo → 📎 → Fotos → escolha em Downloads → enviar.</p>
           </div>
-          ${linkWa ? `<a href="${linkWa}" target="_blank" style="display:block;text-decoration:none;text-align:center;padding:11px;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;margin-bottom:8px">📲 Abrir conversa de ${primeiro.split(' ')[0]}</a>` : '<p style="font-size:12px;color:#BA7517;text-align:center;margin-bottom:8px">⚠️ Este ministro não tem WhatsApp cadastrado.</p>'}
+          ${linkWa ? `<a href="${linkWa}" target="_blank" style="display:block;text-decoration:none;text-align:center;padding:11px;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;margin-bottom:8px">📲 Abrir conversa de ${primeiroNome}</a>` : ''}
           <button class="btn-g" onclick="fecharModal('modal-cartao')" style="margin:0">Entendi</button>`;
       }
       document.getElementById('modal-cartao').style.display='flex';
