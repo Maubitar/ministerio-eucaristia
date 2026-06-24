@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.5';
+const APP_VERSAO = '4.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -3374,11 +3374,16 @@ function lerQRFrame(video){
         }
         _scanLidos.add(id);
 
-        // Registra presença AUTOMATICAMENTE (escrita otimista)
-        if(typeof presAtual!=='undefined'){
-          if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
-          presAtual[id].status='P';
-          if(typeof renderPresenca==='function') renderPresenca();
+        // Se a secretária está usando o scanner (reunião/adoração), registra lá.
+        if(window._secContexto && typeof registrarPresencaSec==='function'){
+          registrarPresencaSec(id);
+        } else {
+          // Registra presença das MISSAS (escrita otimista)
+          if(typeof presAtual!=='undefined'){
+            if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
+            presAtual[id].status='P';
+            if(typeof renderPresenca==='function') renderPresenca();
+          }
         }
         mostrarFeedbackScan(m, false);
       }
@@ -3704,15 +3709,16 @@ function qFeedback(m, jaLido){
 async function qSalvarParcial(){
   if(!_qConfig) return;
   try{
-    let key, dados;
     if(_qConfig.tipo==='reuniao' || _qConfig.tipo==='adoracao'){
-      key = `${_qConfig.tipo}_${_qConfig.data}`;
-      dados = { data:_qConfig.data, tipo:_qConfig.tipo, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
+      // Salva na coleção correta (reunioes/adoracoes), mesma estrutura do registro manual
+      const colecao = _qConfig.tipo==='reuniao' ? 'reunioes' : 'adoracoes';
+      const dados = { data:_qConfig.data, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
+      await setDoc(doc(db, colecao, _qConfig.data), dados, {merge:true});
     } else {
-      key = `${_qConfig.data}_${_qConfig.horario.replace(':','')}`;
-      dados = { data:_qConfig.data, horario:_qConfig.horario, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
+      const key = `${_qConfig.data}_${_qConfig.horario.replace(':','')}`;
+      const dados = { data:_qConfig.data, horario:_qConfig.horario, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
+      await setDoc(doc(db,'presencas',key), dados, {merge:true});
     }
-    await setDoc(doc(db,'presencas',key), dados, {merge:true});
   }catch(e){ /* offline: mantém em memória, tenta de novo na próxima leitura */ }
 }
 
@@ -4340,7 +4346,11 @@ window.secSubTab = function(qual){
           <p style="font-size:14px;font-weight:700;color:#085041;margin:0">📋 Presença — Reunião</p>
           <input type="date" id="reun-data" value="${hoje}" onchange="renderReuniao()" style="margin:0;font-weight:600;color:#085041;padding:7px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:12px">
         </div>
-        <p style="font-size:11px;color:#888;margin:0 0 10px">Marque P (presente), F (falta) ou J (justificada). Faltas sem justificativa contam para o cartão amarelo.</p>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <button onclick="abrirScannerSec('reuniao')" style="flex:1;font-size:12px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:7px;cursor:pointer;font-weight:600">📷 Scanner QR</button>
+          <button onclick="abrirQuiosqueSec('reuniao')" style="flex:1;font-size:12px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:7px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
+        </div>
+        <p style="font-size:11px;color:#888;margin:0 0 10px">Marque P (presente), F (falta) ou J (justificada), ou use o QR Code.</p>
         <div id="reun-body"></div>
         <button class="btn-g" onclick="salvarReuniao()" style="margin-top:10px">💾 Salvar reunião</button>
       </div>`;
@@ -4352,12 +4362,48 @@ window.secSubTab = function(qual){
           <p style="font-size:14px;font-weight:700;color:#085041;margin:0">🙏 Presença — Adoração</p>
           <input type="date" id="ador-data" value="${hoje}" onchange="renderAdoracao()" style="margin:0;font-weight:600;color:#085041;padding:7px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:12px">
         </div>
-        <p style="font-size:11px;color:#888;margin:0 0 10px">Marque P (presente), F (falta) ou J (justificada).</p>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <button onclick="abrirScannerSec('adoracao')" style="flex:1;font-size:12px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:7px;cursor:pointer;font-weight:600">📷 Scanner QR</button>
+          <button onclick="abrirQuiosqueSec('adoracao')" style="flex:1;font-size:12px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:7px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
+        </div>
+        <p style="font-size:11px;color:#888;margin:0 0 10px">Marque P (presente), F (falta) ou J (justificada), ou use o QR Code.</p>
         <div id="ador-body"></div>
         <button class="btn-g" onclick="salvarAdoracao()" style="margin-top:10px">💾 Salvar adoração</button>
       </div>`;
     renderAdoracao();
   }
+};
+
+// ===== Scanner e Quiosque da SECRETARIA (reunião/adoração) =====
+// Reutiliza a UI do scanner/quiosque, mas marca presença em presReuniaoMap/presAdoracaoMap.
+window._secContexto = null; // 'reuniao' ou 'adoracao'
+
+window.abrirScannerSec = function(contexto){
+  window._secContexto = contexto;
+  abrirScanner(); // reaproveita o modal do scanner; o registro é desviado por _secContexto
+};
+
+window.abrirQuiosqueSec = function(contexto){
+  window._secContexto = contexto;
+  // Define o evento do quiosque como o contexto da secretaria
+  abrirQuiosqueCfg();
+  // Pré-seleciona o tipo no quiosque (reunião/adoração) e esconde horário
+  setTimeout(()=>{
+    const sel=document.getElementById('q-tipo');
+    if(sel){ sel.value=contexto; if(typeof qAtualizarHorarios==='function') qAtualizarHorarios(); }
+  },100);
+};
+
+// Marca presença no contexto da secretaria a partir de um id de ministro lido no QR
+window.registrarPresencaSec = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return false;
+  const mapa = window._secContexto==='adoracao' ? presAdoracaoMap : presReuniaoMap;
+  if(!mapa[m.nome]) mapa[m.nome]={status:'',justificativa:''};
+  mapa[m.nome].status='P';
+  if(window._secContexto==='adoracao'){ if(typeof renderAdoracao==='function' && document.getElementById('ador-body')) renderAdoracao(); }
+  else { if(typeof renderReuniao==='function' && document.getElementById('reun-body')) renderReuniao(); }
+  return true;
 };
 
 </script>
@@ -4728,8 +4774,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <p id="pres-count" style="font-size:11px;color:#1D9E75;margin:0"></p>
         <div style="display:flex;gap:6px">
-          <button onclick="abrirScanner()" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:500">📷 Scanner QR</button>
-          <button onclick="abrirQuiosqueCfg()" style="font-size:11px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
+          <button onclick="window._secContexto=null;abrirScanner()" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:500">📷 Scanner QR</button>
+          <button onclick="window._secContexto=null;abrirQuiosqueCfg()" style="font-size:11px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
         </div>
       </div>
       <div id="pres-body"></div>
