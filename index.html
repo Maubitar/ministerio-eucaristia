@@ -9,7 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = {
   apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.7';
+const APP_VERSAO = '3.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -2836,8 +2836,37 @@ window.abrirPerfil = function(id){
       <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Disponibilidades</button>
     </div>
     <button onclick="solicitarDisp('${id}')" style="width:100%;padding:9px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px">📲 Pedir disponibilidade pelo WhatsApp</button>
-    <button onclick="verQRCode('${id}')" style="width:100%;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🪪 Carteirinha digital / QR Code</button>`;
+    <button onclick="verQRCode('${id}')" style="width:100%;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🪪 Carteirinha digital / QR Code</button>
+    <button onclick="excluirMinistro('${id}')" style="width:100%;padding:8px;border:1px solid #f0d0d0;border-radius:8px;background:white;color:#A32D2D;font-size:12px;font-weight:600;cursor:pointer;margin-top:10px">🗑️ Excluir ministro da relação</button>`;
   document.getElementById('modal-perfil').style.display='flex';
+};
+
+// Exclui ministro definitivamente — com confirmação DUPLA (proteção contra acidente)
+window.excluirMinistro = async function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  // 1ª confirmação
+  const ok1 = confirm(`⚠️ EXCLUIR MINISTRO\n\nVocê está prestes a excluir DEFINITIVAMENTE:\n${m.nome}\n\nEsta ação NÃO pode ser desfeita. O cadastro, foto e disponibilidades serão apagados.\n\nDeseja continuar?`);
+  if(!ok1) return;
+  // 2ª confirmação — digitar a palavra
+  const txt = prompt(`CONFIRMAÇÃO FINAL\n\nPara confirmar a exclusão de ${m.nome.split(' ')[0]}, digite a palavra EXCLUIR (em maiúsculas) abaixo:`);
+  if(txt === null) return;
+  if(txt.trim().toUpperCase() !== 'EXCLUIR'){
+    toast('Exclusão cancelada (palavra não confere).','warn');
+    return;
+  }
+  try{
+    await deleteDoc(doc(db,'ministros',id));
+    const idx = ministros.findIndex(x=>x.id===id);
+    if(idx>=0) ministros.splice(idx,1);
+    document.getElementById('modal-perfil').style.display='none';
+    toast(`✓ ${m.nome.split(' ')[0]} foi excluído(a) da relação.`);
+    if(typeof renderMinistros==='function') renderMinistros(document.getElementById('busca-min')?.value||'');
+    const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.length;
+    const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.length;
+  }catch(e){
+    toast('Erro ao excluir: '+e.message,'err');
+  }
 };
 
 let editandoId=null;
