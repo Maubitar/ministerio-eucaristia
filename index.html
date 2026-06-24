@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.2';
+const APP_VERSAO = '4.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -211,6 +211,31 @@ async function carregarConfigAcesso(){
 }
 
 function mostrarLogin(){
+  // Sessão lembrada neste aparelho? Entra direto (até clicar em Sair)
+  try{
+    const salva = localStorage.getItem('sogi_sessao');
+    if(salva){
+      const sess = JSON.parse(salva);
+      // Confere se o usuário ainda existe na lista de acessos
+      const existe = _acessoUsuarios.find(u=>u.usuario.toLowerCase()===(sess.usuario||'').toLowerCase());
+      if(existe){
+        _usuarioLogado = { usuario:existe.usuario, papel:existe.papel||'coordenador', nome:existe.nome||existe.usuario };
+        document.getElementById('tela-login').style.display='none';
+        document.getElementById('app').style.display='block';
+        aplicarPermissoes();
+        const papel = _usuarioLogado.papel;
+        if(papel==='financeira'){ nav('financeiro'); }
+        else if(papel==='secretaria'){ nav('secretaria'); }
+        else { irPara('inicio'); }
+        verificarVersao();
+        return;
+      } else {
+        // usuário não existe mais — limpa a sessão
+        localStorage.removeItem('sogi_sessao');
+      }
+    }
+  }catch(e){}
+
   ['logo-basilica-login','logo-mesce-login'].forEach((id,i)=>{
     const el=document.getElementById(id); if(el) el.src = i===0?LOGO_BASILICA:LOGO_MESCE;
   });
@@ -232,6 +257,8 @@ window.fazerLogin = function(){
   );
   if(encontrado){
     _usuarioLogado = { usuario:encontrado.usuario, papel:encontrado.papel||'coordenador', nome:encontrado.nome||encontrado.usuario };
+    // Lembra a sessão neste aparelho (até clicar em Sair)
+    try{ localStorage.setItem('sogi_sessao', JSON.stringify(_usuarioLogado)); }catch(e){}
     if(erro) erro.style.display='none';
     document.getElementById('login-pass').value='';
     document.getElementById('tela-login').style.display='none';
@@ -283,6 +310,7 @@ function aplicarPermissoes(){
 
 window.fazerLogout = function(){
   if(confirm('Deseja sair? Será necessário entrar com usuário e senha novamente.')){
+    try{ localStorage.removeItem('sogi_sessao'); }catch(e){}
     location.reload();
   }
 };
@@ -303,6 +331,7 @@ window.salvarAcesso = async function(){
   try{
     _acessoUsuarios[meuIdx] = { ..._acessoUsuarios[meuIdx], usuario:u, senhaHash:hashSenha(p1), trocarSenha:false };
     _usuarioLogado.usuario = u;
+    try{ localStorage.setItem('sogi_sessao', JSON.stringify(_usuarioLogado)); }catch(e){}
     await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
     document.getElementById('cfg-pass-atual').value='';
     document.getElementById('cfg-pass1').value='';
