@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Ministério da Eucaristia — Basílica de Nazaré</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -28,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.6';
+const APP_VERSAO = '4.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -313,6 +316,24 @@ window.fazerLogout = function(){
     try{ localStorage.removeItem('sogi_sessao'); }catch(e){}
     location.reload();
   }
+};
+
+// Força o navegador a buscar a versão mais nova do app (contorna cache do GitHub Pages)
+window.forcarAtualizacao = async function(){
+  toast('Buscando versão mais recente...');
+  try{
+    // Limpa caches do navegador, se houver
+    if('caches' in window){
+      const nomes = await caches.keys();
+      await Promise.all(nomes.map(n=>caches.delete(n)));
+    }
+  }catch(e){}
+  // Recarrega adicionando um parâmetro único na URL, o que obriga o navegador a baixar de novo
+  const base = location.href.split('?')[0].split('#')[0];
+  const params = new URLSearchParams(location.search);
+  // preserva o parâmetro de ministro/disp se existir (não deve, na coordenação, mas por segurança)
+  params.set('v', Date.now());
+  location.replace(base + '?' + params.toString());
 };
 
 // ===== Gerenciamento de usuários (só coordenador) =====
@@ -4874,13 +4895,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   </div>
   <div class="card" style="border:1.5px solid #e1f5ee;background:#f8fcfa">
     <p class="ct">🚀 Como atualizar o S.O.G.I.</p>
-    <p style="font-size:12px;color:#666;line-height:1.7;margin:0">
+    <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 12px">
       Quando o Claude enviar um novo <strong>index.html</strong>:<br>
       <strong>1.</strong> Baixe o arquivo (clique no bloco e use o botão de baixar ⬇️).<br>
       <strong>2.</strong> No GitHub do projeto: <strong>Add file → Upload files</strong>.<br>
       <strong>3.</strong> Arraste o <strong>index.html</strong> e clique em <strong>Commit changes</strong>.<br>
-      <strong>4.</strong> No app, atualize com <strong>Ctrl + Shift + R</strong>.
+      <strong>4.</strong> Aqui no app, toque no botão verde abaixo (não precisa mais do Ctrl+Shift+R).
     </p>
+    <button onclick="forcarAtualizacao()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:14px;font-weight:700;cursor:pointer">🔄 Buscar atualização agora</button>
+    <p style="font-size:10px;color:#aaa;text-align:center;margin:8px 0 0">Aguarde ~1 min após publicar no GitHub antes de tocar.</p>
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
