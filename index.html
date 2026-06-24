@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.8';
+const APP_VERSAO = '3.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -758,6 +758,7 @@ window.nav = function(id, btn){
     reforco: ()=>renderReforco(),
     relatorios: ()=>renderRelatorios(),
     inicio: ()=>renderInicio(),
+    eventos: ()=>renderEventos(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _configAcesso) cu.value=_configAcesso.usuario||''; },
   };
   if(fns[id]) fns[id]();
@@ -2707,42 +2708,15 @@ async function relAdoracoes(){
     </table>`;
 }
 
+// O antigo relatório de eventos foi substituído pelo Módulo de Eventos Especiais.
+// Mantido aqui apenas redirecionando, caso algo ainda chame relEventos.
 async function relEventos(){
-  const snap=await getDocs(collection(db,'eventos'));
-  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
-  if(!docs.length){
-    document.getElementById('rel-body').innerHTML=`
-      <p style="font-size:12px;color:#888;margin-bottom:12px">Nenhum evento especial registrado ainda.</p>
-      <button onclick="abrirCadastroEvento()" style="margin-top:16px;padding:10px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%">+ Registrar evento especial</button>`;
-    return;
-  }
-  document.getElementById('rel-body').innerHTML=`
-    <button onclick="abrirCadastroEvento()" style="margin-bottom:12px;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%">+ Novo evento</button>
-    ${docs.map(e=>`
-      <div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <p style="font-size:14px;font-weight:700;margin:0">${e.nome||'Evento'}</p>
-          <span style="font-size:11px;color:#888">${(e.data||'').split('-').reverse().join('/')}</span>
-        </div>
-        <p style="font-size:12px;color:#888;margin-bottom:6px">${e.descricao||''}</p>
-        <div style="display:flex;gap:8px">
-          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${(e.ministros||[]).length} ministros</span>
-          ${e.responsavel?`<span style="font-size:11px;padding:2px 8px;background:#faeeda;color:#633806;border-radius:20px">★ ${e.responsavel}</span>`:''}
-        </div>
-      </div>`).join('')}`;
+  document.getElementById('rel-body').innerHTML = `
+    <div style="text-align:center;padding:20px">
+      <p style="font-size:14px;color:#666;margin-bottom:14px">Os eventos especiais (Círio, procissões, festas) agora têm uma área própria, com escala e presença.</p>
+      <button onclick="nav('eventos')" style="padding:11px 18px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">📅 Abrir Eventos Especiais</button>
+    </div>`;
 }
-
-window.abrirCadastroEvento=function(){ document.getElementById('modal-evento').style.display='flex'; };
-window.salvarEvento=async function(){
-  const nome=document.getElementById('evt-nome').value.trim();
-  const data=document.getElementById('evt-data').value;
-  const desc=document.getElementById('evt-desc').value.trim();
-  if(!nome){toast('Nome do evento obrigatório.','err');return;}
-  await addDoc(collection(db,'eventos'),{nome,data,descricao:desc,ministros:[],criadoEm:serverTimestamp()});
-  fecharModal('modal-evento');
-  toast('Evento registrado!');
-  renderRelatorios();
-};
 
 window.filtrarMin = function(){ renderMinistros(document.getElementById('busca-min').value); };
 function renderMinistros(filtro){
@@ -3600,6 +3574,245 @@ function sairQuiosque(){
   if(total>0) toast(`✓ Quiosque encerrado. ${total} presença(s) registrada(s).`);
 }
 
+// ====================== MÓDULO DE EVENTOS ESPECIAIS (Círio e outros) ======================
+let _eventos = [];        // cache de eventos
+let _eventoAtual = null;  // evento aberto no momento
+
+async function carregarEventos(){
+  try{
+    const snap = await getDocs(collection(db,'eventos'));
+    _eventos = snap.docs.map(d=>({id:d.id, ...d.data()}))
+      .sort((a,b)=>(a.data||'').localeCompare(b.data||'') || (a.hora||'').localeCompare(b.hora||''));
+  }catch(e){ _eventos=[]; }
+  return _eventos;
+}
+
+// Tela principal: lista de eventos
+window.renderEventos = async function(){
+  const cont = document.getElementById('eventos-body');
+  if(cont) cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando eventos...</p>';
+  await carregarEventos();
+
+  const hoje = new Date().toISOString().slice(0,10);
+  const futuros = _eventos.filter(e=>(e.data||'')>=hoje);
+  const passados = _eventos.filter(e=>(e.data||'')<hoje).reverse();
+
+  const cardEvento = (e)=>{
+    const nMin = (e.escala||[]).length;
+    const nPres = Object.values(e.presenca||{}).filter(p=>p.status==='P').length;
+    const dataFmt = (e.data||'').split('-').reverse().join('/');
+    return `<div onclick="abrirEvento('${e.id}')" style="background:white;border:1px solid #eee;border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer;box-shadow:0 1px 5px rgba(0,0,0,.05)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="flex:1">
+          <p style="font-size:15px;font-weight:700;margin:0;color:#085041">${e.nome||'Evento'}</p>
+          <p style="font-size:12px;color:#888;margin:3px 0 0">📅 ${dataFmt}${e.hora?` · 🕐 ${e.hora}`:''}</p>
+          ${e.local?`<p style="font-size:11px;color:#aaa;margin:2px 0 0">📍 ${e.local}</p>`:''}
+        </div>
+        <span style="color:#ccc;font-size:20px">›</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <span style="font-size:11px;padding:2px 9px;background:#e1f5ee;color:#085041;border-radius:20px">👥 ${nMin} escalado(s)</span>
+        ${nPres>0?`<span style="font-size:11px;padding:2px 9px;background:#e6f1fb;color:#185FA5;border-radius:20px">✓ ${nPres} presente(s)</span>`:''}
+      </div>
+    </div>`;
+  };
+
+  cont.innerHTML = `
+    <button onclick="abrirNovoEvento()" style="width:100%;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:16px">+ Criar novo evento</button>
+
+    ${futuros.length ? `<p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 8px">📌 Próximos eventos</p>${futuros.map(cardEvento).join('')}` : ''}
+
+    ${passados.length ? `<p style="font-size:12px;font-weight:700;color:#888;margin:18px 0 8px">🗂️ Eventos passados</p>${passados.map(cardEvento).join('')}` : ''}
+
+    ${!_eventos.length ? `<div style="text-align:center;padding:30px 16px;color:#999">
+      <p style="font-size:40px;margin:0">📅</p>
+      <p style="font-size:14px;font-weight:600;color:#666;margin:8px 0 4px">Nenhum evento ainda</p>
+      <p style="font-size:12px;margin:0">Crie eventos especiais como as missas e procissões do Círio, festas e celebrações.</p>
+    </div>` : ''}`;
+};
+
+window.abrirNovoEvento = function(){
+  _eventoAtual = null;
+  document.getElementById('evt-titulo-modal').textContent = 'Novo Evento';
+  document.getElementById('evt-nome').value = '';
+  document.getElementById('evt-data').value = new Date().toISOString().slice(0,10);
+  document.getElementById('evt-hora').value = '';
+  document.getElementById('evt-local').value = '';
+  document.getElementById('evt-desc').value = '';
+  document.getElementById('modal-evento').style.display = 'flex';
+};
+
+window.salvarEvento = async function(){
+  const nome = document.getElementById('evt-nome').value.trim();
+  const data = document.getElementById('evt-data').value;
+  const hora = document.getElementById('evt-hora').value.trim();
+  const local = document.getElementById('evt-local').value.trim();
+  const desc = document.getElementById('evt-desc').value.trim();
+  if(!nome){ toast('Informe o nome do evento.','warn'); return; }
+  if(!data){ toast('Informe a data.','warn'); return; }
+  try{
+    if(_eventoAtual){
+      await updateDoc(doc(db,'eventos',_eventoAtual.id), {nome, data, hora, local, descricao:desc});
+      Object.assign(_eventoAtual, {nome, data, hora, local, descricao:desc});
+      toast('✓ Evento atualizado!');
+    } else {
+      const ref = await addDoc(collection(db,'eventos'), {nome, data, hora, local, descricao:desc, escala:[], responsavel:'', presenca:{}, criadoEm:serverTimestamp()});
+      toast('✓ Evento criado!');
+    }
+    document.getElementById('modal-evento').style.display='none';
+    await renderEventos();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+// Abre o detalhe de um evento (escala + presença)
+window.abrirEvento = async function(id){
+  await carregarEventos();
+  _eventoAtual = _eventos.find(e=>e.id===id);
+  if(!_eventoAtual) return;
+  nav('evento-detalhe');
+  renderEventoDetalhe();
+};
+
+function renderEventoDetalhe(){
+  const e = _eventoAtual;
+  if(!e) return;
+  const dataFmt = (e.data||'').split('-').reverse().join('/');
+  document.getElementById('evento-det-titulo').textContent = e.nome;
+  const cont = document.getElementById('evento-detalhe-body');
+
+  const escala = e.escala || [];
+  const presenca = e.presenca || {};
+
+  cont.innerHTML = `
+    <div style="background:#e1f5ee;border-radius:12px;padding:14px;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700;color:#085041;margin:0">${e.nome}</p>
+      <p style="font-size:13px;color:#666;margin:4px 0 0">📅 ${dataFmt}${e.hora?` · 🕐 ${e.hora}`:''}</p>
+      ${e.local?`<p style="font-size:12px;color:#888;margin:2px 0 0">📍 ${e.local}</p>`:''}
+      ${e.descricao?`<p style="font-size:12px;color:#888;margin:6px 0 0">${e.descricao}</p>`:''}
+      <button onclick="editarEvento()" style="margin-top:10px;padding:5px 12px;border:1px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:11px;font-weight:600;cursor:pointer">✏️ Editar dados</button>
+    </div>
+
+    <!-- ESCALA DO EVENTO -->
+    <div style="background:white;border:1px solid #eee;border-radius:12px;padding:14px;margin-bottom:14px">
+      <p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 10px">👥 Escala do evento (${escala.length})</p>
+      <div style="position:relative;margin-bottom:10px">
+        <input type="text" id="evt-busca-min" oninput="acEventoMin(this)" placeholder="Digite o nome do ministro e escale..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;box-sizing:border-box">
+        <div id="evt-ac" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:0 0 9px 9px;max-height:200px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+      </div>
+      <div id="evt-escala-lista">
+        ${escala.length ? escala.map(nome=>{
+          const ehResp = e.responsavel===nome;
+          return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0f0">
+            <button onclick="setRespEvento('${nome.replace(/'/g,"\\'")}')" title="Responsável" style="width:26px;height:26px;border:1px solid ${ehResp?'#BA7517':'#ddd'};border-radius:6px;background:${ehResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
+            <span style="flex:1;font-size:13px;${ehResp?'font-weight:700;color:#085041':''}">${nome}${ehResp?' <span style="font-size:10px;color:#BA7517">(responsável)</span>':''}</span>
+            <button onclick="removerMinEvento('${nome.replace(/'/g,"\\'")}')" style="border:none;background:none;color:#A32D2D;font-size:16px;cursor:pointer;padding:0 4px">×</button>
+          </div>`;
+        }).join('') : '<p style="font-size:12px;color:#aaa;padding:6px 0">Nenhum ministro escalado ainda.</p>'}
+      </div>
+    </div>
+
+    <!-- PRESENÇA DO EVENTO -->
+    ${escala.length ? `
+    <div style="background:white;border:1px solid #eee;border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <p style="font-size:13px;font-weight:700;color:#185FA5;margin:0">✓ Presença</p>
+        <span style="font-size:11px;color:#1D9E75;font-weight:600">${Object.values(presenca).filter(p=>p.status==='P').length}/${escala.length} presentes</span>
+      </div>
+      ${escala.map(nome=>{
+        const mObj = ministros.find(x=>x.nome===nome);
+        const id = mObj?mObj.id:nome;
+        const st = presenca[id]?.status || '';
+        return `<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #f0f0f0">
+          <span style="flex:1;font-size:13px">${nome}</span>
+          <button onclick="marcarPresEvento('${id}','P')" style="padding:4px 10px;border-radius:16px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:${st==='P'?'#1D9E75':'#eee'};color:${st==='P'?'white':'#888'}">P</button>
+          <button onclick="marcarPresEvento('${id}','F')" style="padding:4px 10px;border-radius:16px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:${st==='F'?'#A32D2D':'#eee'};color:${st==='F'?'white':'#888'}">F</button>
+        </div>`;
+      }).join('')}
+      <button onclick="salvarPresEvento()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-top:12px">💾 Salvar presença</button>
+    </div>` : ''}
+
+    <button onclick="excluirEvento()" style="width:100%;padding:9px;border:1px solid #f0d0d0;border-radius:8px;background:white;color:#A32D2D;font-size:12px;font-weight:600;cursor:pointer">🗑️ Excluir este evento</button>
+  `;
+}
+
+window.editarEvento = function(){
+  const e=_eventoAtual; if(!e) return;
+  document.getElementById('evt-titulo-modal').textContent='Editar Evento';
+  document.getElementById('evt-nome').value=e.nome||'';
+  document.getElementById('evt-data').value=e.data||'';
+  document.getElementById('evt-hora').value=e.hora||'';
+  document.getElementById('evt-local').value=e.local||'';
+  document.getElementById('evt-desc').value=e.descricao||'';
+  document.getElementById('modal-evento').style.display='flex';
+};
+
+// Autocomplete de ministros para a escala do evento
+window.acEventoMin = function(inp){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById('evt-ac');
+  if(!v){ ac.style.display='none'; return; }
+  const jaEsc = new Set(_eventoAtual.escala||[]);
+  const matches = ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaEsc.has(m.nome)).slice(0,8);
+  if(!matches.length){ ac.style.display='none'; return; }
+  ac.style.display='block';
+  ac.innerHTML = matches.map((m,i)=>`<div onmousedown="addMinEvento('${m.nome.replace(/'/g,"\\'")}')" style="padding:9px 12px;cursor:pointer;font-size:13px;${i===0?'background:#eef7f2;':''}" onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${i===0?'#eef7f2':'white'}'">${m.nome}</div>`).join('');
+};
+
+window.addMinEvento = async function(nome){
+  if(!_eventoAtual) return;
+  if(!_eventoAtual.escala) _eventoAtual.escala=[];
+  if(_eventoAtual.escala.includes(nome)) return;
+  _eventoAtual.escala.push(nome);
+  document.getElementById('evt-busca-min').value='';
+  document.getElementById('evt-ac').style.display='none';
+  try{ await updateDoc(doc(db,'eventos',_eventoAtual.id), {escala:_eventoAtual.escala}); }catch(e){}
+  renderEventoDetalhe();
+};
+
+window.removerMinEvento = async function(nome){
+  if(!_eventoAtual) return;
+  _eventoAtual.escala = (_eventoAtual.escala||[]).filter(n=>n!==nome);
+  if(_eventoAtual.responsavel===nome) _eventoAtual.responsavel='';
+  try{ await updateDoc(doc(db,'eventos',_eventoAtual.id), {escala:_eventoAtual.escala, responsavel:_eventoAtual.responsavel}); }catch(e){}
+  renderEventoDetalhe();
+};
+
+window.setRespEvento = async function(nome){
+  if(!_eventoAtual) return;
+  _eventoAtual.responsavel = (_eventoAtual.responsavel===nome)?'':nome;
+  try{ await updateDoc(doc(db,'eventos',_eventoAtual.id), {responsavel:_eventoAtual.responsavel}); }catch(e){}
+  renderEventoDetalhe();
+};
+
+window.marcarPresEvento = function(id, val){
+  if(!_eventoAtual) return;
+  if(!_eventoAtual.presenca) _eventoAtual.presenca={};
+  const atual = _eventoAtual.presenca[id]?.status;
+  _eventoAtual.presenca[id] = {status: atual===val?'':val};
+  renderEventoDetalhe();
+};
+
+window.salvarPresEvento = async function(){
+  if(!_eventoAtual) return;
+  try{
+    await updateDoc(doc(db,'eventos',_eventoAtual.id), {presenca:_eventoAtual.presenca, presencaAtualizadaEm:serverTimestamp()});
+    toast('✓ Presença do evento salva!');
+  }catch(e){ toast('Erro ao salvar presença: '+e.message,'err'); }
+};
+
+window.excluirEvento = async function(){
+  if(!_eventoAtual) return;
+  const e=_eventoAtual;
+  if(!confirm(`Excluir o evento "${e.nome}"?\n\nA escala e a presença deste evento serão apagadas. Esta ação não pode ser desfeita.`)) return;
+  try{
+    await deleteDoc(doc(db,'eventos',e.id));
+    toast('✓ Evento excluído.');
+    _eventoAtual=null;
+    nav('eventos');
+    renderEventos();
+  }catch(err){ toast('Erro ao excluir: '+err.message,'err'); }
+};
+
 </script>
 
 <style>
@@ -3776,6 +3989,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">✓</span>
         <span class="sb-tx">Marcar Presença</span>
         <span class="sb-sub">Missas, reuniões, adoração</span>
+      </button>
+      <button class="setor-btn" onclick="irPara('eventos')">
+        <span class="sb-ic" style="background:#085041;color:white">📅</span>
+        <span class="sb-tx">Eventos Especiais</span>
+        <span class="sb-sub">Círio, procissões, festas</span>
       </button>
     </div>
   </div>
@@ -4087,6 +4305,23 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </p>
   </div>
 </div>
+
+<!-- SEÇÃO: EVENTOS ESPECIAIS (lista) -->
+<div id="s-eventos" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#085041,#0a6e57);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">📅 Eventos Especiais</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.8);margin:4px 0 0">Círio, procissões, festas e celebrações com escala e presença próprias.</p>
+  </div>
+  <div id="eventos-body"></div>
+</div>
+
+<!-- SEÇÃO: DETALHE DO EVENTO (escala + presença) -->
+<div id="s-evento-detalhe" class="sec">
+  <button class="btn-voltar" onclick="nav('eventos')">‹ Voltar aos eventos</button>
+  <p id="evento-det-titulo" style="font-size:18px;font-weight:700;color:#085041;margin:0 0 12px"></p>
+  <div id="evento-detalhe-body"></div>
+</div>
 </div>
 <!-- MODAIS -->
 <div id="modal-perfil" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-perfil')">
@@ -4257,13 +4492,26 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="modal-evento" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-evento')">
   <div class="modal-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <p style="font-size:16px;font-weight:700">Evento especial</p>
+      <p id="evt-titulo-modal" style="font-size:16px;font-weight:700">Novo Evento</p>
       <button onclick="fecharModal('modal-evento')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
-    <input type="text" id="evt-nome" placeholder="Nome do evento (ex: Círio de Nazaré)">
-    <input type="date" id="evt-data">
-    <input type="text" id="evt-desc" placeholder="Descrição (opcional)" style="margin-bottom:12px">
-    <button style="padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer;width:100%" onclick="salvarEvento()">Salvar evento</button>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Nome do evento</label>
+    <input type="text" id="evt-nome" placeholder="Ex: Trasladação, Missa do Círio, Romaria da Juventude" style="margin-bottom:10px">
+    <div style="display:flex;gap:8px">
+      <div style="flex:1">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Data</label>
+        <input type="date" id="evt-data" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Horário</label>
+        <input type="text" id="evt-hora" placeholder="Ex: 05:00h" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      </div>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Local (opcional)</label>
+    <input type="text" id="evt-local" placeholder="Ex: Basílica, Catedral, Praça Santuário" style="margin-bottom:10px">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Observações (opcional)</label>
+    <input type="text" id="evt-desc" placeholder="Alguma observação sobre o evento" style="margin-bottom:14px">
+    <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarEvento()">💾 Salvar evento</button>
   </div>
 </div>
 
