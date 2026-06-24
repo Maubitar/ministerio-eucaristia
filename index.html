@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.4';
+const APP_VERSAO = '4.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -4236,40 +4236,128 @@ window.salvarConfigFin = async function(){
   }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
 };
 
-// ====================== MÓDULO SECRETARIA (básico - será expandido) ======================
+// ====================== MÓDULO SECRETARIA ======================
+window._secTab = 'aniversarios';
+
 window.renderSecretaria = function(){
   const cont = document.getElementById('secretaria-body');
   if(!cont) return;
-  // Aniversariantes de hoje
+  cont.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <button id="sec-tab-aniv" onclick="secTab('aniversarios')" style="flex:1;padding:10px;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;background:#BA7517;color:white">🎂 Aniversários</button>
+      <button id="sec-tab-reun" onclick="secTab('reunioes')" style="flex:1;padding:10px;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;background:#eee;color:#888">📋 Reuniões & Adorações</button>
+    </div>
+    <div id="sec-conteudo"></div>`;
+  secTab(window._secTab||'aniversarios');
+};
+
+window.secTab = function(qual){
+  window._secTab = qual;
+  const ta=document.getElementById('sec-tab-aniv'), tr=document.getElementById('sec-tab-reun');
+  if(ta&&tr){
+    ta.style.background = qual==='aniversarios'?'#BA7517':'#eee'; ta.style.color = qual==='aniversarios'?'white':'#888';
+    tr.style.background = qual==='reunioes'?'#BA7517':'#eee'; tr.style.color = qual==='reunioes'?'white':'#888';
+  }
+  if(qual==='aniversarios') secRenderAniversarios();
+  else secRenderReunioes();
+};
+
+function secRenderAniversarios(){
+  const cont = document.getElementById('sec-conteudo');
+  if(!cont) return;
   const hoje = new Date();
   const d = hoje.getDate(), mes = hoje.getMonth()+1;
   const aniversariantesHoje = ministros.filter(m=>{
     if(!m.nascimento) return false;
-    const partes = m.nascimento.split('-'); // YYYY-MM-DD
+    const partes = m.nascimento.split('-');
     if(partes.length<3) return false;
     return parseInt(partes[2])===d && parseInt(partes[1])===mes;
+  });
+  // Aniversariantes do mês (para a secretária se programar)
+  const doMes = ministros.filter(m=>{
+    if(!m.nascimento) return false;
+    const partes = m.nascimento.split('-');
+    if(partes.length<3) return false;
+    return parseInt(partes[1])===mes;
+  }).sort((a,b)=>{
+    const da=parseInt(a.nascimento.split('-')[2]), db=parseInt(b.nascimento.split('-')[2]);
+    return da-db;
   });
 
   cont.innerHTML = `
     <div class="card" style="border:1.5px solid #E8C66B;background:linear-gradient(135deg,#fffdf7,#fdf6e3)">
-      <p style="font-size:14px;font-weight:700;color:#BA7517;margin:0 0 8px">🎂 Aniversariantes de hoje</p>
+      <p style="font-size:14px;font-weight:700;color:#BA7517;margin:0 0 10px">🎉 Aniversariantes de HOJE</p>
       ${aniversariantesHoje.length ? aniversariantesHoje.map(m=>`
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.05)">
-          ${m.foto?`<img src="${m.foto}" style="width:40px;height:40px;border-radius:50%;object-fit:cover">`:`<div style="width:40px;height:40px;border-radius:50%;background:#faeeda;color:#BA7517;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">${iniciais(m.nome)}</div>`}
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(0,0,0,.05)">
+          ${m.foto?`<img src="${m.foto}" style="width:44px;height:44px;border-radius:50%;object-fit:cover">`:`<div style="width:44px;height:44px;border-radius:50%;background:#faeeda;color:#BA7517;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">${iniciais(m.nome)}</div>`}
           <span style="flex:1;font-size:14px;font-weight:600">${m.nome}</span>
-          <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:6px 12px;border:none;border-radius:20px;background:#BA7517;color:white;font-size:11px;font-weight:700;cursor:pointer">🎉 Cartão</button>
-        </div>`).join('') : '<p style="font-size:12px;color:#888;margin:0">Nenhum aniversariante hoje.</p>'}
+          <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:7px 14px;border:none;border-radius:20px;background:#BA7517;color:white;font-size:12px;font-weight:700;cursor:pointer">🎉 Gerar cartão</button>
+        </div>`).join('') : '<p style="font-size:13px;color:#888;margin:0">Nenhum aniversariante hoje. 🌼</p>'}
     </div>
 
     <div class="card">
-      <p style="font-size:14px;font-weight:700;color:#085041;margin:0 0 6px">📅 Reuniões e Adorações</p>
-      <p style="font-size:12px;color:#666;line-height:1.5;margin:0 0 10px">Registre presença e atas das reuniões e adorações.</p>
-      <button class="btn-g" onclick="nav('presenca');setTimeout(()=>{if(window.tabPres)tabPres('reuniao')},150)" style="margin:0">Abrir Reuniões / Adorações</button>
-    </div>
-
-    <div class="card" style="text-align:center;color:#999;padding:20px">
-      <p style="font-size:13px;margin:0">📋 Mais funções da secretaria (comunicados, atas detalhadas) serão adicionadas em breve.</p>
+      <p style="font-size:14px;font-weight:700;color:#085041;margin:0 0 10px">🎂 Aniversariantes do mês (${doMes.length})</p>
+      ${doMes.length ? doMes.map(m=>{
+        const dia = m.nascimento.split('-')[2];
+        const ehHoje = parseInt(dia)===d;
+        return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0f0f0;${ehHoje?'background:#fffdf7':''}">
+          <div style="width:36px;height:36px;border-radius:8px;background:${ehHoje?'#BA7517':'#f0e6da'};color:${ehHoje?'white':'#BA7517'};display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;line-height:1">
+            <span style="font-size:14px;font-weight:700">${dia}</span>
+          </div>
+          <span style="flex:1;font-size:13px;${ehHoje?'font-weight:700;color:#BA7517':''}">${m.nome}${ehHoje?' 🎉':''}</span>
+          <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;font-size:11px;font-weight:600;cursor:pointer">cartão</button>
+        </div>`;
+      }).join('') : '<p style="font-size:12px;color:#888;margin:0">Nenhum aniversariante neste mês.</p>'}
     </div>`;
+}
+
+function secRenderReunioes(){
+  const cont = document.getElementById('sec-conteudo');
+  if(!cont) return;
+  const hoje = new Date().toISOString().split('T')[0];
+  cont.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <button id="sec-sub-reuniao" onclick="secSubTab('reuniao')" style="flex:1;padding:9px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#085041;color:white">📋 Reunião</button>
+      <button id="sec-sub-adoracao" onclick="secSubTab('adoracao')" style="flex:1;padding:9px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:#eee;color:#888">🙏 Adoração</button>
+    </div>
+    <div id="sec-sub-conteudo"></div>`;
+  secSubTab(window._secSubTab||'reuniao');
+}
+
+window.secSubTab = function(qual){
+  window._secSubTab = qual;
+  const r=document.getElementById('sec-sub-reuniao'), a=document.getElementById('sec-sub-adoracao');
+  if(r&&a){
+    r.style.background = qual==='reuniao'?'#085041':'#eee'; r.style.color = qual==='reuniao'?'white':'#888';
+    a.style.background = qual==='adoracao'?'#085041':'#eee'; a.style.color = qual==='adoracao'?'white':'#888';
+  }
+  const cont = document.getElementById('sec-sub-conteudo');
+  const hoje = new Date().toISOString().split('T')[0];
+  if(qual==='reuniao'){
+    cont.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <p style="font-size:14px;font-weight:700;color:#085041;margin:0">📋 Presença — Reunião</p>
+          <input type="date" id="reun-data" value="${hoje}" onchange="renderReuniao()" style="margin:0;font-weight:600;color:#085041;padding:7px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:12px">
+        </div>
+        <p style="font-size:11px;color:#888;margin:0 0 10px">Marque P (presente), F (falta) ou J (justificada). Faltas sem justificativa contam para o cartão amarelo.</p>
+        <div id="reun-body"></div>
+        <button class="btn-g" onclick="salvarReuniao()" style="margin-top:10px">💾 Salvar reunião</button>
+      </div>`;
+    renderReuniao();
+  } else {
+    cont.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <p style="font-size:14px;font-weight:700;color:#085041;margin:0">🙏 Presença — Adoração</p>
+          <input type="date" id="ador-data" value="${hoje}" onchange="renderAdoracao()" style="margin:0;font-weight:600;color:#085041;padding:7px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:12px">
+        </div>
+        <p style="font-size:11px;color:#888;margin:0 0 10px">Marque P (presente), F (falta) ou J (justificada).</p>
+        <div id="ador-body"></div>
+        <button class="btn-g" onclick="salvarAdoracao()" style="margin-top:10px">💾 Salvar adoração</button>
+      </div>`;
+    renderAdoracao();
+  }
 };
 
 </script>
