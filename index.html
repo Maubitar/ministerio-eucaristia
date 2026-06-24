@@ -28,7 +28,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '3.9';
+const APP_VERSAO = '4.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -172,8 +172,17 @@ window.addEventListener('load', async()=>{
   }
 });
 
-// ====================== LOGIN / ACESSO ======================
-let _configAcesso = null; // {usuario, senhaHash}
+// ====================== LOGIN / PERFIS DE ACESSO ======================
+// Estrutura nova: config/acesso = { usuarios: [ {usuario, senhaHash, papel, nome} ] }
+// Papéis: 'coordenador' (tudo), 'financeira' (só financeiro), 'secretaria' (área dela)
+let _acessoUsuarios = [];   // lista de usuários
+let _usuarioLogado = null;  // {usuario, papel, nome}
+
+const PAPEIS = {
+  coordenador: { nome:'Coordenação', cor:'#085041', secoes:'todas' },
+  financeira:  { nome:'Financeira',  cor:'#185FA5', secoes:['inicio','financeiro'] },
+  secretaria:  { nome:'Secretária',  cor:'#BA7517', secoes:['inicio','secretaria'] }
+};
 
 // Hash simples (não é criptografia forte, mas evita senha em texto puro)
 function hashSenha(txt){
@@ -185,15 +194,19 @@ function hashSenha(txt){
 async function carregarConfigAcesso(){
   try{
     const d = await getDoc(doc(db,'config','acesso'));
-    if(d.exists()){ _configAcesso = d.data(); }
-    else {
-      // Primeiro acesso: cria admin/admin padrão
-      _configAcesso = { usuario:'admin', senhaHash:hashSenha('admin'), trocarSenha:true };
-      await setDoc(doc(db,'config','acesso'), _configAcesso);
+    if(d.exists() && Array.isArray(d.data().usuarios) && d.data().usuarios.length){
+      _acessoUsuarios = d.data().usuarios;
+    } else if(d.exists() && d.data().usuario){
+      // Migração do formato antigo (1 usuário) para o novo (lista)
+      _acessoUsuarios = [{ usuario:d.data().usuario, senhaHash:d.data().senhaHash, papel:'coordenador', nome:'Coordenação', trocarSenha:!!d.data().trocarSenha }];
+      await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
+    } else {
+      // Primeiro acesso: cria admin/admin coordenador
+      _acessoUsuarios = [{ usuario:'admin', senhaHash:hashSenha('admin'), papel:'coordenador', nome:'Coordenação', trocarSenha:true }];
+      await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
     }
   }catch(e){
-    // Se falhar, usa admin/admin em memória para não travar o acesso
-    _configAcesso = { usuario:'admin', senhaHash:hashSenha('admin'), trocarSenha:true };
+    _acessoUsuarios = [{ usuario:'admin', senhaHash:hashSenha('admin'), papel:'coordenador', nome:'Coordenação', trocarSenha:true }];
   }
 }
 
@@ -202,8 +215,9 @@ function mostrarLogin(){
     const el=document.getElementById(id); if(el) el.src = i===0?LOGO_BASILICA:LOGO_MESCE;
   });
   const dica = document.getElementById('login-dica');
-  if(dica && _configAcesso && _configAcesso.trocarSenha){
-    dica.innerHTML = '⚠️ Primeiro acesso: use <strong>admin</strong> / <strong>admin</strong><br>e troque a senha em Configurações.';
+  const temAdminPadrao = _acessoUsuarios.some(u=>u.usuario==='admin' && u.trocarSenha);
+  if(dica && temAdminPadrao){
+    dica.innerHTML = '⚠️ Primeiro acesso: use <strong>admin</strong> / <strong>admin</strong><br>e troque a senha em Mais → Configurações.';
   }
   document.getElementById('tela-login').style.display='flex';
   setTimeout(()=>{ const u=document.getElementById('login-user'); if(u) u.focus(); },200);
@@ -213,17 +227,23 @@ window.fazerLogin = function(){
   const u = (document.getElementById('login-user').value||'').trim();
   const p = document.getElementById('login-pass').value||'';
   const erro = document.getElementById('login-erro');
-  if(!_configAcesso){ return; }
-  const okUser = u.toLowerCase() === (_configAcesso.usuario||'admin').toLowerCase();
-  const okPass = hashSenha(p) === _configAcesso.senhaHash;
-  if(okUser && okPass){
+  const encontrado = _acessoUsuarios.find(x =>
+    x.usuario.toLowerCase() === u.toLowerCase() && x.senhaHash === hashSenha(p)
+  );
+  if(encontrado){
+    _usuarioLogado = { usuario:encontrado.usuario, papel:encontrado.papel||'coordenador', nome:encontrado.nome||encontrado.usuario };
     if(erro) erro.style.display='none';
     document.getElementById('login-pass').value='';
     document.getElementById('tela-login').style.display='none';
     document.getElementById('app').style.display='block';
-    renderInicio();
+    aplicarPermissoes();
+    // Direciona cada papel para sua área
+    const papel = _usuarioLogado.papel;
+    if(papel==='financeira'){ nav('financeiro'); }
+    else if(papel==='secretaria'){ nav('secretaria'); }
+    else { irPara('inicio'); }
     verificarVersao();
-    if(_configAcesso.trocarSenha){
+    if(encontrado.trocarSenha && encontrado.papel==='coordenador'){
       setTimeout(()=>toast('🔒 Recomendado: troque a senha padrão em "Mais → Configurações"','warn'), 1500);
     }
   } else {
@@ -232,31 +252,116 @@ window.fazerLogin = function(){
   }
 };
 
+// Mostra/esconde abas da barra inferior e ajusta a home conforme o papel
+function aplicarPermissoes(){
+  const papel = _usuarioLogado?.papel || 'coordenador';
+  const perm = PAPEIS[papel] || PAPEIS.coordenador;
+  const todas = perm.secoes === 'todas';
+  // Botões da barra inferior: data-sec indica a seção
+  document.querySelectorAll('.nb').forEach(btn=>{
+    const sec = btn.getAttribute('data-sec');
+    if(todas){ btn.style.display=''; return; }
+    // Financeira e secretária: barra inferior simplificada (Início + sua área + Sair)
+    btn.style.display = 'none';
+  });
+  // Marca no body o papel (para CSS e a home se adaptar)
+  document.body.setAttribute('data-papel', papel);
+  // Badge do papel + botão sair no topo (só para papéis restritos)
+  const barra = document.getElementById('barra-papel');
+  const badge = document.getElementById('papel-badge');
+  if(todas){
+    if(barra) barra.style.display='none';
+  } else {
+    if(barra) barra.style.display='flex';
+    if(badge){
+      badge.style.display='inline-flex';
+      badge.style.background = perm.cor;
+      badge.textContent = '👤 ' + perm.nome;
+    }
+  }
+}
+
 window.fazerLogout = function(){
   if(confirm('Deseja sair? Será necessário entrar com usuário e senha novamente.')){
     location.reload();
   }
 };
 
-// Salva novo usuário/senha (aba Configurações)
+// ===== Gerenciamento de usuários (só coordenador) =====
 window.salvarAcesso = async function(){
+  // Troca a própria senha do coordenador logado
   const u = (document.getElementById('cfg-user').value||'').trim();
   const p1 = document.getElementById('cfg-pass1').value||'';
   const p2 = document.getElementById('cfg-pass2').value||'';
   const atual = document.getElementById('cfg-pass-atual').value||'';
   if(!u){ toast('Informe o usuário.','warn'); return; }
-  // Confere senha atual
-  if(hashSenha(atual) !== _configAcesso.senhaHash){ toast('Senha atual incorreta.','err'); return; }
+  const meuIdx = _acessoUsuarios.findIndex(x=>x.usuario.toLowerCase()===(_usuarioLogado?.usuario||'').toLowerCase());
+  if(meuIdx<0){ toast('Usuário logado não encontrado.','err'); return; }
+  if(hashSenha(atual) !== _acessoUsuarios[meuIdx].senhaHash){ toast('Senha atual incorreta.','err'); return; }
   if(p1.length < 4){ toast('A nova senha precisa ter ao menos 4 caracteres.','warn'); return; }
   if(p1 !== p2){ toast('A confirmação de senha não confere.','warn'); return; }
   try{
-    _configAcesso = { usuario:u, senhaHash:hashSenha(p1), trocarSenha:false };
-    await setDoc(doc(db,'config','acesso'), _configAcesso);
+    _acessoUsuarios[meuIdx] = { ..._acessoUsuarios[meuIdx], usuario:u, senhaHash:hashSenha(p1), trocarSenha:false };
+    _usuarioLogado.usuario = u;
+    await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
     document.getElementById('cfg-pass-atual').value='';
     document.getElementById('cfg-pass1').value='';
     document.getElementById('cfg-pass2').value='';
-    toast('✓ Usuário e senha atualizados com sucesso!');
+    toast('✓ Seu usuário e senha foram atualizados!');
   }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+// Lista os usuários cadastrados (coordenador)
+window.renderUsuarios = function(){
+  const cont = document.getElementById('lista-usuarios');
+  if(!cont) return;
+  cont.innerHTML = _acessoUsuarios.map((u,i)=>{
+    const perm = PAPEIS[u.papel||'coordenador'];
+    return `<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f0f0f0">
+      <div style="width:30px;height:30px;border-radius:8px;background:${perm.cor};color:white;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">👤</div>
+      <div style="flex:1">
+        <p style="font-size:13px;font-weight:600;margin:0">${u.usuario}</p>
+        <p style="font-size:11px;color:#888;margin:0">${perm.nome}</p>
+      </div>
+      ${u.papel!=='coordenador'||_acessoUsuarios.filter(x=>x.papel==='coordenador').length>1 ?
+        `<button onclick="removerUsuario(${i})" style="border:none;background:none;color:#A32D2D;font-size:16px;cursor:pointer;padding:0 4px">×</button>` : ''}
+    </div>`;
+  }).join('');
+};
+
+window.abrirNovoUsuario = function(){
+  document.getElementById('nu-user').value='';
+  document.getElementById('nu-pass').value='';
+  document.getElementById('nu-papel').value='financeira';
+  document.getElementById('modal-novo-usuario').style.display='flex';
+};
+
+window.salvarNovoUsuario = async function(){
+  const usuario = (document.getElementById('nu-user').value||'').trim();
+  const senha = document.getElementById('nu-pass').value||'';
+  const papel = document.getElementById('nu-papel').value;
+  if(!usuario){ toast('Informe o usuário.','warn'); return; }
+  if(senha.length<4){ toast('A senha precisa ter ao menos 4 caracteres.','warn'); return; }
+  if(_acessoUsuarios.some(x=>x.usuario.toLowerCase()===usuario.toLowerCase())){ toast('Já existe um usuário com esse nome.','warn'); return; }
+  try{
+    _acessoUsuarios.push({ usuario, senhaHash:hashSenha(senha), papel, nome:PAPEIS[papel].nome });
+    await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
+    document.getElementById('modal-novo-usuario').style.display='none';
+    toast('✓ Acesso criado para '+usuario+' ('+PAPEIS[papel].nome+')');
+    renderUsuarios();
+  }catch(e){ toast('Erro ao criar: '+e.message,'err'); }
+};
+
+window.removerUsuario = async function(i){
+  const u = _acessoUsuarios[i];
+  if(!u) return;
+  if(!confirm(`Remover o acesso de "${u.usuario}" (${PAPEIS[u.papel||'coordenador'].nome})?`)) return;
+  _acessoUsuarios.splice(i,1);
+  try{
+    await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
+    toast('✓ Acesso removido.');
+    renderUsuarios();
+  }catch(e){ toast('Erro ao remover: '+e.message,'err'); }
 };
 
 // Detecta quando o app foi atualizado para uma nova versão e avisa de forma visível.
@@ -759,7 +864,9 @@ window.nav = function(id, btn){
     relatorios: ()=>renderRelatorios(),
     inicio: ()=>renderInicio(),
     eventos: ()=>renderEventos(),
-    mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _configAcesso) cu.value=_configAcesso.usuario||''; },
+    financeiro: ()=>renderFinanceiro(),
+    secretaria: ()=>renderSecretaria(),
+    mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
   if(fns[id]) fns[id]();
 };
@@ -3813,6 +3920,305 @@ window.excluirEvento = async function(){
   }catch(err){ toast('Erro ao excluir: '+err.message,'err'); }
 };
 
+// ====================== MÓDULO FINANCEIRO (mensalidades, despesas, saldo) ======================
+let _finConfig = { valorMensalidade: 15 };
+let _finPagosMes = {};       // {ministroId:{pago:true,data}} do mês selecionado
+let _finDespesas = [];       // todas as despesas
+let _finMesSel = null;       // mesKey selecionado (ex: 'jun2026')
+
+const FIN_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const FIN_MESES_NOME = {jan:'Janeiro',fev:'Fevereiro',mar:'Março',abr:'Abril',mai:'Maio',jun:'Junho',jul:'Julho',ago:'Agosto',set:'Setembro',out:'Outubro',nov:'Novembro',dez:'Dezembro'};
+
+function finMesKeyLegivel(mk){
+  const m=(mk||'').match(/^([a-z]{3})(\d{4})$/);
+  return m ? `${FIN_MESES_NOME[m[1]]||m[1]} / ${m[2]}` : mk;
+}
+function finMesKeyAtual(){
+  const d=new Date();
+  return FIN_MESES[d.getMonth()]+d.getFullYear();
+}
+
+async function carregarFinanceiro(){
+  try{
+    const cfg = await getDoc(doc(db,'financeiro','config'));
+    if(cfg.exists()) _finConfig = {valorMensalidade:15, ...cfg.data()};
+  }catch(e){}
+  // despesas
+  try{
+    const snap = await getDocs(collection(db,'despesas'));
+    _finDespesas = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  }catch(e){ _finDespesas=[]; }
+}
+
+async function carregarPagamentosMes(mesKey){
+  try{
+    const d = await getDoc(doc(db,'financeiro','pag_'+mesKey));
+    _finPagosMes = d.exists() ? (d.data().pagos||{}) : {};
+  }catch(e){ _finPagosMes={}; }
+}
+
+window.renderFinanceiro = async function(){
+  const cont = document.getElementById('financeiro-body');
+  if(cont) cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando financeiro...</p>';
+  if(!_finMesSel) _finMesSel = finMesKeyAtual();
+  await carregarFinanceiro();
+  await carregarPagamentosMes(_finMesSel);
+
+  // Cálculos do mês
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  const pagosCount = ativos.filter(m=>_finPagosMes[m.id]?.pago).length;
+  const arrecadadoMes = pagosCount * valor;
+  const pendentesCount = ativos.length - pagosCount;
+
+  // Saldo geral: soma de TODOS os pagamentos de todos os meses - despesas
+  // (precisa varrer todos os meses de pagamento)
+  let totalArrecadadoGeral = 0;
+  try{
+    const snapPag = await getDocs(collection(db,'financeiro'));
+    snapPag.docs.forEach(d=>{
+      if(d.id.startsWith('pag_')){
+        const pagos = d.data().pagos||{};
+        totalArrecadadoGeral += Object.values(pagos).filter(p=>p.pago).length * valor;
+      }
+    });
+  }catch(e){}
+  const totalDespesas = _finDespesas.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const saldo = totalArrecadadoGeral - totalDespesas;
+
+  // Opções de mês (12 meses do ano atual + permite navegar)
+  const anoAtual = new Date().getFullYear();
+  let mesesOpts = '';
+  [anoAtual, anoAtual-1].forEach(ano=>{
+    FIN_MESES.forEach(m=>{
+      const mk = m+ano;
+      mesesOpts += `<option value="${mk}" ${mk===_finMesSel?'selected':''}>${FIN_MESES_NOME[m]} / ${ano}</option>`;
+    });
+  });
+
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+
+  cont.innerHTML = `
+    <!-- SALDO GERAL -->
+    <div style="background:linear-gradient(135deg,${saldo>=0?'#085041,#0a6e57':'#A32D2D,#c0392b'});border-radius:16px;padding:18px;margin-bottom:14px;color:white">
+      <p style="font-size:12px;opacity:.85;margin:0">💰 Saldo em caixa</p>
+      <p style="font-size:30px;font-weight:700;margin:4px 0 0">${fmt(saldo)}</p>
+      <div style="display:flex;gap:16px;margin-top:10px;font-size:11px;opacity:.9">
+        <span>↑ Arrecadado: ${fmt(totalArrecadadoGeral)}</span>
+        <span>↓ Despesas: ${fmt(totalDespesas)}</span>
+      </div>
+    </div>
+
+    <!-- SELETOR DE MÊS -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <select id="fin-mes" onchange="finTrocarMes(this.value)" style="flex:1;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;font-weight:600;color:#085041">${mesesOpts}</select>
+      <button onclick="abrirConfigFin()" style="padding:10px 12px;border:1.5px solid #e0e0e0;border-radius:9px;background:white;font-size:13px;cursor:pointer" title="Configurar valor">⚙️</button>
+    </div>
+
+    <!-- RESUMO DO MÊS -->
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div style="flex:1;background:#e1f5ee;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#085041">${pagosCount}</p>
+        <p style="font-size:10px;color:#666;margin:0">Pagaram</p>
+      </div>
+      <div style="flex:1;background:#fcebeb;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${pendentesCount}</p>
+        <p style="font-size:10px;color:#666;margin:0">Faltam</p>
+      </div>
+      <div style="flex:1;background:#f5f5f3;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:15px;font-weight:700;margin:0;color:#185FA5">${fmt(arrecadadoMes)}</p>
+        <p style="font-size:10px;color:#666;margin:0">No mês</p>
+      </div>
+    </div>
+
+    <!-- ABAS -->
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <button id="fin-tab-pag" onclick="finTab('pag')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:600;cursor:pointer">💵 Mensalidades</button>
+      <button id="fin-tab-desp" onclick="finTab('desp')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#eee;color:#888;font-size:13px;font-weight:600;cursor:pointer">🧾 Despesas</button>
+    </div>
+
+    <div id="fin-conteudo"></div>`;
+
+  finTab(window._finTabAtual||'pag');
+};
+
+window.finTrocarMes = async function(mk){
+  _finMesSel = mk;
+  await carregarPagamentosMes(mk);
+  renderFinanceiro();
+};
+
+window.finTab = function(qual){
+  window._finTabAtual = qual;
+  const tp=document.getElementById('fin-tab-pag'), td=document.getElementById('fin-tab-desp');
+  if(tp&&td){
+    tp.style.background = qual==='pag'?'#085041':'#eee'; tp.style.color = qual==='pag'?'white':'#888';
+    td.style.background = qual==='desp'?'#085041':'#eee'; td.style.color = qual==='desp'?'white':'#888';
+  }
+  if(qual==='pag') finRenderPagamentos();
+  else finRenderDespesas();
+};
+
+function finRenderPagamentos(){
+  const cont = document.getElementById('fin-conteudo');
+  if(!cont) return;
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+
+  cont.innerHTML = `
+    <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:10px;box-sizing:border-box">
+    <p style="font-size:11px;color:#888;margin:0 0 8px">Mensalidade: <strong>${fmt(valor)}</strong> · Toque para marcar/desmarcar quem pagou em ${finMesKeyLegivel(_finMesSel)}.</p>
+    <div id="fin-lista-pag"></div>`;
+  finRenderPagamentos2('');
+}
+
+window.finRenderPagamentos2 = function(filtro){
+  const lista = document.getElementById('fin-lista-pag');
+  if(!lista) return;
+  const f = normalizarBusca(filtro||'');
+  const ativos = ministros.filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(f))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  lista.innerHTML = ativos.map(m=>{
+    const pago = _finPagosMes[m.id]?.pago;
+    return `<div onclick="finTogglePago('${m.id}')" style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+      <div style="width:26px;height:26px;border-radius:6px;border:2px solid ${pago?'#1D9E75':'#ccc'};background:${pago?'#1D9E75':'white'};display:flex;align-items:center;justify-content:center;color:white;font-size:14px;flex-shrink:0">${pago?'✓':''}</div>
+      <span style="flex:1;font-size:13px;${pago?'color:#085041;font-weight:600':''}">${m.nome}</span>
+      <span style="font-size:11px;font-weight:700;color:${pago?'#1D9E75':'#bbb'}">${pago?'PAGO':'pendente'}</span>
+    </div>`;
+  }).join('') || '<p style="font-size:12px;color:#888;padding:10px 0">Nenhum ministro encontrado.</p>';
+};
+
+window.finTogglePago = async function(id){
+  const atual = _finPagosMes[id]?.pago;
+  if(atual){ delete _finPagosMes[id]; }
+  else { _finPagosMes[id] = {pago:true, data:new Date().toISOString()}; }
+  // re-render rápido (otimista)
+  finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
+  // salva
+  try{
+    await setDoc(doc(db,'financeiro','pag_'+_finMesSel), {pagos:_finPagosMes, mesKey:_finMesSel, atualizadoEm:serverTimestamp()});
+  }catch(e){ toast('Erro ao salvar pagamento.','err'); }
+  // atualiza os totais do topo
+  atualizarTotaisFin();
+};
+
+async function atualizarTotaisFin(){
+  // recalcula só os números do topo sem recarregar tudo
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  const pagosCount = ativos.filter(m=>_finPagosMes[m.id]?.pago).length;
+  // atualiza os cards de resumo se existirem
+  renderFinanceiro();
+}
+
+function finRenderDespesas(){
+  const cont = document.getElementById('fin-conteudo');
+  if(!cont) return;
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const total = _finDespesas.reduce((s,d)=>s+(Number(d.valor)||0),0);
+
+  cont.innerHTML = `
+    <button onclick="abrirNovaDespesa()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">+ Registrar despesa</button>
+    <p style="font-size:12px;color:#888;margin:0 0 8px">Total de despesas: <strong style="color:#A32D2D">${fmt(total)}</strong></p>
+    ${_finDespesas.length ? _finDespesas.map(d=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f0f0f0">
+        <div style="flex:1">
+          <p style="font-size:13px;font-weight:600;margin:0">${d.descricao||'Despesa'}</p>
+          <p style="font-size:11px;color:#888;margin:2px 0 0">${(d.data||'').split('-').reverse().join('/')}</p>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#A32D2D">${fmt(d.valor)}</span>
+        <button onclick="excluirDespesa('${d.id}')" style="border:none;background:none;color:#ccc;font-size:16px;cursor:pointer;padding:0 4px">×</button>
+      </div>`).join('') : '<p style="font-size:12px;color:#aaa;padding:10px 0">Nenhuma despesa registrada.</p>'}`;
+}
+
+window.abrirNovaDespesa = function(){
+  document.getElementById('desp-desc').value='';
+  document.getElementById('desp-valor').value='';
+  document.getElementById('desp-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('modal-despesa').style.display='flex';
+};
+
+window.salvarDespesa = async function(){
+  const descricao = document.getElementById('desp-desc').value.trim();
+  const valor = parseFloat((document.getElementById('desp-valor').value||'').replace(',','.'));
+  const data = document.getElementById('desp-data').value;
+  if(!descricao){ toast('Informe a descrição.','warn'); return; }
+  if(!valor || valor<=0){ toast('Informe um valor válido.','warn'); return; }
+  try{
+    await addDoc(collection(db,'despesas'), {descricao, valor, data, criadoEm:serverTimestamp()});
+    document.getElementById('modal-despesa').style.display='none';
+    toast('✓ Despesa registrada!');
+    await carregarFinanceiro();
+    renderFinanceiro();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+window.excluirDespesa = async function(id){
+  const d = _finDespesas.find(x=>x.id===id);
+  if(!d) return;
+  if(!confirm(`Excluir a despesa "${d.descricao}" (R$ ${(Number(d.valor)||0).toFixed(2)})?`)) return;
+  try{
+    await deleteDoc(doc(db,'despesas',id));
+    toast('✓ Despesa excluída.');
+    await carregarFinanceiro();
+    renderFinanceiro();
+  }catch(e){ toast('Erro ao excluir: '+e.message,'err'); }
+};
+
+window.abrirConfigFin = function(){
+  document.getElementById('fin-valor-cfg').value = _finConfig.valorMensalidade||15;
+  document.getElementById('modal-fin-config').style.display='flex';
+};
+
+window.salvarConfigFin = async function(){
+  const v = parseFloat((document.getElementById('fin-valor-cfg').value||'').replace(',','.'));
+  if(!v || v<=0){ toast('Informe um valor válido.','warn'); return; }
+  try{
+    _finConfig.valorMensalidade = v;
+    await setDoc(doc(db,'financeiro','config'), _finConfig);
+    document.getElementById('modal-fin-config').style.display='none';
+    toast('✓ Valor da mensalidade atualizado!');
+    renderFinanceiro();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+// ====================== MÓDULO SECRETARIA (básico - será expandido) ======================
+window.renderSecretaria = function(){
+  const cont = document.getElementById('secretaria-body');
+  if(!cont) return;
+  // Aniversariantes de hoje
+  const hoje = new Date();
+  const d = hoje.getDate(), mes = hoje.getMonth()+1;
+  const aniversariantesHoje = ministros.filter(m=>{
+    if(!m.nascimento) return false;
+    const partes = m.nascimento.split('-'); // YYYY-MM-DD
+    if(partes.length<3) return false;
+    return parseInt(partes[2])===d && parseInt(partes[1])===mes;
+  });
+
+  cont.innerHTML = `
+    <div class="card" style="border:1.5px solid #E8C66B;background:linear-gradient(135deg,#fffdf7,#fdf6e3)">
+      <p style="font-size:14px;font-weight:700;color:#BA7517;margin:0 0 8px">🎂 Aniversariantes de hoje</p>
+      ${aniversariantesHoje.length ? aniversariantesHoje.map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.05)">
+          ${m.foto?`<img src="${m.foto}" style="width:40px;height:40px;border-radius:50%;object-fit:cover">`:`<div style="width:40px;height:40px;border-radius:50%;background:#faeeda;color:#BA7517;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">${iniciais(m.nome)}</div>`}
+          <span style="flex:1;font-size:14px;font-weight:600">${m.nome}</span>
+          <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:6px 12px;border:none;border-radius:20px;background:#BA7517;color:white;font-size:11px;font-weight:700;cursor:pointer">🎉 Cartão</button>
+        </div>`).join('') : '<p style="font-size:12px;color:#888;margin:0">Nenhum aniversariante hoje.</p>'}
+    </div>
+
+    <div class="card">
+      <p style="font-size:14px;font-weight:700;color:#085041;margin:0 0 6px">📅 Reuniões e Adorações</p>
+      <p style="font-size:12px;color:#666;line-height:1.5;margin:0 0 10px">Registre presença e atas das reuniões e adorações.</p>
+      <button class="btn-g" onclick="nav('presenca');setTimeout(()=>{if(window.tabPres)tabPres('reuniao')},150)" style="margin:0">Abrir Reuniões / Adorações</button>
+    </div>
+
+    <div class="card" style="text-align:center;color:#999;padding:20px">
+      <p style="font-size:13px;margin:0">📋 Mais funções da secretaria (comunicados, atas detalhadas) serão adicionadas em breve.</p>
+    </div>`;
+};
+
 </script>
 
 <style>
@@ -3946,15 +4352,19 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </div>
     <img id="logo-mesce-header" alt="MESCE" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:white;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0;margin-left:auto">
   </div>
+  <div id="barra-papel" style="display:none;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">
+    <span id="papel-badge" style="display:none;align-items:center;gap:5px;font-size:11px;font-weight:700;color:white;padding:3px 10px;border-radius:20px"></span>
+    <button onclick="fazerLogout()" style="font-size:11px;font-weight:600;color:white;background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;cursor:pointer">🚪 Sair</button>
+  </div>
 </div>
 
 <nav class="nav">
-  <button class="nb active" onclick="nav('inicio',this)"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Início</button>
-  <button class="nb" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
-  <button class="nb" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
-  <button class="nb" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
-  <button class="nb" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
-  <button class="nb" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
+  <button class="nb active" data-sec="inicio" onclick="nav('inicio',this)"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Início</button>
+  <button class="nb" data-sec="escala" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
+  <button class="nb" data-sec="presenca" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
+  <button class="nb" data-sec="relatorios" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
+  <button class="nb" data-sec="ministros" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
+  <button class="nb" data-sec="mais" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
 </nav>
 
 <!-- INÍCIO -->
@@ -4023,6 +4433,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <span class="sb-ic" style="background:#f0e6fb;color:#6B3FA0">📊</span>
         <span class="sb-tx">Relatórios</span>
         <span class="sb-sub">Frequência, faltas, escalas</span>
+      </button>
+      <button class="setor-btn" onclick="irPara('financeiro')">
+        <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">💰</span>
+        <span class="sb-tx">Financeiro</span>
+        <span class="sb-sub">Mensalidades, despesas, saldo</span>
       </button>
       <button class="setor-btn" onclick="irRelatorio('atualizacao')">
         <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">✅</span>
@@ -4245,8 +4660,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="s-mais" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card" style="border:1.5px solid #e1f5ee">
-    <p class="ct">🔐 Configurações de Acesso</p>
-    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Altere o usuário e a senha de acesso à coordenação. Para confirmar, digite a senha atual.</p>
+    <p class="ct">👥 Acessos e Perfis</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Crie acessos para a <strong>Financeira</strong> e a <strong>Secretária</strong>. Cada uma entra com seu usuário e senha e vê apenas a sua área.</p>
+    <div id="lista-usuarios" style="margin-bottom:12px"></div>
+    <button onclick="abrirNovoUsuario()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer">+ Criar novo acesso</button>
+  </div>
+
+  <div class="card" style="border:1.5px solid #e1f5ee">
+    <p class="ct">🔐 Minha senha de acesso</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Altere o seu usuário e a sua senha. Para confirmar, digite a senha atual.</p>
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha atual</label>
     <input type="password" id="cfg-pass-atual" placeholder="Digite a senha atual" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Novo usuário</label>
@@ -4255,7 +4677,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <input type="password" id="cfg-pass1" placeholder="Mínimo 4 caracteres" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Confirmar nova senha</label>
     <input type="password" id="cfg-pass2" placeholder="Repita a nova senha" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:14px;box-sizing:border-box">
-    <button onclick="salvarAcesso()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar usuário e senha</button>
+    <button onclick="salvarAcesso()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar minha senha</button>
     <button onclick="fazerLogout()" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px">🚪 Sair (bloquear acesso)</button>
   </div>
   <div class="card" style="border:1.5px solid #e1f5ee;background:#f8fcfa">
@@ -4321,6 +4743,26 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <button class="btn-voltar" onclick="nav('eventos')">‹ Voltar aos eventos</button>
   <p id="evento-det-titulo" style="font-size:18px;font-weight:700;color:#085041;margin:0 0 12px"></p>
   <div id="evento-detalhe-body"></div>
+</div>
+
+<!-- SEÇÃO: FINANCEIRO -->
+<div id="s-financeiro" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#185FA5,#1a73b8);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">💰 Financeiro MESCE</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Mensalidades, despesas e saldo em caixa.</p>
+  </div>
+  <div id="financeiro-body"></div>
+</div>
+
+<!-- SEÇÃO: SECRETARIA -->
+<div id="s-secretaria" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#BA7517,#d18a1f);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">📋 Secretaria MESCE</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Reuniões, aniversariantes e comunicados.</p>
+  </div>
+  <div id="secretaria-body"></div>
 </div>
 </div>
 <!-- MODAIS -->
@@ -4512,6 +4954,63 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Observações (opcional)</label>
     <input type="text" id="evt-desc" placeholder="Alguma observação sobre o evento" style="margin-bottom:14px">
     <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarEvento()">💾 Salvar evento</button>
+  </div>
+</div>
+
+<!-- MODAL NOVA DESPESA -->
+<div id="modal-despesa" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-despesa')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">🧾 Nova Despesa</p>
+      <button onclick="fecharModal('modal-despesa')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Descrição</label>
+    <input type="text" id="desp-desc" placeholder="Ex: Material de limpeza, lanche da reunião" style="margin-bottom:10px">
+    <div style="display:flex;gap:8px">
+      <div style="flex:1">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Valor (R$)</label>
+        <input type="text" id="desp-valor" inputmode="decimal" placeholder="0,00" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Data</label>
+        <input type="date" id="desp-data" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      </div>
+    </div>
+    <button style="padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-top:4px" onclick="salvarDespesa()">💾 Salvar despesa</button>
+  </div>
+</div>
+
+<!-- MODAL CONFIG FINANCEIRO -->
+<div id="modal-fin-config" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-fin-config')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">⚙️ Valor da Mensalidade</p>
+      <button onclick="fecharModal('modal-fin-config')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Valor mensal por ministro (R$)</label>
+    <input type="text" id="fin-valor-cfg" inputmode="decimal" placeholder="15,00" style="margin-bottom:14px">
+    <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarConfigFin()">💾 Salvar valor</button>
+  </div>
+</div>
+
+<!-- MODAL NOVO USUÁRIO (acesso) -->
+<div id="modal-novo-usuario" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-novo-usuario')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">👥 Novo Acesso</p>
+      <button onclick="fecharModal('modal-novo-usuario')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Perfil de acesso</label>
+    <select id="nu-papel" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+      <option value="financeira">💰 Financeira (vê só o Financeiro)</option>
+      <option value="secretaria">📋 Secretária (vê só a Secretaria)</option>
+      <option value="coordenador">⛪ Coordenador (vê tudo)</option>
+    </select>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Usuário</label>
+    <input type="text" id="nu-user" placeholder="Ex: financeira, maria, secretaria" style="margin-bottom:12px">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha</label>
+    <input type="text" id="nu-pass" placeholder="Mínimo 4 caracteres" style="margin-bottom:14px">
+    <button style="padding:12px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarNovoUsuario()">💾 Criar acesso</button>
   </div>
 </div>
 
