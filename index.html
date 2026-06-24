@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.7';
+const APP_VERSAO = '4.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -334,6 +334,51 @@ window.forcarAtualizacao = async function(){
   // preserva o parâmetro de ministro/disp se existir (não deve, na coordenação, mas por segurança)
   params.set('v', Date.now());
   location.replace(base + '?' + params.toString());
+};
+
+// ===== LIMPEZA DE DADOS DE TESTE (só coordenador) =====
+// Apaga escalas, presenças, reuniões, adorações, eventos e logs.
+// NUNCA apaga: ministros, fotos, senhas/acessos, financeiro.
+window.limparDadosTeste = async function(){
+  const ok1 = confirm(
+    '⚠️ LIMPAR DADOS DE TESTE\n\n'+
+    'Será APAGADO (definitivamente):\n'+
+    '• Todas as escalas\n'+
+    '• Todas as presenças das missas\n'+
+    '• Todas as reuniões e adorações\n'+
+    '• Todos os eventos especiais\n'+
+    '• Os registros de exceções (logs)\n\n'+
+    'NÃO será apagado (fica preservado):\n'+
+    '✓ Ministros e fotos\n'+
+    '✓ Usuários e senhas\n'+
+    '✓ Financeiro (mensalidades e despesas)\n\n'+
+    'Deseja continuar?'
+  );
+  if(!ok1) return;
+  const txt = prompt('CONFIRMAÇÃO FINAL\n\nPara apagar os dados de teste, digite a palavra LIMPAR (em maiúsculas):');
+  if(txt===null) return;
+  if(txt.trim().toUpperCase() !== 'LIMPAR'){
+    toast('Limpeza cancelada (palavra não confere).','warn');
+    return;
+  }
+
+  toast('Limpando dados de teste...');
+  const colecoes = ['escalas','presencas','reunioes','adoracoes','eventos','logs_escala'];
+  let total = 0;
+  try{
+    for(const col of colecoes){
+      const snap = await getDocs(collection(db, col));
+      for(const d of snap.docs){
+        await deleteDoc(doc(db, col, d.id));
+        total++;
+      }
+    }
+    if(typeof escalas!=='undefined'){ for(const k in escalas) delete escalas[k]; }
+    toast(`✓ Limpeza concluída! ${total} registro(s) apagados. Ministros, fotos e senhas preservados.`);
+    setTimeout(()=>{ if(typeof renderInicio==='function') renderInicio(); }, 800);
+  }catch(e){
+    toast('Erro durante a limpeza: '+e.message,'err');
+  }
 };
 
 // ===== Gerenciamento de usuários (só coordenador) =====
@@ -4940,6 +4985,12 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       Cartão amarelo automático ✓<br>
       <span style="color:#1D9E75">● Online e sincronizado em tempo real</span>
     </p>
+  </div>
+
+  <div class="card" style="border:1.5px solid #f0d0d0;background:#fffafa">
+    <p class="ct" style="color:#A32D2D">🧹 Limpar dados de teste</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 10px">Apaga escalas, presenças, reuniões, adorações, eventos e logs (úteis durante os testes). <strong>Ministros, fotos, senhas e financeiro são preservados.</strong> Use ao terminar os testes, antes de começar com os dados reais.</p>
+    <button onclick="limparDadosTeste()" style="width:100%;padding:11px;border:1.5px solid #A32D2D;border-radius:9px;background:white;color:#A32D2D;font-size:13px;font-weight:700;cursor:pointer">🧹 Limpar dados de teste</button>
   </div>
 </div>
 
