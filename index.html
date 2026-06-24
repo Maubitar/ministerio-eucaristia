@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.8';
+const APP_VERSAO = '4.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -322,19 +322,66 @@ window.fazerLogout = function(){
 window.forcarAtualizacao = async function(){
   toast('Buscando versão mais recente...');
   try{
-    // Limpa caches do navegador, se houver
     if('caches' in window){
       const nomes = await caches.keys();
       await Promise.all(nomes.map(n=>caches.delete(n)));
     }
   }catch(e){}
-  // Recarrega adicionando um parâmetro único na URL, o que obriga o navegador a baixar de novo
   const base = location.href.split('?')[0].split('#')[0];
-  const params = new URLSearchParams(location.search);
-  // preserva o parâmetro de ministro/disp se existir (não deve, na coordenação, mas por segurança)
-  params.set('v', Date.now());
-  location.replace(base + '?' + params.toString());
+  location.replace(base + '?v=' + Date.now());
 };
+
+// ===== VERIFICAÇÃO AUTOMÁTICA DE NOVA VERSÃO NO SERVIDOR =====
+// O app espia o próprio index.html no servidor (sem cache) e compara a versão.
+// Quando o GitHub publica a versão nova, o app detecta e se atualiza sozinho.
+let _checandoVersao = false;
+async function checarVersaoServidor(automatico){
+  if(_checandoVersao) return;
+  _checandoVersao = true;
+  try{
+    const url = location.href.split('?')[0].split('#')[0] + '?check=' + Date.now();
+    const resp = await fetch(url, {cache:'no-store'});
+    const txt = await resp.text();
+    // Extrai a versão do arquivo que está no servidor
+    const m = txt.match(/const APP_VERSAO\s*=\s*'([^']+)'/);
+    if(m && m[1]){
+      const versaoServidor = m[1];
+      if(versaoServidor !== APP_VERSAO){
+        // Há versão nova publicada! Avisa e recarrega.
+        mostrarBannerNovaVersao(versaoServidor);
+        return true;
+      }
+    }
+    if(!automatico) toast('✓ Você já está na versão mais recente ('+APP_VERSAO+').');
+  }catch(e){
+    if(!automatico) toast('Não foi possível verificar agora. Tente em instantes.','warn');
+  }finally{
+    _checandoVersao = false;
+  }
+  return false;
+}
+
+function mostrarBannerNovaVersao(novaVersao){
+  if(document.getElementById('banner-nova-versao')) return;
+  const b = document.createElement('div');
+  b.id = 'banner-nova-versao';
+  b.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#1D9E75,#17855f);color:white;padding:16px 20px;border-radius:14px;box-shadow:0 6px 24px rgba(29,158,117,.45);max-width:90%;width:360px;text-align:center;animation:bannerDown .4s ease';
+  b.innerHTML = `
+    <p style="margin:0;font-size:15px;font-weight:700">🎉 Nova versão disponível!</p>
+    <p style="margin:5px 0 12px;font-size:12px;opacity:.95">A versão ${novaVersao} já está pronta. Atualizando o app...</p>
+    <button onclick="forcarAtualizacao()" style="padding:8px 20px;border:none;border-radius:20px;background:white;color:#17855f;font-size:13px;font-weight:700;cursor:pointer">🔄 Atualizar agora</button>`;
+  document.body.appendChild(b);
+  // Atualiza sozinho após 4 segundos (dá tempo de ler o aviso)
+  setTimeout(()=>{ forcarAtualizacao(); }, 4000);
+}
+
+// Inicia a verificação automática: ao abrir e depois a cada 60 segundos
+function iniciarVerificacaoAuto(){
+  // Primeira checagem 20s após abrir (dá tempo de carregar tudo)
+  setTimeout(()=>checarVersaoServidor(true), 20000);
+  // Depois, a cada 60 segundos
+  setInterval(()=>checarVersaoServidor(true), 60000);
+}
 
 // ===== LIMPEZA DE DADOS DE TESTE (só coordenador) =====
 // Apaga escalas, presenças, reuniões, adorações, eventos e logs.
@@ -471,6 +518,8 @@ function verificarVersao(){
     }
     localStorage.setItem('sogi_versao', APP_VERSAO);
   }catch(e){ /* se localStorage indisponível, ignora silenciosamente */ }
+  // Inicia a verificação automática de novas versões no servidor
+  if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
 }
 
 // Banner visível de atualização — fica na tela até o usuário fechar.
@@ -4939,16 +4988,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <button onclick="fazerLogout()" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px">🚪 Sair (bloquear acesso)</button>
   </div>
   <div class="card" style="border:1.5px solid #e1f5ee;background:#f8fcfa">
-    <p class="ct">🚀 Como atualizar o S.O.G.I.</p>
+    <p class="ct">🚀 Atualização do S.O.G.I.</p>
     <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 12px">
+      O app agora <strong>verifica sozinho</strong> se há versão nova e se atualiza automaticamente. 🎉<br><br>
       Quando o Claude enviar um novo <strong>index.html</strong>:<br>
       <strong>1.</strong> Baixe o arquivo (clique no bloco e use o botão de baixar ⬇️).<br>
-      <strong>2.</strong> No GitHub do projeto: <strong>Add file → Upload files</strong>.<br>
-      <strong>3.</strong> Arraste o <strong>index.html</strong> e clique em <strong>Commit changes</strong>.<br>
-      <strong>4.</strong> Aqui no app, toque no botão verde abaixo (não precisa mais do Ctrl+Shift+R).
+      <strong>2.</strong> No GitHub: <strong>Add file → Upload files</strong> → arraste → <strong>Commit changes</strong>.<br>
+      <strong>3.</strong> Pronto! Em até 1-2 minutos o app detecta e atualiza sozinho. Se quiser, toque no botão abaixo para verificar na hora.
     </p>
-    <button onclick="forcarAtualizacao()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:14px;font-weight:700;cursor:pointer">🔄 Buscar atualização agora</button>
-    <p style="font-size:10px;color:#aaa;text-align:center;margin:8px 0 0">Aguarde ~1 min após publicar no GitHub antes de tocar.</p>
+    <button onclick="checarVersaoServidor(false)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:14px;font-weight:700;cursor:pointer">🔍 Verificar atualização agora</button>
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
