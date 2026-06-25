@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '5.9';
+const APP_VERSAO = '6.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -3980,8 +3980,11 @@ function encontrarMelhor(txt){
 
 
 function initModais(){
-  document.getElementById('cad-dom').innerHTML=MISSAS_DOM.map(h=>`<button onclick="togCad('${h}','dom')" id="cd-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Dom</small></button>`).join('');
-  document.getElementById('cad-sem').innerHTML=MISSAS_SEM.map(h=>`<button onclick="togCad('${h}','sem')" id="cs-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Sem</small></button>`).join('');
+  const cadDom = document.getElementById('cad-dom');
+  const cadSem = document.getElementById('cad-sem');
+  if(!cadDom || !cadSem) return; // na página de cadastro pelo link, esses elementos não existem
+  cadDom.innerHTML=MISSAS_DOM.map(h=>`<button onclick="togCad('${h}','dom')" id="cd-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Dom</small></button>`).join('');
+  cadSem.innerHTML=MISSAS_SEM.map(h=>`<button onclick="togCad('${h}','sem')" id="cs-${h.replace(':','')}" style="padding:8px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer;font-size:12px;text-align:center">${h}<br><small>Sem</small></button>`).join('');
 }
 initModais();
 
