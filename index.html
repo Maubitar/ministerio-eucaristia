@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '5.4';
+const APP_VERSAO = '5.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -746,12 +746,130 @@ async function modoDisponibilidade(id){
 
 // LINK UNIVERSAL: novo ministro se cadastra sozinho (sem precisar de link individual)
 function modoAutoCadastro(){
-  // Ministro "em branco" — será criado um novo documento ao confirmar
-  const m = { id:null, nome:'', tel:'', endereco:'', estadoCivil:'', rg:'', cpf:'',
+  // Passo 1: identificação por nome completo
+  renderTelaIdentificacao();
+}
+
+// Tela inicial do link único: ministro digita o nome completo
+function renderTelaIdentificacao(){
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:30px 18px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:22px">
+      <p style="font-size:15px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Coordenação MESCE</p>
+      <p style="font-size:11px;color:#888">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+    <div style="background:white;border-radius:14px;padding:24px 18px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+      <p style="font-size:18px;font-weight:700;margin:0 0 6px;color:#085041">Cadastro de Ministro(a) 🙏</p>
+      <p style="font-size:13px;color:#666;margin:0 0 18px;line-height:1.5">Para começar, digite seu <strong>nome completo</strong>. Vamos verificar se você já tem cadastro.</p>
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:4px">Nome completo</label>
+      <input type="text" id="ident-nome" placeholder="Ex: Maria da Silva Santos" autocomplete="off"
+        style="width:100%;padding:13px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:15px;box-sizing:border-box;margin-bottom:16px">
+      <button onclick="identificarMinistro()" style="width:100%;padding:15px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">Continuar →</button>
+      <p id="ident-msg" style="font-size:12px;text-align:center;margin-top:12px;color:#888"></p>
+    </div>
+  </div>`;
+  setTimeout(()=>{ const i=document.getElementById('ident-nome'); if(i) i.focus(); },200);
+}
+
+// Verifica se o nome digitado casa com algum ministro existente
+window.identificarMinistro = async function(){
+  const nome = (document.getElementById('ident-nome')?.value||'').trim();
+  const msg = document.getElementById('ident-msg');
+  if(nome.length < 5 || !nome.includes(' ')){
+    if(msg){ msg.textContent='⚠️ Digite seu nome completo (nome e sobrenome).'; msg.style.color='#BA7517'; }
+    return;
+  }
+  if(msg){ msg.textContent='Verificando...'; msg.style.color='#888'; }
+
+  const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+  const nomeNorm = norm(nome);
+  const partes = nomeNorm.split(' ');
+  const primeiro = partes[0], ultimo = partes[partes.length-1];
+
+  let candidatos = [];
+  try{
+    const snap = await getDocs(collection(db,'ministros'));
+    snap.docs.forEach(d=>{
+      const x = {id:d.id, ...d.data()};
+      const xn = norm(x.nome);
+      if(!xn) return;
+      const xp = xn.split(' ');
+      let pontos = 0;
+      if(xn === nomeNorm) pontos = 100;                                  // nome idêntico
+      else if(xp[0]===primeiro && xp[xp.length-1]===ultimo) pontos = 80;  // 1º e último iguais
+      else if(xn.includes(nomeNorm) || nomeNorm.includes(xn)) pontos = 70;// um contém o outro
+      else if(xp[0]===primeiro && xp.length>1 && partes.length>1) pontos = 40; // só 1º nome
+      if(pontos >= 70) candidatos.push({m:x, pontos});
+    });
+  }catch(e){
+    if(msg){ msg.textContent='Erro ao verificar. Tente novamente.'; msg.style.color='#A32D2D'; }
+    return;
+  }
+  candidatos.sort((a,b)=>b.pontos-a.pontos);
+
+  if(candidatos.length){
+    // Encontrou cadastro(s) parecido(s) — pergunta "É você?"
+    renderConfirmacaoIdentidade(nome, candidatos.slice(0,4).map(c=>c.m));
+  } else {
+    // Ninguém parecido — cadastro novo, já com o nome preenchido
+    const m = { id:null, nome:nome, tel:'', endereco:'', estadoCivil:'', rg:'', cpf:'',
+      paroquia:'Basílica Santuário de Nossa Senhora de Nazaré', dizimista:'', plantao:false,
+      dispDom:[], dispSem:[], dispReforco:[], foto:'', nascimento:'' };
+    renderFormularioCadastro(m, true);
+  }
+};
+
+// Tela "É você?" — lista os cadastros parecidos para o ministro confirmar
+function renderConfirmacaoIdentidade(nomeDigitado, candidatos){
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:30px 18px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:22px">
+      <p style="font-size:15px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Coordenação MESCE</p>
+      <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+    <div style="background:white;border-radius:14px;padding:22px 18px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+      <p style="font-size:17px;font-weight:700;margin:0 0 6px;color:#085041">É você? 🤔</p>
+      <p style="font-size:13px;color:#666;margin:0 0 16px;line-height:1.5">Encontramos um cadastro que pode ser o seu. Se for, toque no seu nome para <strong>completar/atualizar</strong> seus dados (sem duplicar).</p>
+      ${candidatos.map(m=>`
+        <button onclick='confirmarIdentidade("${m.id}")' style="width:100%;display:flex;align-items:center;gap:12px;padding:12px;border:1.5px solid #e1f5ee;border-radius:11px;background:#f8fcfa;cursor:pointer;margin-bottom:10px;text-align:left">
+          ${m.foto?`<img src="${m.foto}" style="width:46px;height:46px;border-radius:50%;object-fit:cover;flex-shrink:0">`:`<div style="width:46px;height:46px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>`}
+          <div style="flex:1;min-width:0">
+            <p style="font-size:14px;font-weight:700;color:#085041;margin:0">${m.nome}</p>
+            <p style="font-size:11px;color:#888;margin:2px 0 0">Toque se for você</p>
+          </div>
+          <span style="color:#1D9E75;font-size:20px">›</span>
+        </button>`).join('')}
+      <div style="border-top:1px solid #eee;margin:14px 0 0;padding-top:14px">
+        <p style="font-size:12px;color:#888;margin:0 0 10px;text-align:center">Nenhum desses é você?</p>
+        <button onclick='cadastrarComoNovo("${nomeDigitado.replace(/"/g,'&quot;')}")' style="width:100%;padding:13px;border:1.5px solid #1D9E75;border-radius:10px;background:white;color:#1D9E75;font-size:14px;font-weight:700;cursor:pointer">Sou novo(a), criar meu cadastro</button>
+      </div>
+    </div>
+    <p style="text-align:center;margin-top:14px"><button onclick="renderTelaIdentificacao()" style="background:none;border:none;color:#888;font-size:13px;cursor:pointer;text-decoration:underline">‹ Corrigir meu nome</button></p>
+  </div>`;
+}
+
+// Ministro confirmou que é um cadastro existente — abre para completar
+window.confirmarIdentidade = async function(id){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando seu cadastro...</div>';
+  try{
+    const d = await getDoc(doc(db,'ministros',id));
+    if(!d.exists()) throw new Error('não encontrado');
+    const m = {id:d.id, ...d.data()};
+    renderFormularioCadastro(m, false); // false = atualiza o existente (não duplica)
+  }catch(e){
+    alert('Não foi possível abrir o cadastro. Tente novamente.');
+    renderTelaIdentificacao();
+  }
+};
+
+// Ministro disse que é novo — cria do zero com o nome já digitado
+window.cadastrarComoNovo = function(nome){
+  const m = { id:null, nome:nome, tel:'', endereco:'', estadoCivil:'', rg:'', cpf:'',
     paroquia:'Basílica Santuário de Nossa Senhora de Nazaré', dizimista:'', plantao:false,
     dispDom:[], dispSem:[], dispReforco:[], foto:'', nascimento:'' };
   renderFormularioCadastro(m, true);
-}
+};
 
 // Renderiza o formulário de cadastro/disponibilidade (usado pelos dois modos)
 function renderFormularioCadastro(m, ehNovo){
