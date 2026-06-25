@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '5.7';
+const APP_VERSAO = '5.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -1061,6 +1061,9 @@ function renderFormularioCadastro(m, ehNovo){
         </div>
       </div>
 
+      <div id="aviso-foto-obrig" style="display:none;background:#fff4f4;border:1.5px solid #f0c0c0;border-radius:9px;padding:10px;margin-bottom:10px;text-align:center">
+        <p style="font-size:12px;color:#A32D2D;font-weight:600;margin:0">📷 Adicione sua foto no topo para liberar o botão de confirmar.</p>
+      </div>
       <button id="btn-salvar-disp" onclick="${ehNovo ? 'salvarAutoCadastro()' : `salvarFormDisp('${m.id}')`}"
         style="width:100%;padding:16px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">
         ✓ Confirmar cadastro
@@ -1071,7 +1074,11 @@ function renderFormularioCadastro(m, ehNovo){
   </div>`;
 
   window._formPlantao = !!m.plantao;
-  window._fotoFormAtual = m.foto || null; // foto comprimida (base64) a salvar
+  // Carrega a foto existente SÓ se for válida (evita "foto fantasma" passar na validação)
+  const fotoIni = m.foto;
+  window._fotoFormAtual = (fotoIni && typeof fotoIni==='string' && fotoIni.startsWith('data:image/') && fotoIni.length>=500) ? fotoIni : null;
+  // Aplica o estado inicial do botão (bloqueado se não houver foto válida)
+  setTimeout(()=>{ if(typeof atualizarBotaoFoto==='function') atualizarBotaoFoto(); }, 50);
 }
 
 // Processa a foto escolhida no formulário do ministro: comprime e mostra preview.
@@ -1082,10 +1089,47 @@ window.processarFotoForm = async function(input){
   if(prev) prev.innerHTML = '<span style="font-size:11px;color:#085041">Processando...</span>';
   try{
     const dataUrl = await comprimirFoto(file);
+    // Valida que a foto é realmente válida (base64 de imagem, com tamanho mínimo)
+    if(!dataUrl || !dataUrl.startsWith('data:image/') || dataUrl.length < 500){
+      throw new Error('foto inválida');
+    }
     window._fotoFormAtual = dataUrl;
-    if(prev) prev.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover">`;
+    if(prev){
+      prev.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover">`;
+      prev.style.border = '2px solid #1D9E75';
+    }
+    atualizarBotaoFoto();
   }catch(e){
-    if(prev) prev.innerHTML = '<span style="font-size:10px;color:#A32D2D;text-align:center">Erro na foto.<br>Tente outra.</span>';
+    window._fotoFormAtual = null;
+    if(prev){
+      prev.innerHTML = '<span style="font-size:10px;color:#A32D2D;text-align:center">Erro na foto.<br>Tente outra.</span>';
+      prev.style.border = '2px solid #A32D2D';
+    }
+    atualizarBotaoFoto();
+  }
+};
+
+// Habilita/desabilita o botão de confirmar conforme houver foto válida
+function fotoValida(){
+  const f = window._fotoFormAtual;
+  return !!(f && typeof f==='string' && f.startsWith('data:image/') && f.length >= 500);
+}
+window.atualizarBotaoFoto = function(){
+  const b = document.getElementById('btn-salvar-disp');
+  const aviso = document.getElementById('aviso-foto-obrig');
+  if(!b) return;
+  if(fotoValida()){
+    b.disabled = false;
+    b.style.background = '#1D9E75';
+    b.style.cursor = 'pointer';
+    b.style.opacity = '1';
+    if(aviso) aviso.style.display = 'none';
+  } else {
+    b.disabled = true;
+    b.style.background = '#c8c8c8';
+    b.style.cursor = 'not-allowed';
+    b.style.opacity = '0.7';
+    if(aviso) aviso.style.display = 'block';
   }
 };
 
@@ -1116,14 +1160,14 @@ window.salvarFormDisp = async function(id){
   const g = k => document.getElementById(k);
   const nome = g('f-nome')?.value.trim();
   if(!nome){ msg.textContent='⚠️ Informe seu nome completo.'; msg.style.color='#BA7517'; window.scrollTo({top:0,behavior:'smooth'}); return; }
-  // FOTO OBRIGATÓRIA (necessária para a carteirinha de identificação)
-  if(!window._fotoFormAtual){
+  // FOTO OBRIGATÓRIA (necessária para a carteirinha) — validação reforçada
+  if(!fotoValida()){
     msg.innerHTML='📷 <strong>Falta a sua foto!</strong> A foto é obrigatória para gerar sua carteirinha de identificação. Toque em "Adicionar foto" no topo.';
     msg.style.color='#A32D2D';
     window.scrollTo({top:0,behavior:'smooth'});
-    // destaca o botão de foto
     const fb=document.getElementById('foto-preview');
-    if(fb){ fb.style.border='2px solid #A32D2D'; setTimeout(()=>{ fb.style.border='2px solid #e1f5ee'; },2500); }
+    if(fb){ fb.style.border='2px solid #A32D2D'; }
+    atualizarBotaoFoto();
     return;
   }
   if(formDom.size+formSem.size < 2){
@@ -1185,12 +1229,13 @@ window.salvarAutoCadastro = async function(){
   if(!nome){ msg.textContent='⚠️ Informe seu nome completo.'; msg.style.color='#BA7517'; window.scrollTo({top:0,behavior:'smooth'}); return; }
   const tel = g('f-tel')?.value.trim() || '';
   if(!tel){ msg.textContent='⚠️ Informe seu WhatsApp/telefone.'; msg.style.color='#BA7517'; return; }
-  if(!window._fotoFormAtual){
+  if(!fotoValida()){
     msg.innerHTML='📷 <strong>Falta a sua foto!</strong> A foto é obrigatória para gerar sua carteirinha de identificação. Toque em "Adicionar foto" no topo.';
     msg.style.color='#A32D2D';
     window.scrollTo({top:0,behavior:'smooth'});
     const fb=document.getElementById('foto-preview');
-    if(fb){ fb.style.border='2px solid #A32D2D'; setTimeout(()=>{ fb.style.border='2px solid #e1f5ee'; },2500); }
+    if(fb){ fb.style.border='2px solid #A32D2D'; }
+    atualizarBotaoFoto();
     return;
   }
   if(formDom.size+formSem.size < 2){
