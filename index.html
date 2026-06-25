@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '4.9';
+const APP_VERSAO = '5.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -544,7 +544,7 @@ function showSplash(){
   setTimeout(()=>{ s.style.opacity='0'; setTimeout(()=>s.style.display='none', 600); }, 2500);
 }
 
-const formDom=new Set(), formSem=new Set();
+const formDom=new Set(), formSem=new Set(), formReforco=new Set();
 
 // CARTEIRINHA DIGITAL do ministro (somente leitura, SEM acesso ao app da coordenação).
 // Padrão crachá/CNH digital: foto, dados, validade 1 ano, selo de autenticidade e QR Code.
@@ -699,9 +699,25 @@ async function modoDisponibilidade(id){
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com o coordenador do ministério.</div>';
     return;
   }
-  formDom.clear(); formSem.clear();
+
+  // PROTEÇÃO DE DADOS: se o link já foi usado (cadastro confirmado), ele fica desativado.
+  // Só volta a funcionar se o coordenador reenviar o link.
+  if(m.linkAtivo === false){
+    document.body.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,sans-serif;padding:24px;background:#f8f8f6">
+        <div style="background:white;border-radius:16px;padding:32px 24px;max-width:360px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)">
+          <div style="font-size:48px;margin-bottom:12px">🔒</div>
+          <p style="font-size:17px;font-weight:700;color:#085041;margin:0 0 8px">Cadastro já confirmado</p>
+          <p style="font-size:13px;color:#666;line-height:1.6;margin:0">Seus dados já foram registrados com sucesso e este link foi desativado para proteger suas informações. 🙏</p>
+          <p style="font-size:12px;color:#999;line-height:1.6;margin:14px 0 0">Precisa atualizar algo? Fale com a Coordenação MESCE para receber um novo link.</p>
+        </div>
+      </div>`;
+    return;
+  }
+  formDom.clear(); formSem.clear(); formReforco.clear();
   (m.dispDom||[]).forEach(h=>formDom.add(h));
   (m.dispSem||[]).forEach(h=>formSem.add(h));
+  (m.dispReforco||[]).forEach(r=>formReforco.add(r));
 
   // Pré-preenche nascimento se já existir (formato YYYY-MM-DD)
   let formNascDia='', formNascMes='';
@@ -716,6 +732,12 @@ async function modoDisponibilidade(id){
     const bg  = tipo==='dom'?'#e1f5ee':'#e6f1fb';
     return `<button onclick="togFormDisp('${h}','${tipo}',this)" data-h="${h}" data-t="${tipo}"
       style="padding:14px 8px;border:1.5px solid ${sel?cor:'#ddd'};border-radius:10px;background:${sel?bg:'white'};color:${sel?cor:'#333'};font-size:14px;font-weight:600;cursor:pointer">${h}</button>`;
+  };
+
+  const btnReforco=(r)=>{
+    const sel = formReforco.has(r.id);
+    return `<button onclick="togFormReforco('${r.id}',this)" data-r="${r.id}"
+      style="padding:14px 8px;border:1.5px solid ${sel?'#BA7517':'#ddd'};border-radius:10px;background:${sel?'#faeeda':'white'};color:${sel?'#BA7517':'#333'};font-size:13px;font-weight:600;cursor:pointer">${r.label}</button>`;
   };
 
   document.body.innerHTML = `
@@ -804,6 +826,12 @@ async function modoDisponibilidade(id){
         ${MISSAS_SEM.map(h=>btn(h,'sem')).join('')}
       </div>
 
+      <p style="font-size:12px;font-weight:700;color:#BA7517;margin-bottom:8px">💪 Reforço (escala especial)</p>
+      <p style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.4">Horários de reforço conforme a escala da MESCE.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        ${REFORCO_TIPOS.map(r=>btnReforco(r)).join('')}
+      </div>
+
       <!-- MINISTRO DE PLANTÃO -->
       <div id="plantao-box" onclick="togPlantao()" style="background:${m.plantao?'#e1f5ee':'#f8f8f6'};border:1.5px solid ${m.plantao?'#1D9E75':'#e0e0e0'};border-radius:10px;padding:14px;margin-bottom:20px;cursor:pointer;display:flex;align-items:center;gap:12px">
         <div id="plantao-check" style="width:26px;height:26px;border-radius:7px;border:2px solid ${m.plantao?'#1D9E75':'#bbb'};background:${m.plantao?'#1D9E75':'white'};display:flex;align-items:center;justify-content:center;color:white;font-size:16px;font-weight:700;flex-shrink:0">${m.plantao?'✓':''}</div>
@@ -858,6 +886,11 @@ window.togFormDisp = function(h, tipo, el){
   else{ set.add(h); el.style.border='1.5px solid '+cor; el.style.background=bg; el.style.color=cor; }
 };
 
+window.togFormReforco = function(rid, el){
+  if(formReforco.has(rid)){ formReforco.delete(rid); el.style.border='1.5px solid #ddd'; el.style.background='white'; el.style.color='#333'; }
+  else{ formReforco.add(rid); el.style.border='1.5px solid #BA7517'; el.style.background='#faeeda'; el.style.color='#BA7517'; }
+};
+
 window.salvarFormDisp = async function(id){
   const msg = document.getElementById('form-msg');
   const g = k => document.getElementById(k);
@@ -890,9 +923,11 @@ window.salvarFormDisp = async function(id){
     paroquia: g('f-paroquia')?.value.trim() || '',
     dizimista: g('f-dizimista')?.value || '',
     plantao: !!window._formPlantao,
-    dispDom:[...formDom], dispSem:[...formSem],
+    dispDom:[...formDom], dispSem:[...formSem], dispReforco:[...formReforco],
     dispAtualizadaEm:serverTimestamp(),
-    cadastroAtualizadoEm:serverTimestamp()
+    cadastroAtualizadoEm:serverTimestamp(),
+    linkAtivo:false,                       // PROTEÇÃO: ao confirmar, o link de cadastro é desativado
+    linkUsadoEm:new Date().toISOString()
   };
   // Foto (se enviada/alterada)
   if(window._fotoFormAtual){
@@ -3221,11 +3256,12 @@ window.solicitarDisp = function(id){
     toast('⚠️ Telefone do ministro inválido ou sem DDD. Corrija em "Editar dados".','warn');
     return;
   }
-  // Marca a data/hora em que o link foi enviado (para o relatório de cobrança)
+  // Marca a data/hora em que o link foi enviado E reativa o link (para o ministro poder usar)
   try{
     const agora = new Date().toISOString();
-    updateDoc(doc(db,'ministros',id),{linkEnviadoEm: agora});
+    updateDoc(doc(db,'ministros',id),{linkEnviadoEm: agora, linkAtivo: true});
     m.linkEnviadoEm = agora;
+    m.linkAtivo = true;
   }catch(e){}
   const url = `https://wa.me/${tel}?text=${encodeURIComponent(txt)}`;
   window.open(url,'_blank');
