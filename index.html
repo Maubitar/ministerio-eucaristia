@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '5.5';
+const APP_VERSAO = '5.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -856,7 +856,56 @@ window.confirmarIdentidade = async function(id){
     const d = await getDoc(doc(db,'ministros',id));
     if(!d.exists()) throw new Error('não encontrado');
     const m = {id:d.id, ...d.data()};
-    renderFormularioCadastro(m, false); // false = atualiza o existente (não duplica)
+    // Verifica se o cadastro JÁ está completo (foto + disponibilidade + já confirmado antes)
+    const temFoto = !!m.foto;
+    const temDisp = ((m.dispDom||[]).length + (m.dispSem||[]).length) >= 2 || !!m.plantao;
+    const jaConfirmou = !!m.linkUsadoEm || !!m.cadastroAtualizadoEm;
+    if(temFoto && temDisp && jaConfirmou){
+      renderCadastroJaCompleto(m);
+    } else {
+      renderFormularioCadastro(m, false); // completa o que falta (não duplica)
+    }
+  }catch(e){
+    alert('Não foi possível abrir o cadastro. Tente novamente.');
+    renderTelaIdentificacao();
+  }
+};
+
+// Aviso: cadastro já completo — não precisa refazer, mas pode atualizar se quiser
+function renderCadastroJaCompleto(m){
+  const primeiro = (m.nome||'').split(' ')[0];
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:30px 18px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:22px">
+      <p style="font-size:15px;color:#085041;font-weight:700;margin-bottom:2px">🕊️ Coordenação MESCE</p>
+      <p style="font-size:11px;color:#888">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+    <div style="background:white;border-radius:14px;padding:28px 20px;box-shadow:0 2px 8px rgba(0,0,0,.06);text-align:center">
+      <div style="font-size:54px;line-height:1;margin-bottom:10px">✅</div>
+      ${m.foto?`<img src="${m.foto}" style="width:90px;height:90px;border-radius:50%;object-fit:cover;margin:0 auto 12px;display:block;border:3px solid #e1f5ee">`:''}
+      <p style="font-size:19px;font-weight:700;color:#085041;margin:0 0 4px">Olá, ${primeiro}! 🙏</p>
+      <p style="font-size:15px;font-weight:700;color:#1D9E75;margin:0 0 10px">Seu cadastro já está completo!</p>
+      <p style="font-size:13px;color:#666;line-height:1.6;margin:0 0 6px">Você <strong>já finalizou</strong> seu cadastro com foto e disponibilidade. <strong>Não precisa preencher de novo.</strong> 🎉</p>
+      <div style="background:#f0faf5;border-radius:10px;padding:12px;margin:16px 0;text-align:left">
+        <p style="font-size:12px;color:#085041;margin:0 0 4px">📸 Foto: <strong>cadastrada</strong></p>
+        <p style="font-size:12px;color:#085041;margin:0 0 4px">🕐 Disponibilidade: <strong>${(m.dispDom||[]).length + (m.dispSem||[]).length} horário(s)${m.plantao?' + plantão':''}</strong></p>
+        <p style="font-size:12px;color:#085041;margin:0">📱 Telefone: <strong>${m.tel?'cadastrado':'—'}</strong></p>
+      </div>
+      <p style="font-size:12px;color:#888;margin:0 0 16px">Precisa mudar algum dado ou disponibilidade? Você pode atualizar abaixo.</p>
+      <button onclick='confirmarIdentidadeForcar("${m.id}")' style="width:100%;padding:13px;border:1.5px solid #1D9E75;border-radius:10px;background:white;color:#1D9E75;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px">✏️ Quero atualizar meus dados</button>
+      <button onclick="renderTelaIdentificacao()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">Está tudo certo, sair 🙏</button>
+    </div>
+  </div>`;
+}
+
+// Abre o formulário para atualizar mesmo já estando completo
+window.confirmarIdentidadeForcar = async function(id){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Abrindo seu cadastro...</div>';
+  try{
+    const d = await getDoc(doc(db,'ministros',id));
+    if(!d.exists()) throw new Error('não encontrado');
+    const m = {id:d.id, ...d.data()};
+    renderFormularioCadastro(m, false);
   }catch(e){
     alert('Não foi possível abrir o cadastro. Tente novamente.');
     renderTelaIdentificacao();
