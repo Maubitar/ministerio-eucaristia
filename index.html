@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '5.1';
+const APP_VERSAO = '5.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -147,6 +147,14 @@ window.addEventListener('load', async()=>{
     const app = initializeApp(FB);
     db = getFirestore(app);
     modoDisponibilidade(dispId);
+    return;
+  }
+  // LINK UNIVERSAL DE CADASTRO: um único link para todos os ministros se cadastrarem
+  const cadastroNovo = params.get('cadastro');
+  if(cadastroNovo === 'novo'){
+    const app = initializeApp(FB);
+    db = getFirestore(app);
+    modoAutoCadastro();
     return;
   }
 
@@ -733,6 +741,20 @@ async function modoDisponibilidade(id){
       </div>`;
     return;
   }
+  renderFormularioCadastro(m, false);
+}
+
+// LINK UNIVERSAL: novo ministro se cadastra sozinho (sem precisar de link individual)
+function modoAutoCadastro(){
+  // Ministro "em branco" — será criado um novo documento ao confirmar
+  const m = { id:null, nome:'', tel:'', endereco:'', estadoCivil:'', rg:'', cpf:'',
+    paroquia:'Basílica Santuário de Nossa Senhora de Nazaré', dizimista:'', plantao:false,
+    dispDom:[], dispSem:[], dispReforco:[], foto:'', nascimento:'' };
+  renderFormularioCadastro(m, true);
+}
+
+// Renderiza o formulário de cadastro/disponibilidade (usado pelos dois modos)
+function renderFormularioCadastro(m, ehNovo){
   formDom.clear(); formSem.clear(); formReforco.clear();
   (m.dispDom||[]).forEach(h=>formDom.add(h));
   (m.dispSem||[]).forEach(h=>formSem.add(h));
@@ -768,8 +790,8 @@ async function modoDisponibilidade(id){
     </div>
 
     <div style="background:white;border-radius:14px;padding:20px 16px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
-      <p style="font-size:17px;font-weight:700;margin-bottom:4px">Olá, ${m.nome.split(' ')[0]}! 🙏</p>
-      <p style="font-size:13px;color:#666;margin-bottom:18px;line-height:1.5">Confira e complete seu cadastro na MESCE. Leva poucos minutos e mantém seus dados sempre atualizados.</p>
+      <p style="font-size:17px;font-weight:700;margin-bottom:4px">${ehNovo ? 'Bem-vindo(a) à MESCE! 🙏' : `Olá, ${m.nome.split(' ')[0]}! 🙏`}</p>
+      <p style="font-size:13px;color:#666;margin-bottom:18px;line-height:1.5">${ehNovo ? 'Faça seu cadastro como Ministro(a) da Sagrada Comunhão Eucarística. Preencha seus dados com atenção — leva poucos minutos.' : 'Confira e complete seu cadastro na MESCE. Leva poucos minutos e mantém seus dados sempre atualizados.'}</p>
 
       <!-- DADOS PESSOAIS -->
       <p style="font-size:12px;font-weight:700;color:#085041;margin-bottom:8px;padding-bottom:5px;border-bottom:1.5px solid #e1f5ee">👤 DADOS PESSOAIS</p>
@@ -860,7 +882,7 @@ async function modoDisponibilidade(id){
         </div>
       </div>
 
-      <button id="btn-salvar-disp" onclick="salvarFormDisp('${m.id}')"
+      <button id="btn-salvar-disp" onclick="${ehNovo ? 'salvarAutoCadastro()' : `salvarFormDisp('${m.id}')`}"
         style="width:100%;padding:16px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">
         ✓ Confirmar cadastro
       </button>
@@ -976,6 +998,73 @@ window.salvarFormDisp = async function(id){
   }
 };
 
+// Salva um NOVO ministro a partir do link universal de cadastro
+window.salvarAutoCadastro = async function(){
+  const msg = document.getElementById('form-msg');
+  const g = k => document.getElementById(k);
+  const nome = g('f-nome')?.value.trim();
+  if(!nome){ msg.textContent='⚠️ Informe seu nome completo.'; msg.style.color='#BA7517'; window.scrollTo({top:0,behavior:'smooth'}); return; }
+  const tel = g('f-tel')?.value.trim() || '';
+  if(!tel){ msg.textContent='⚠️ Informe seu WhatsApp/telefone.'; msg.style.color='#BA7517'; return; }
+  if(!window._fotoFormAtual){
+    msg.innerHTML='📷 <strong>Falta a sua foto!</strong> A foto é obrigatória para gerar sua carteirinha de identificação. Toque em "Adicionar foto" no topo.';
+    msg.style.color='#A32D2D';
+    window.scrollTo({top:0,behavior:'smooth'});
+    const fb=document.getElementById('foto-preview');
+    if(fb){ fb.style.border='2px solid #A32D2D'; setTimeout(()=>{ fb.style.border='2px solid #e1f5ee'; },2500); }
+    return;
+  }
+  if(formDom.size+formSem.size < 2){
+    msg.textContent='⚠️ Selecione pelo menos 2 horários de disponibilidade.';
+    msg.style.color='#BA7517';
+    return;
+  }
+  const b=document.getElementById('btn-salvar-disp');
+  b.disabled=true; b.textContent='Salvando...';
+
+  const dados = {
+    nome,
+    tel,
+    endereco: g('f-endereco')?.value.trim() || '',
+    estadoCivil: g('f-civil')?.value || '',
+    rg: g('f-rg')?.value.trim() || '',
+    cpf: g('f-cpf')?.value.trim() || '',
+    paroquia: g('f-paroquia')?.value.trim() || '',
+    dizimista: g('f-dizimista')?.value || '',
+    plantao: !!window._formPlantao,
+    dispDom:[...formDom], dispSem:[...formSem], dispReforco:[...formReforco],
+    ativo:true,
+    autoCadastro:true,                        // veio do link universal (para você revisar se quiser)
+    criadoEm:serverTimestamp(),
+    dispAtualizadaEm:serverTimestamp(),
+    cadastroAtualizadoEm:serverTimestamp(),
+    linkAtivo:false,
+    linkUsadoEm:new Date().toISOString()
+  };
+  if(window._fotoFormAtual){
+    dados.foto = window._fotoFormAtual;
+    dados.fotoAtualizadaEm = serverTimestamp();
+  }
+  const dia=g('form-nasc-dia')?.value;
+  const mesN=g('form-nasc-mes')?.value;
+  if(dia && mesN){ dados.nascimento = `1900-${mesN}-${dia}`; }
+
+  try{
+    await addDoc(collection(db,'ministros'), dados);
+    document.body.innerHTML = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center;background:#f8f8f6">
+      <div style="font-size:56px;margin-bottom:14px">✅</div>
+      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Cadastro realizado!</p>
+      <p style="font-size:13px;color:#666;max-width:320px;line-height:1.6">Seja bem-vindo(a), ${nome.split(' ')[0]}! Seu cadastro como Ministro(a) foi registrado com sucesso no sistema da Coordenação MESCE.${dados.plantao?'<br><br>🔔 Você se inscreveu como <strong>ministro de plantão</strong> — gratidão pela disponibilidade!':''}</p>
+      <p style="font-size:12px;color:#085041;margin-top:18px;font-weight:600">Que Deus abençoe seu serviço! 🙏</p>
+    </div>`;
+  }catch(e){
+    msg.textContent='Erro ao salvar. Tente novamente.';
+    msg.style.color='#A32D2D';
+    b.disabled=false; b.textContent='✓ Confirmar cadastro';
+  }
+};
+
 async function carregarMinistros(){
   const snap = await getDocs(collection(db,'ministros'));
   ministros = snap.docs.map(d=>({id:d.id,...d.data()}))
@@ -985,6 +1074,32 @@ async function carregarMinistros(){
   document.getElementById('m-total').textContent = ministros.length;
   window._ministros = ministros;
 }
+
+// ===== LINK ÚNICO DE CADASTRO (universal) =====
+function _linkCadastroUniversal(){ return `${APP_URL}/?cadastro=novo`; }
+
+window.compartilharLinkCadastro = async function(){
+  const url = _linkCadastroUniversal();
+  const texto = `🕊️ *Cadastro MESCE — Basílica de Nazaré*\n\nOlá! Faça seu cadastro como Ministro(a) da Sagrada Comunhão Eucarística pelo link abaixo. É rápido e seguro:\n\n${url}\n\nPreencha seus dados, sua foto e seus horários de disponibilidade. Que Deus abençoe! 🙏`;
+  if(navigator.share){
+    try{ await navigator.share({title:'Cadastro MESCE', text:texto}); return; }catch(e){ if(e.name==='AbortError') return; }
+  }
+  // Sem compartilhamento nativo: abre o WhatsApp com o texto pronto
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`,'_blank');
+};
+
+window.copiarLinkCadastro = async function(){
+  const url = _linkCadastroUniversal();
+  try{
+    await navigator.clipboard.writeText(url);
+    toast('✓ Link copiado! Cole no grupo da coordenação.');
+  }catch(e){
+    // fallback
+    const ta=document.createElement('textarea'); ta.value=url; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); toast('✓ Link copiado!'); }catch(_){ toast('Link: '+url); }
+    document.body.removeChild(ta);
+  }
+};
 
 // Escuta mudanças nos ministros em TEMPO REAL — quando um ministro marca disponibilidade
 // pelo link, ou você edita dados, o app atualiza sozinho sem precisar recarregar.
@@ -1064,6 +1179,7 @@ window.nav = function(id, btn){
     eventos: ()=>renderEventos(),
     financeiro: ()=>renderFinanceiro(),
     secretaria: ()=>renderSecretaria(),
+    'tel-rapido': ()=>renderTelefonesRapido(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
   if(fns[id]) fns[id]();
@@ -4576,6 +4692,79 @@ window.registrarPresencaSec = function(id){
   return true;
 };
 
+// ====================== EDIÇÃO RÁPIDA DE TELEFONES ======================
+window._telBusca = '';
+window.renderTelefonesRapido = function(){
+  const cont = document.getElementById('tel-rapido-body');
+  if(!cont) return;
+  const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const comTel = ativos.filter(m=>m.tel && formatarTelBR(m.tel)).length;
+  const semTel = ativos.length - comTel;
+
+  cont.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <div style="flex:1;background:#e1f5ee;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#085041">${comTel}</p>
+        <p style="font-size:10px;color:#666;margin:0">Com telefone</p>
+      </div>
+      <div style="flex:1;background:#fcebeb;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:18px;font-weight:700;margin:0;color:#A32D2D">${semTel}</p>
+        <p style="font-size:10px;color:#666;margin:0">Faltam</p>
+      </div>
+    </div>
+    <input type="text" id="tel-busca" value="${window._telBusca||''}" oninput="filtrarTelRapido(this.value)" placeholder="🔎 Buscar ministro pelo nome..." style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:8px;box-sizing:border-box">
+    <p style="font-size:11px;color:#888;margin:0 0 10px;line-height:1.5">Digite o telefone com DDD (ex: 91 98765-4321). Salva sozinho. Depois toque em 📲 para enviar o link.</p>
+    <div id="tel-lista"></div>`;
+  filtrarTelRapido(window._telBusca||'');
+};
+
+window.filtrarTelRapido = function(filtro){
+  window._telBusca = filtro;
+  const lista = document.getElementById('tel-lista');
+  if(!lista) return;
+  const f = normalizarBusca(filtro||'');
+  const ativos = ministros.filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(f))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  lista.innerHTML = ativos.map(m=>{
+    const telOk = m.tel && formatarTelBR(m.tel);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0">
+      <div style="flex:1;min-width:0">
+        <p style="font-size:13px;font-weight:500;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.nome}</p>
+        <input type="tel" inputmode="tel" value="${m.tel||''}" placeholder="(91) 9 0000-0000"
+          onchange="salvarTelRapido('${m.id}',this.value,this)"
+          style="width:100%;max-width:180px;padding:7px 9px;border:1.5px solid ${telOk?'#cfe8de':'#f0d0d0'};border-radius:8px;font-size:13px;margin-top:3px;box-sizing:border-box;background:${telOk?'#f8fcfa':'#fffafa'}">
+      </div>
+      <button onclick="enviarLinkRapido('${m.id}')" title="Enviar link de cadastro"
+        style="flex-shrink:0;width:42px;height:42px;border:none;border-radius:10px;background:${telOk?'#25D366':'#e0e0e0'};color:white;font-size:18px;cursor:${telOk?'pointer':'default'}" ${telOk?'':'disabled'}>📲</button>
+    </div>`;
+  }).join('') || '<p style="font-size:12px;color:#888;padding:10px 0">Nenhum ministro encontrado.</p>';
+};
+
+window.salvarTelRapido = async function(id, valor, el){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  m.tel = valor.trim();
+  const telOk = formatarTelBR(m.tel);
+  if(el){
+    el.style.borderColor = telOk?'#1D9E75':'#f0d0d0';
+    el.style.background = telOk?'#f0faf5':'#fffafa';
+  }
+  try{
+    await updateDoc(doc(db,'ministros',id),{tel:m.tel});
+    if(telOk){ toast('✓ '+m.nome.split(' ')[0]+': telefone salvo'); }
+    // atualiza o botão de enviar ao lado
+    const btn = el?.parentElement?.parentElement?.querySelector('button');
+    if(btn){ btn.style.background = telOk?'#25D366':'#e0e0e0'; btn.disabled = !telOk; btn.style.cursor = telOk?'pointer':'default'; }
+  }catch(e){ toast('Erro ao salvar telefone.','err'); }
+};
+
+window.enviarLinkRapido = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  if(!formatarTelBR(m.tel)){ toast('Telefone inválido ou sem DDD.','warn'); return; }
+  solicitarDisp(id); // reaproveita o envio padrão (já reativa o link e marca data de envio)
+};
+
 </script>
 
 <style>
@@ -5015,6 +5204,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card">
     <p class="ct">👥 Ministros <span id="min-sem-disp" style="font-size:11px;color:#BA7517;margin-left:6px"></span></p>
+    <button onclick="nav('tel-rapido')" style="width:100%;padding:10px;border:none;border-radius:9px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px">📱 Preencher telefones em massa</button>
     <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()">
     <div id="min-body"></div>
   </div>
@@ -5057,6 +5247,13 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
+
+  <div class="card" style="border:1.5px solid #25D366;background:#f6fff9">
+    <p class="ct" style="color:#1ba34d">🔗 Link único de cadastro (para o grupo)</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Um único link que serve para <strong>todos</strong>. Poste no grupo da coordenação: cada ministro toca, preenche os próprios dados (inclusive o telefone) e a foto, e entra automaticamente na lista. Você não precisa ter o número de ninguém. 🙌</p>
+    <button onclick="compartilharLinkCadastro()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">📤 Compartilhar link de cadastro</button>
+    <button onclick="copiarLinkCadastro()" style="width:100%;padding:11px;border:1.5px solid #25D366;border-radius:9px;background:white;color:#1ba34d;font-size:13px;font-weight:600;cursor:pointer">📋 Copiar link</button>
+  </div>
 
   <div class="card" style="border:1.5px solid #E8C66B">
     <p class="ct">🎂 Importar aniversários</p>
@@ -5134,6 +5331,16 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Reuniões, aniversariantes e comunicados.</p>
   </div>
   <div id="secretaria-body"></div>
+</div>
+
+<!-- SEÇÃO: EDIÇÃO RÁPIDA DE TELEFONES -->
+<div id="s-tel-rapido" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#25D366,#1ba34d);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">📱 Telefones em massa</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Preencha os telefones rapidamente e envie o link de cada ministro.</p>
+  </div>
+  <div id="tel-rapido-body"></div>
 </div>
 </div>
 <!-- MODAIS -->
