@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.0';
+const APP_VERSAO = '6.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -998,14 +998,14 @@ function renderFormularioCadastro(m, ehNovo){
 
       <!-- ANIVERSÁRIO -->
       <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:10px;padding:12px;margin-bottom:18px">
-        <p style="font-size:12px;font-weight:700;color:#a07d2a;margin-bottom:6px">🎂 DATA DE NASCIMENTO</p>
-        <p style="font-size:11px;color:#8a6a1e;margin-bottom:8px;line-height:1.4">Para recebermos uma bênção da Coordenação no seu dia 🙏</p>
+        <p style="font-size:12px;font-weight:700;color:#a07d2a;margin-bottom:6px">🎂 DATA DE NASCIMENTO <span style="color:#A32D2D">*</span></p>
+        <p style="font-size:11px;color:#8a6a1e;margin-bottom:8px;line-height:1.4">Dia e mês são obrigatórios — é assim que a Coordenação te envia o cartão de bênção no seu dia! 🙏 (o ano é opcional)</p>
         <div style="display:flex;gap:8px">
-          <select id="form-nasc-dia" style="flex:1;margin:0;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;background:white">
+          <select id="form-nasc-dia" onchange="atualizarBotaoFoto()" style="flex:1;margin:0;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;background:white">
             <option value="">Dia</option>
             ${Array.from({length:31},(_,i)=>{const d=String(i+1).padStart(2,'0');const sel=(formNascDia===d)?'selected':'';return `<option value="${d}" ${sel}>${d}</option>`;}).join('')}
           </select>
-          <select id="form-nasc-mes" style="flex:1.4;margin:0;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;background:white">
+          <select id="form-nasc-mes" onchange="atualizarBotaoFoto()" style="flex:1.4;margin:0;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;background:white">
             <option value="">Mês</option>
             ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((nm,i)=>{const v=String(i+1).padStart(2,'0');const sel=(formNascMes===v)?'selected':'';return `<option value="${v}" ${sel}>${nm}</option>`;}).join('')}
           </select>
@@ -1114,11 +1114,22 @@ function fotoValida(){
   const f = window._fotoFormAtual;
   return !!(f && typeof f==='string' && f.startsWith('data:image/') && f.length >= 500);
 }
+// Verifica se o que é obrigatório está preenchido: foto + dia/mês de nascimento
+function nascimentoValido(){
+  const dia = document.getElementById('form-nasc-dia')?.value;
+  const mes = document.getElementById('form-nasc-mes')?.value;
+  return !!(dia && mes);
+}
+function cadastroPodeFinalizar(){
+  return fotoValida() && nascimentoValido();
+}
 window.atualizarBotaoFoto = function(){
   const b = document.getElementById('btn-salvar-disp');
   const aviso = document.getElementById('aviso-foto-obrig');
   if(!b) return;
-  if(fotoValida()){
+  const temFoto = fotoValida();
+  const temNasc = nascimentoValido();
+  if(temFoto && temNasc){
     b.disabled = false;
     b.style.background = '#1D9E75';
     b.style.cursor = 'pointer';
@@ -1129,7 +1140,15 @@ window.atualizarBotaoFoto = function(){
     b.style.background = '#c8c8c8';
     b.style.cursor = 'not-allowed';
     b.style.opacity = '0.7';
-    if(aviso) aviso.style.display = 'block';
+    if(aviso){
+      aviso.style.display = 'block';
+      // Mostra exatamente o que falta
+      let faltam = [];
+      if(!temFoto) faltam.push('📷 sua foto');
+      if(!temNasc) faltam.push('🎂 dia e mês de nascimento');
+      const txt = aviso.querySelector('p');
+      if(txt) txt.innerHTML = 'Para liberar o botão, falta: <strong>'+faltam.join(' e ')+'</strong>.';
+    }
   }
 };
 
@@ -1167,6 +1186,13 @@ window.salvarFormDisp = async function(id){
     window.scrollTo({top:0,behavior:'smooth'});
     const fb=document.getElementById('foto-preview');
     if(fb){ fb.style.border='2px solid #A32D2D'; }
+    atualizarBotaoFoto();
+    return;
+  }
+  if(!nascimentoValido()){
+    msg.innerHTML='🎂 <strong>Falta sua data de nascimento!</strong> Informe o dia e o mês (obrigatório para o cartão de aniversário).';
+    msg.style.color='#A32D2D';
+    document.getElementById('form-nasc-dia')?.scrollIntoView({behavior:'smooth',block:'center'});
     atualizarBotaoFoto();
     return;
   }
@@ -1235,6 +1261,13 @@ window.salvarAutoCadastro = async function(){
     window.scrollTo({top:0,behavior:'smooth'});
     const fb=document.getElementById('foto-preview');
     if(fb){ fb.style.border='2px solid #A32D2D'; }
+    atualizarBotaoFoto();
+    return;
+  }
+  if(!nascimentoValido()){
+    msg.innerHTML='🎂 <strong>Falta sua data de nascimento!</strong> Informe o dia e o mês (obrigatório para o cartão de aniversário).';
+    msg.style.color='#A32D2D';
+    document.getElementById('form-nasc-dia')?.scrollIntoView({behavior:'smooth',block:'center'});
     atualizarBotaoFoto();
     return;
   }
@@ -2965,6 +2998,7 @@ window.renderRelatorios = async function(){
   const tab=document.getElementById('rel-tab').value;
   document.getElementById('rel-body').innerHTML='<p style="color:#888;font-size:13px;padding:8px 0">Carregando...</p>';
   if(tab==='atualizacao') await relAtualizacao();
+  if(tab==='incompletos') await relIncompletos();
   if(tab==='excecoes') await relExcecoes();
   if(tab==='missas') await relFrequencia();
   if(tab==='reunioes') await relReunioes();
@@ -2973,6 +3007,62 @@ window.renderRelatorios = async function(){
   if(tab==='escalas') await relEscalas();
   if(tab==='eventos') await relEventos();
 };
+
+// Relatório: quem falta COMPLETAR o cadastro (foto, nascimento, telefone, disponibilidade)
+async function relIncompletos(){
+  const fmtTel = window.formatarTelBR || (x=>x);
+  const lista = ministros.map(m=>{
+    const semFoto = !(m.foto && typeof m.foto==='string' && m.foto.startsWith('data:image/'));
+    const semNasc = !m.nascimento || (m.nascimento.split('-').length<3) || (!m.nascimento.split('-')[2] || !m.nascimento.split('-')[1]);
+    const semTel = !(m.tel && fmtTel(m.tel));
+    const semDisp = ((m.dispDom||[]).length + (m.dispSem||[]).length) < 2 && !m.plantao;
+    const faltas = [];
+    if(semFoto) faltas.push('📷 foto');
+    if(semNasc) faltas.push('🎂 nascimento');
+    if(semTel) faltas.push('📱 telefone');
+    if(semDisp) faltas.push('🕐 disponibilidade');
+    return {m, faltas};
+  }).filter(x=>x.faltas.length>0)
+    .sort((a,b)=>b.faltas.length-a.faltas.length || a.m.nome.localeCompare(b.m.nome,'pt-BR'));
+
+  const completos = ministros.length - lista.length;
+  const pct = ministros.length ? Math.round(completos/ministros.length*100) : 0;
+
+  if(!lista.length){
+    document.getElementById('rel-body').innerHTML = `
+      <div style="text-align:center;padding:24px 16px">
+        <p style="font-size:44px;margin:0">🎉</p>
+        <p style="font-size:15px;font-weight:700;color:#1D9E75;margin:8px 0 4px">Todos os cadastros estão completos!</p>
+        <p style="font-size:13px;color:#666;margin:0">Os ${ministros.length} ministros têm foto, nascimento, telefone e disponibilidade. 🙏</p>
+      </div>`;
+    return;
+  }
+
+  document.getElementById('rel-body').innerHTML = `
+    <div style="background:#e6f1fb;border-radius:12px;padding:14px;margin-bottom:14px">
+      <p style="font-size:13px;color:#185FA5;margin:0;font-weight:700">📊 Progresso dos cadastros</p>
+      <p style="font-size:24px;font-weight:700;color:#085041;margin:6px 0 2px">${completos} de ${ministros.length} <span style="font-size:14px;color:#888">completos (${pct}%)</span></p>
+      <div style="background:#d0e2f5;border-radius:10px;height:10px;overflow:hidden;margin-top:8px">
+        <div style="background:#1D9E75;height:100%;width:${pct}%"></div>
+      </div>
+      <p style="font-size:12px;color:#A32D2D;margin:10px 0 0;font-weight:600">⚠️ ${lista.length} ministro(s) ainda precisam completar:</p>
+    </div>
+    ${lista.map(({m,faltas})=>{
+      const tel = (window.formatarTelBR||(x=>x))(m.tel);
+      const msgWa = `Olá, ${m.nome.split(' ')[0]}! 🙏 Falta completar seu cadastro na MESCE: ${faltas.map(f=>f.replace(/[^a-zA-Zçãéó ]/g,'').trim()).join(', ')}. Acesse o link e finalize, por favor. Que Deus abençoe!`;
+      const wa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(msgWa)}` : '';
+      return `<div style="background:white;border:1px solid #eee;border-radius:11px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          ${m.foto?`<img src="${m.foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0">`:`<div style="width:38px;height:38px;border-radius:50%;background:#fcebeb;color:#A32D2D;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${iniciais(m.nome)}</div>`}
+          <div style="flex:1;min-width:0">
+            <p style="font-size:13px;font-weight:600;margin:0">${m.nome}</p>
+            <p style="font-size:11px;color:#A32D2D;margin:2px 0 0">Falta: ${faltas.join(' · ')}</p>
+          </div>
+          ${wa?`<a href="${wa}" target="_blank" style="flex-shrink:0;text-decoration:none;background:#25D366;color:white;font-size:11px;font-weight:700;padding:7px 11px;border-radius:18px">📲 Cobrar</a>`:'<span style="font-size:10px;color:#bbb">sem tel</span>'}
+        </div>
+      </div>`;
+    }).join('')}`;
+}
 
 // Relatório: quem já atualizou disponibilidade e aniversário (para cobrar quem não fez)
 async function relAtualizacao(){
@@ -5437,6 +5527,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p class="ct">📊 Relatórios</p>
     <select id="rel-tab" onchange="renderRelatorios()" style="margin-bottom:12px">
       <option value="atualizacao">✅ Quem atualizou cadastro</option>
+      <option value="incompletos">📋 Quem falta completar (foto, nascimento...)</option>
       <option value="excecoes">⚠️ Exceções na escala (log)</option>
       <option value="missas">Presença — Missas</option>
       <option value="reunioes">Presença — Reuniões</option>
