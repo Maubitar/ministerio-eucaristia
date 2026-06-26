@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.2';
+const APP_VERSAO = '6.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -1047,7 +1047,7 @@ function renderFormularioCadastro(m, ehNovo){
       </div>
 
       <p style="font-size:12px;font-weight:700;color:#BA7517;margin-bottom:8px">💪 Reforço (escala especial)</p>
-      <p style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.4">Horários de reforço conforme a escala da MESCE.</p>
+      <p style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.4">Horários de reforço conforme a escala da MESCE. <strong>Se você serve apenas no reforço</strong>, marque ao menos um abaixo — não precisa marcar as missas acima. 🙏</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
         ${REFORCO_TIPOS.map(r=>btnReforco(r)).join('')}
       </div>
@@ -1196,8 +1196,8 @@ window.salvarFormDisp = async function(id){
     atualizarBotaoFoto();
     return;
   }
-  if(formDom.size+formSem.size < 2){
-    msg.textContent='⚠️ Selecione pelo menos 2 horários de disponibilidade.';
+  if(formDom.size + formSem.size < 2 && formReforco.size < 1){
+    msg.textContent='⚠️ Marque pelo menos 2 horários de missa, ou ao menos 1 reforço se você serve apenas no reforço.';
     msg.style.color='#BA7517';
     return;
   }
@@ -1271,8 +1271,8 @@ window.salvarAutoCadastro = async function(){
     atualizarBotaoFoto();
     return;
   }
-  if(formDom.size+formSem.size < 2){
-    msg.textContent='⚠️ Selecione pelo menos 2 horários de disponibilidade.';
+  if(formDom.size + formSem.size < 2 && formReforco.size < 1){
+    msg.textContent='⚠️ Marque pelo menos 2 horários de missa, ou ao menos 1 reforço se você serve apenas no reforço.';
     msg.style.color='#BA7517';
     return;
   }
@@ -2995,13 +2995,34 @@ window.renderReforco = async function(){
   const lista=reforcos[key].ministros||[];
   const rf=REFORCO_TIPOS.find(r=>r.id===tipo);
   document.getElementById('ref-titulo').textContent=`Reforço — ${rf.label}`;
-  document.getElementById('ref-body').innerHTML=lista.length
-    ? lista.map((m,i)=>`
+
+  // Ministros que marcaram ESTE reforço no cadastro (disponíveis para esse horário)
+  const jaNaLista = new Set(lista);
+  const disponiveisReforco = ministros.filter(m=>(m.dispReforco||[]).includes(tipo) && !jaNaLista.has(m.nome))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+
+  const sugestoesHtml = disponiveisReforco.length ? `
+    <div style="background:#fdf6e3;border:1px solid #E8C66B;border-radius:10px;padding:12px;margin-bottom:12px">
+      <p style="font-size:12px;font-weight:700;color:#a07d2a;margin:0 0 8px">✨ Marcaram disponibilidade para este reforço (${disponiveisReforco.length}):</p>
+      ${disponiveisReforco.map(m=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+          <span style="flex:1;font-size:13px">${m.nome}</span>
+          <button onclick="addMinReforcoDireto('${key}','${m.nome.replace(/'/g,"\\'")}')" style="font-size:11px;padding:4px 12px;border-radius:16px;border:none;background:#1D9E75;color:white;font-weight:600;cursor:pointer">+ Adicionar</button>
+        </div>`).join('')}
+    </div>` : '';
+
+  document.getElementById('ref-body').innerHTML= sugestoesHtml + (lista.length
+    ? `<p style="font-size:12px;font-weight:700;color:#085041;margin:8px 0">✓ Escalados no reforço (${lista.length}):</p>` + lista.map((m,i)=>`
         <div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid #eee;gap:8px">
           <span style="flex:1;font-size:13px">${m}</span>
           <button onclick="remReforco('${key}',${i})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px">×</button>
         </div>`).join('')
-    : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro de reforço.</p>';
+    : (sugestoesHtml?'':'<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro de reforço.</p>'));
+};
+window.addMinReforcoDireto=function(key,nome){
+  if(!reforcos[key]) reforcos[key]={ministros:[]};
+  if(!reforcos[key].ministros.includes(nome)) reforcos[key].ministros.push(nome);
+  renderReforco();
 };
 window.remReforco=function(key,i){ reforcos[key].ministros.splice(i,1); renderReforco(); };
 window.acRef=function(inp,acId,key){
