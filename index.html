@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.1';
+const APP_VERSAO = '6.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -1457,6 +1457,7 @@ window.nav = function(id, btn){
     escala: ()=>renderEscala(),
     presenca: ()=>{ if(!window.presModo) window.presModo='dom'; renderPresenca(); },
     reforco: ()=>renderReforco(),
+    plantao: ()=>renderPlantonistas(),
     relatorios: ()=>renderRelatorios(),
     inicio: ()=>renderInicio(),
     eventos: ()=>renderEventos(),
@@ -1812,7 +1813,6 @@ window.renderEscala = async function(){
     const g = escalas[key][hora] || {ministros:[], responsavel:''};
     const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
     const disponíveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
-    const plantonistas = ministros.filter(m=>m.plantao && !(m[dispKey]||[]).includes(hora));
     const jaEscalados = new Set(g.ministros);
 
     let datasLabel = '';
@@ -1832,7 +1832,7 @@ window.renderEscala = async function(){
         <span style="font-size:11px;color:#888">${g.ministros.length} escalado(s)</span>
         <button onclick="verDisponiveis('${key}','${hora}','${dispKey}')"
           style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
-          👥 ${disponíveis.length} disponíveis${plantonistas.length?` <span style="color:#185FA5">+${plantonistas.length}🔔</span>`:''}
+          👥 ${disponíveis.length} disponíveis
         </button>
       </div>
       ${g.responsavel?`<div style="font-size:11px;background:#faeeda;color:#633806;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${g.responsavel}</div>`:'' }
@@ -1872,17 +1872,18 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
   const ac = document.getElementById(acId);
   if(!ac) return;
 
-  // Disponíveis no horário OU ministros de plantão (sempre disponíveis em qualquer horário)
-  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora) || m.plantao);
+  // Disponíveis no horário (plantão NÃO entra automaticamente — é reserva de emergência)
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
   const matches = v.length>=1
     ? disponiveis.filter(m=>normalizarBusca(m.nome).includes(v))
     : disponiveis;
 
   const jaEscalados = new Set((escalas[key]?.[hora]?.ministros)||[]);
 
-  // Ministros que combinam com a busca mas NÃO estão disponíveis (nem plantão) — só com busca digitada
+  // Ministros que combinam com a busca mas NÃO estão disponíveis no horário — só com busca digitada
+  // (inclui plantonistas, caso você queira escalar manualmente um deles mesmo assim)
   const indisponiveis = v.length>=2
-    ? ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !(m[dispKey]||[]).includes(hora) && !m.plantao)
+    ? ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !(m[dispKey]||[]).includes(hora))
     : [];
 
   if(!matches.length && !indisponiveis.length){ ac.style.display='none'; return; }
@@ -1890,19 +1891,18 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
   ac.style.display='block';
   let html = '';
 
-  // 1) Disponíveis (e plantão)
+  // 1) Disponíveis no horário (conforme a disponibilidade marcada)
   html += matches.slice(0,10).map((m,idx)=>{
     const jaEsc = jaEscalados.has(m.nome);
     const outroH = jaEscaladoNoutroHorario(key, hora, m.nome);
-    const ehPlantao = m.plantao && !(m[dispKey]||[]).includes(hora); // disponível só por ser plantão
     const primeiro = idx===0;
-    const bgBase = jaEsc ? '#f0faf5' : (outroH ? '#fdf6e3' : (ehPlantao ? '#eef7f9' : (primeiro ? '#eef7f2' : 'white')));
+    const bgBase = jaEsc ? '#f0faf5' : (outroH ? '#fdf6e3' : (primeiro ? '#eef7f2' : 'white'));
     const dim = (outroH && !jaEsc) ? 'opacity:.6;' : '';
     return `<div onmousedown="addMin('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
       style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;background:${bgBase};${dim}${primeiro?'border-left:3px solid #1D9E75;':''}"
       onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${bgBase}'">
-      <span>${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}${ehPlantao?' <span style="font-size:10px;color:#185FA5;font-weight:600">🔔 plantão</span>':''}${(outroH&&!jaEsc)?` <span style="font-size:10px;color:#BA7517;font-weight:600">⚠️ já em ${outroH}</span>`:''}</span>
-      <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')||(m.plantao?'plantão':'')}</span>
+      <span>${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}${(outroH&&!jaEsc)?` <span style="font-size:10px;color:#BA7517;font-weight:600">⚠️ já em ${outroH}</span>`:''}</span>
+      <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')}</span>
     </div>`;
   }).join('');
 
@@ -1912,10 +1912,11 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
     html += indisponiveis.slice(0,5).map(m=>{
       const jaEsc = jaEscalados.has(m.nome);
       if(jaEsc) return '';
+      const ehPlantao = m.plantao;
       return `<div onmousedown="addMinForaDisp('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
         style="padding:8px 12px;cursor:pointer;font-size:12px;color:#9a6a10;background:#faeeda;opacity:.92;display:flex;justify-content:space-between;align-items:center"
         onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.92'">
-        <span>${m.nome} <span style="font-size:10px">(fora do horário)</span></span>
+        <span>${m.nome}${ehPlantao?' <span style="font-size:10px;color:#185FA5;font-weight:600">🔔 plantão</span>':' <span style="font-size:10px">(fora do horário)</span>'}</span>
         <span style="font-size:10px;font-weight:700;color:#BA7517">+ exceção</span>
       </div>`;
     }).join('');
@@ -1977,29 +1978,21 @@ window.addMinForaDisp = function(key, hora, nome, acId){
 };
 
 window.verDisponiveis = function(key, hora, dispKey){
-  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora) || m.plantao)
-    .sort((a,b)=>{
-      // plantão-only vão para o fim
-      const aPlant = !(a[dispKey]||[]).includes(hora) && a.plantao;
-      const bPlant = !(b[dispKey]||[]).includes(hora) && b.plantao;
-      if(aPlant!==bPlant) return aPlant?1:-1;
-      return a.nome.localeCompare(b.nome,'pt-BR');
-    });
+  // Plantão NÃO entra aqui — só os realmente disponíveis no horário
+  const disponiveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   const tipo = dispKey==='dispDom'?'Dominical':'Semanal';
   const jaEscalados = new Set((escalas[key]?.[hora]?.ministros)||[]);
-  const qtdReal = disponiveis.filter(m=>(m[dispKey]||[]).includes(hora)).length;
-  const qtdPlant = disponiveis.length - qtdReal;
   document.getElementById('vd-titulo').textContent = `${tipo} — ${hora}`;
-  document.getElementById('vd-count').textContent = `${qtdReal} disponíveis${qtdPlant?` + ${qtdPlant} de plantão`:''}`;
+  document.getElementById('vd-count').textContent = `${disponiveis.length} disponíveis`;
   document.getElementById('vd-body').innerHTML = disponiveis.length
     ? disponiveis.map((m,i)=>{
         const jaEsc = jaEscalados.has(m.nome);
-        const ehPlantao = !(m[dispKey]||[]).includes(hora) && m.plantao;
         return `
         <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
-          <div style="width:28px;height:28px;border-radius:50%;background:${ehPlantao?'#e6f1fb':'#e1f5ee'};color:${ehPlantao?'#185FA5':'#085041'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="width:28px;height:28px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
           <div style="flex:1">
-            <p style="font-size:13px;margin:0">${m.nome}${ehPlantao?' <span style="font-size:10px;color:#185FA5;font-weight:600">🔔 plantão</span>':''}</p>
+            <p style="font-size:13px;margin:0">${m.nome}</p>
             <p style="font-size:10px;color:#888;margin:0">${[...(m.dispDom||[]),...(m.dispSem||[])].join(' · ')||'sem horário fixo'}</p>
           </div>
           <button onclick="addMinDoModal('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}',this)"
@@ -2933,6 +2926,63 @@ window.imprimirReuniao = function(){
 window.imprimirAdoracao = function(){
   const data = document.getElementById('ador-data').value;
   imprimirListaPFJ('Lista de Presença — Adoração', data, presAdoracaoMap);
+};
+
+
+// ====================== PLANTONISTAS (reservas de emergência) ======================
+// Plantonista NÃO é escalado automaticamente. Ele tem sua escala normal, mas fica de
+// prontidão para ser ACIONADO e substituir alguém de última hora.
+window.renderPlantonistas = function(){
+  const cont = document.getElementById('plantao-body');
+  if(!cont) return;
+  const plantonistas = ministros.filter(m=>m.plantao).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+
+  cont.innerHTML = `
+    <div class="card" style="background:#fdecef;border:1.5px solid #f3b8c9">
+      <p style="font-size:13px;color:#C2185B;margin:0;line-height:1.6"><strong>🔔 Como funciona o plantão:</strong> estes ministros <strong>não entram na escala automática</strong>. Eles servem nos horários normais deles, mas ficam de <strong>prontidão</strong> para você acionar e substituir alguém que faltou de última hora.</p>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <p class="ct" style="margin:0">🔔 Reservas de plantão</p>
+        <span style="font-size:13px;font-weight:700;color:#C2185B;background:#fdecef;padding:3px 12px;border-radius:20px">${plantonistas.length}</span>
+      </div>
+      ${plantonistas.length ? plantonistas.map(m=>{
+        const tel = (window.formatarTelBR||(x=>x))(m.tel);
+        const msgWa = `Olá, ${m.nome.split(' ')[0]}! 🙏 Aqui é da Coordenação MESCE. Precisamos de você como ministro(a) de plantão para *substituir* um irmão que não poderá servir. Você pode nos ajudar? Que Deus abençoe!`;
+        const wa = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(msgWa)}` : '';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0f0f0">
+          ${m.foto?`<img src="${m.foto}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0">`:`<div style="width:42px;height:42px;border-radius:50%;background:#fdecef;color:#C2185B;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${iniciais(m.nome)}</div>`}
+          <div style="flex:1;min-width:0">
+            <p style="font-size:13px;font-weight:600;margin:0">${m.nome}</p>
+            <p style="font-size:10px;color:#888;margin:1px 0 0">${[...(m.dispDom||[]),...(m.dispSem||[])].join(' · ')||'sem horário fixo'}</p>
+          </div>
+          ${wa?`<a href="${wa}" target="_blank" style="flex-shrink:0;text-decoration:none;background:#C2185B;color:white;font-size:11px;font-weight:700;padding:8px 12px;border-radius:18px">🔔 Acionar</a>`:'<span style="font-size:10px;color:#bbb;flex-shrink:0">sem tel</span>'}
+          <button onclick="tirarPlantao('${m.id}')" title="Tirar do plantão" style="flex-shrink:0;border:none;background:none;color:#ccc;font-size:18px;cursor:pointer;padding:0 2px">×</button>
+        </div>`;
+      }).join('') : `<div style="text-align:center;padding:24px 16px;color:#999">
+        <p style="font-size:40px;margin:0">🔔</p>
+        <p style="font-size:13px;margin:8px 0 0">Nenhum ministro de plantão no momento.</p>
+        <p style="font-size:11px;margin:4px 0 0;color:#bbb">Os ministros marcam plantão ao se cadastrar pelo link.</p>
+      </div>`}
+    </div>
+
+    ${plantonistas.length ? `<div class="card" style="background:#f8fcfa">
+      <p style="font-size:12px;color:#666;margin:0;line-height:1.6">💡 <strong>Para acionar:</strong> quando alguém faltar, toque em <strong>🔔 Acionar</strong> ao lado de um plantonista. Abre o WhatsApp com a mensagem de convocação pronta para enviar.</p>
+    </div>` : ''}`;
+};
+
+// Tira o ministro do plantão (caso tenha marcado por engano ou não seja mais reserva)
+window.tirarPlantao = async function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  if(!confirm(`Tirar ${m.nome.split(' ')[0]} da lista de plantão?\n\nEle continuará como ministro normal, apenas deixará de ser reserva de emergência.`)) return;
+  try{
+    await updateDoc(doc(db,'ministros',id),{plantao:false});
+    m.plantao = false;
+    toast('✓ '+m.nome.split(' ')[0]+' saiu do plantão.');
+    renderPlantonistas();
+  }catch(e){ toast('Erro ao atualizar.','err'); }
 };
 
 window.renderReforco = async function(){
@@ -5296,6 +5346,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <span class="sb-tx">Eventos Especiais</span>
         <span class="sb-sub">Círio, procissões, festas</span>
       </button>
+      <button class="setor-btn" onclick="irPara('plantao')">
+        <span class="sb-ic" style="background:#fdecef;color:#C2185B">🔔</span>
+        <span class="sb-tx">Plantonistas</span>
+        <span class="sb-sub">Reservas para substituição</span>
+      </button>
     </div>
   </div>
 
@@ -5648,6 +5703,16 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:rgba(255,255,255,.8);margin:4px 0 0">Círio, procissões, festas e celebrações com escala e presença próprias.</p>
   </div>
   <div id="eventos-body"></div>
+</div>
+
+<!-- SEÇÃO: PLANTONISTAS (reservas de emergência) -->
+<div id="s-plantao" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#C2185B,#d81b60);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">🔔 Ministros de Plantão</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Reservas de prontidão para substituição de última hora.</p>
+  </div>
+  <div id="plantao-body"></div>
 </div>
 
 <!-- SEÇÃO: DETALHE DO EVENTO (escala + presença) -->
