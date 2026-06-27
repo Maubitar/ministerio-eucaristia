@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.6';
+const APP_VERSAO = '6.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -120,6 +120,20 @@ const MISSAS_SEM_DIAS = {
 };
 
 let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={};
+
+// =========================================================
+// CONTADOR CENTRALIZADO — única fonte de verdade para
+// exibição do total de ministros ativos em toda a interface.
+// NUNCA escreva h-total/m-total/min-contador diretamente —
+// sempre chame esta função após qualquer alteração na lista.
+// =========================================================
+function atualizarContadorMinistros(){
+  const total = ministros.filter(x=>x.ativo!==false).length;
+  ['h-total','m-total','min-contador'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.textContent=total;
+  });
+  return total;
+}
 let recognition=null;
 const LOGO_BASILICA = 'logo-basilica.jpg';
 const LOGO_MESCE = 'logo-mesce.jpg';
@@ -1354,8 +1368,7 @@ async function carregarMinistros(){
   ministros = snap.docs.map(d=>({id:d.id,...d.data()}))
     .filter(m=>m.ativo!==false)
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
-  document.getElementById('h-total').textContent = ministros.filter(m=>m.ativo!==false).length;
-  document.getElementById('m-total').textContent = ministros.filter(m=>m.ativo!==false).length;
+  atualizarContadorMinistros();
   window._ministros = ministros;
 }
 
@@ -1411,8 +1424,7 @@ function escutarMinistrosTempoReal(){
       if(!mudou) return;
       ministros.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
       window._ministros = ministros;
-      const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.filter(m=>m.ativo!==false).length;
-      const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.filter(m=>m.ativo!==false).length;
+      atualizarContadorMinistros();
       // Re-renderiza a tela ativa para refletir as mudanças (sem interromper edição de escala)
       const ativa = document.querySelector('.sec[style*="block"]');
       if(ativa){
@@ -3800,8 +3812,8 @@ window.excluirMinistro = async function(id){
     document.getElementById('modal-perfil').style.display='none';
     toast(`✓ ${m.nome.split(' ')[0]} foi excluído(a) da relação.`);
     if(typeof renderMinistros==='function') renderMinistros(document.getElementById('busca-min')?.value||'');
-    const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.filter(m=>m.ativo!==false).length;
-    const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.filter(m=>m.ativo!==false).length;
+    // CORREÇÃO: usa variável diferente para não sombrear 'm' do escopo externo
+    atualizarContadorMinistros();
   }catch(e){
     toast('Erro ao excluir: '+e.message,'err');
   }
