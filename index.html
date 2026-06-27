@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.3';
+const APP_VERSAO = '6.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -173,6 +173,7 @@ window.addEventListener('load', async()=>{
     window._db = db;
     await carregarMinistros();
     escutarMinistrosTempoReal();
+    if(typeof carregarAusencias==='function') carregarAusencias();
     setTimeout(()=>{ if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
     await carregarConfigAcesso();
     document.getElementById('loading').style.display='none';
@@ -1458,6 +1459,7 @@ window.nav = function(id, btn){
     presenca: ()=>{ if(!window.presModo) window.presModo='dom'; renderPresenca(); },
     reforco: ()=>renderReforco(),
     plantao: ()=>renderPlantonistas(),
+    ausencias: ()=>renderAusencias(),
     relatorios: ()=>renderRelatorios(),
     inicio: ()=>renderInicio(),
     eventos: ()=>renderEventos(),
@@ -1949,6 +1951,23 @@ window.addMin = function(key, hora, nome, acId){
   if(!escalas[key]) escalas[key]={};
   if(!escalas[key][hora]) escalas[key][hora]={ministros:[],responsavel:''};
   if(escalas[key][hora].ministros.includes(nome)){ return; } // já está
+
+  // ALERTA DE AUSÊNCIA: o ministro avisou que não poderá servir em alguma data
+  if(typeof ausenciasDoMinistro==='function'){
+    const aus = ausenciasDoMinistro(nome);
+    if(aus.length){
+      const fmt = d => (d||'').split('-').reverse().join('/');
+      const listaTxt = aus.map(a=>{
+        const umDia = a.de===a.ate;
+        return '• ' + (umDia ? fmt(a.de) : `${fmt(a.de)} a ${fmt(a.ate)}`) + (a.motivo?` (${a.motivo})`:'');
+      }).join('\n');
+      const ok = confirm(`🔔 ATENÇÃO — Ausência avisada\n\n${nome} avisou que NÃO poderá servir em:\n${listaTxt}\n\nConfira se a data desta escala não cai nesse período.\n\nDeseja escalá-lo(a) mesmo assim?`);
+      if(!ok){
+        if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+        return;
+      }
+    }
+  }
 
   // GOVERNANÇA: verifica dupla escala (já escalado noutro horário desta escala)
   const outroHorario = jaEscaladoNoutroHorario(key, hora, nome);
@@ -2928,6 +2947,115 @@ window.imprimirAdoracao = function(){
   imprimirListaPFJ('Lista de Presença — Adoração', data, presAdoracaoMap);
 };
 
+
+
+// ====================== AUSÊNCIAS / INDISPONIBILIDADE TEMPORÁRIA ======================
+// Um ministro avisa que não poderá servir numa data ou período. Fica registrado e o
+// sistema ALERTA na hora de escalá-lo se a data da escala cair no período da ausência.
+let _ausencias = []; // cache: [{id, ministroId, nome, de:'YYYY-MM-DD', ate:'YYYY-MM-DD', motivo, criadoEm}]
+
+async function carregarAusencias(){
+  try{
+    const snap = await getDocs(collection(db,'ausencias'));
+    _ausencias = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  }catch(e){ _ausencias=[]; }
+  return _ausencias;
+}
+
+// Retorna as ausências ATIVAS de um ministro (pelo nome) que se sobrepõem a uma data (YYYY-MM-DD)
+function ausenciaNaData(nome, dataISO){
+  if(!dataISO) return null;
+  return _ausencias.find(a => a.nome===nome && a.de <= dataISO && dataISO <= a.ate) || null;
+}
+// Retorna QUALQUER ausência futura/atual de um ministro (para alerta genérico quando não há data exata)
+function ausenciasDoMinistro(nome){
+  const hoje = new Date().toISOString().slice(0,10);
+  return _ausencias.filter(a => a.nome===nome && a.ate >= hoje)
+    .sort((a,b)=>a.de.localeCompare(b.de));
+}
+
+window.renderAusencias = async function(){
+  const cont = document.getElementById('ausencias-body');
+  if(cont) cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando...</p>';
+  await carregarAusencias();
+  const hoje = new Date().toISOString().slice(0,10);
+  const ativas = _ausencias.filter(a=>a.ate>=hoje).sort((a,b)=>a.de.localeCompare(b.de));
+  const passadas = _ausencias.filter(a=>a.ate<hoje).sort((a,b)=>b.de.localeCompare(a.de));
+
+  const fmt = d => (d||'').split('-').reverse().join('/');
+  const cardAus = (a, ativa)=>{
+    const umDia = a.de===a.ate;
+    return `<div style="background:white;border:1px solid #eee;border-left:4px solid ${ativa?'#BA7517':'#ccc'};border-radius:10px;padding:12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="flex:1">
+          <p style="font-size:14px;font-weight:600;margin:0">${a.nome}</p>
+          <p style="font-size:12px;color:#BA7517;margin:3px 0 0;font-weight:600">📅 ${umDia ? fmt(a.de) : `${fmt(a.de)} até ${fmt(a.ate)}`}</p>
+          ${a.motivo?`<p style="font-size:11px;color:#888;margin:3px 0 0">${a.motivo}</p>`:''}
+        </div>
+        <button onclick="removerAusencia('${a.id}')" style="border:none;background:none;color:#ccc;font-size:18px;cursor:pointer">×</button>
+      </div>
+    </div>`;
+  };
+
+  cont.innerHTML = `
+    <button onclick="abrirNovaAusencia()" style="width:100%;padding:13px;border:none;border-radius:12px;background:#BA7517;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:16px">+ Registrar ausência</button>
+    ${ativas.length ? `<p style="font-size:12px;font-weight:700;color:#BA7517;margin:0 0 8px">📌 Ausências ativas / futuras (${ativas.length})</p>${ativas.map(a=>cardAus(a,true)).join('')}` : '<p style="font-size:13px;color:#888;text-align:center;padding:20px 0">Nenhuma ausência registrada.</p>'}
+    ${passadas.length ? `<p style="font-size:12px;font-weight:700;color:#999;margin:18px 0 8px">🗂️ Ausências passadas</p>${passadas.slice(0,20).map(a=>cardAus(a,false)).join('')}` : ''}`;
+};
+
+window.abrirNovaAusencia = function(){
+  // Preenche o select de ministros
+  const sel = document.getElementById('aus-ministro');
+  if(sel){
+    sel.innerHTML = '<option value="">Selecione o ministro...</option>' +
+      ministros.slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'))
+        .map(m=>`<option value="${m.id}">${m.nome}</option>`).join('');
+  }
+  const hoje = new Date().toISOString().slice(0,10);
+  document.getElementById('aus-de').value = hoje;
+  document.getElementById('aus-ate').value = hoje;
+  document.getElementById('aus-motivo').value = '';
+  document.getElementById('aus-um-dia').checked = true;
+  togAusUmDia();
+  document.getElementById('modal-ausencia').style.display='flex';
+};
+
+window.togAusUmDia = function(){
+  const umDia = document.getElementById('aus-um-dia').checked;
+  document.getElementById('aus-ate-wrap').style.display = umDia ? 'none' : 'block';
+};
+
+window.salvarAusencia = async function(){
+  const ministroId = document.getElementById('aus-ministro').value;
+  const de = document.getElementById('aus-de').value;
+  const umDia = document.getElementById('aus-um-dia').checked;
+  let ate = umDia ? de : document.getElementById('aus-ate').value;
+  const motivo = document.getElementById('aus-motivo').value.trim();
+  if(!ministroId){ toast('Selecione o ministro.','warn'); return; }
+  if(!de){ toast('Informe a data.','warn'); return; }
+  if(ate < de){ toast('A data final não pode ser antes da inicial.','warn'); return; }
+  const m = ministros.find(x=>x.id===ministroId);
+  if(!m) return;
+  try{
+    await addDoc(collection(db,'ausencias'), {ministroId, nome:m.nome, de, ate, motivo, criadoEm:serverTimestamp()});
+    document.getElementById('modal-ausencia').style.display='none';
+    toast(`✓ Ausência de ${m.nome.split(' ')[0]} registrada.`);
+    await carregarAusencias();
+    renderAusencias();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+window.removerAusencia = async function(id){
+  const a = _ausencias.find(x=>x.id===id);
+  if(!a) return;
+  if(!confirm(`Remover a ausência de ${a.nome.split(' ')[0]}?`)) return;
+  try{
+    await deleteDoc(doc(db,'ausencias',id));
+    _ausencias = _ausencias.filter(x=>x.id!==id);
+    toast('✓ Ausência removida.');
+    renderAusencias();
+  }catch(e){ toast('Erro ao remover.','err'); }
+};
 
 // ====================== PLANTONISTAS (reservas de emergência) ======================
 // Plantonista NÃO é escalado automaticamente. Ele tem sua escala normal, mas fica de
@@ -5372,6 +5500,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <span class="sb-tx">Plantonistas</span>
         <span class="sb-sub">Reservas para substituição</span>
       </button>
+      <button class="setor-btn" onclick="irPara('ausencias')">
+        <span class="sb-ic" style="background:#fdf6e3;color:#BA7517">📅</span>
+        <span class="sb-tx">Ausências</span>
+        <span class="sb-sub">Quem avisou que não pode</span>
+      </button>
     </div>
   </div>
 
@@ -5736,6 +5869,16 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <div id="plantao-body"></div>
 </div>
 
+<!-- SEÇÃO: AUSÊNCIAS (indisponibilidade temporária) -->
+<div id="s-ausencias" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#BA7517,#d18a1f);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">🔔 Avisos de Ausência</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Ministros que avisaram que não poderão servir em certas datas.</p>
+  </div>
+  <div id="ausencias-body"></div>
+</div>
+
 <!-- SEÇÃO: DETALHE DO EVENTO (escala + presença) -->
 <div id="s-evento-detalhe" class="sec">
   <button class="btn-voltar" onclick="nav('eventos')">‹ Voltar aos eventos</button>
@@ -5966,6 +6109,37 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 </div>
 
 <!-- MODAL NOVA DESPESA -->
+<div id="modal-ausencia" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-ausencia')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">🔔 Registrar Ausência</p>
+      <button onclick="fecharModal('modal-ausencia')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Ministro</label>
+    <select id="aus-ministro" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box;background:white"></select>
+
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">
+      <input type="checkbox" id="aus-um-dia" onchange="togAusUmDia()" checked style="width:18px;height:18px">
+      <span style="font-size:13px;color:#555">É um dia único</span>
+    </label>
+
+    <div style="display:flex;gap:8px">
+      <div style="flex:1">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Data <span id="aus-de-label"></span></label>
+        <input type="date" id="aus-de" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+      </div>
+      <div style="flex:1" id="aus-ate-wrap">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Até</label>
+        <input type="date" id="aus-ate" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+      </div>
+    </div>
+
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Motivo (opcional)</label>
+    <input type="text" id="aus-motivo" placeholder="Ex: viagem, saúde, compromisso" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:14px;box-sizing:border-box">
+    <button onclick="salvarAusencia()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar ausência</button>
+  </div>
+</div>
+
 <div id="modal-despesa" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-despesa')">
   <div class="modal-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
