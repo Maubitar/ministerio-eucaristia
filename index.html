@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.4';
+const APP_VERSAO = '6.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -3683,7 +3683,11 @@ function renderMinistros(filtro){
   const lista=ministros.filter(m=>normalizarBusca(m.nome).includes(normalizarBusca(filtro)));
   const semDisp=lista.filter(m=>!(m.dispDom?.length||m.dispSem?.length)).length;
   document.getElementById('min-sem-disp').textContent=semDisp>0?`${semDisp} sem disponibilidade`:'';
-  const cabecalho = `<p style="font-size:11px;color:#888;padding:2px 0 8px">${lista.length} ministro(s)${filtro?` encontrado(s) para "${filtro}"`:''}</p>`;
+  // Contador total (sempre o total real de ministros ativos, não o filtrado)
+  const totalAtivos = ministros.filter(m=>m.ativo!==false).length;
+  const elCont = document.getElementById('min-contador');
+  if(elCont) elCont.textContent = totalAtivos;
+  const cabecalho = `<p style="font-size:11px;color:#888;padding:2px 0 8px">${filtro?`${lista.length} encontrado(s) para "${filtro}"`:`${totalAtivos} ministros no total`}</p>`;
   document.getElementById('min-body').innerHTML= cabecalho + (lista.length ? lista.map(m=>{
     const semD=!(m.dispDom?.length||m.dispSem?.length);
     const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
@@ -5438,7 +5442,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <img id="logo-basilica-header" alt="Basílica de Nazaré" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:white;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0">
     <div>
       <p class="header-title">Ministério da Eucaristia</p>
-      <p class="header-sub">Basílica de Nazaré · <span id="h-total">0</span> ministros · junho 2026</p>
+      <p class="header-sub">Basílica de Nazaré · <span id="h-total">0</span> ministros</p>
     </div>
     <img id="logo-mesce-header" alt="MESCE" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:white;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0;margin-left:auto">
   </div>
@@ -5756,7 +5760,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="s-ministros" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card">
-    <p class="ct">👥 Ministros <span id="min-sem-disp" style="font-size:11px;color:#BA7517;margin-left:6px"></span></p>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <p class="ct" style="margin:0">👥 Ministros</p>
+      <span id="min-contador" style="font-size:15px;font-weight:800;color:white;background:#085041;padding:4px 14px;border-radius:20px">0</span>
+    </div>
+    <p id="min-sem-disp" style="font-size:11px;color:#BA7517;margin:0 0 10px"></p>
     <button onclick="nav('tel-rapido')" style="width:100%;padding:10px;border:none;border-radius:9px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px">📱 Preencher telefones em massa</button>
     <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()">
     <div id="min-body"></div>
