@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.5';
+const APP_VERSAO = '6.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -1354,8 +1354,8 @@ async function carregarMinistros(){
   ministros = snap.docs.map(d=>({id:d.id,...d.data()}))
     .filter(m=>m.ativo!==false)
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
-  document.getElementById('h-total').textContent = ministros.length;
-  document.getElementById('m-total').textContent = ministros.length;
+  document.getElementById('h-total').textContent = ministros.filter(m=>m.ativo!==false).length;
+  document.getElementById('m-total').textContent = ministros.filter(m=>m.ativo!==false).length;
   window._ministros = ministros;
 }
 
@@ -1411,8 +1411,8 @@ function escutarMinistrosTempoReal(){
       if(!mudou) return;
       ministros.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
       window._ministros = ministros;
-      const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.length;
-      const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.length;
+      const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.filter(m=>m.ativo!==false).length;
+      const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.filter(m=>m.ativo!==false).length;
       // Re-renderiza a tela ativa para refletir as mudanças (sem interromper edição de escala)
       const ativa = document.querySelector('.sec[style*="block"]');
       if(ativa){
@@ -3800,8 +3800,8 @@ window.excluirMinistro = async function(id){
     document.getElementById('modal-perfil').style.display='none';
     toast(`✓ ${m.nome.split(' ')[0]} foi excluído(a) da relação.`);
     if(typeof renderMinistros==='function') renderMinistros(document.getElementById('busca-min')?.value||'');
-    const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.length;
-    const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.length;
+    const ht=document.getElementById('h-total'); if(ht) ht.textContent=ministros.filter(m=>m.ativo!==false).length;
+    const mt=document.getElementById('m-total'); if(mt) mt.textContent=ministros.filter(m=>m.ativo!==false).length;
   }catch(e){
     toast('Erro ao excluir: '+e.message,'err');
   }
