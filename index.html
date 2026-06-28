@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '7.6';
+const APP_VERSAO = '7.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -4459,6 +4459,12 @@ window.imprimirEscala = async function(){
     </div>
     ${blocos}
     <p class="rodape">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>`;
+
+  // Diagnóstico: verifica quantas fotos foram encontradas
+  const totalComFoto = Object.keys(fotoCache).length;
+  const totalEscalados = Object.values(esc).reduce((acc, g)=>acc+(g.ministros||[]).length,0);
+  toast(`📸 ${totalComFoto} foto(s) encontradas de ${totalEscalados} escalados`);
+  await new Promise(r=>setTimeout(r,1500)); // espera 1.5s para ver o toast
 
   // Injeta na #print-area da própria página e imprime com window.print()
   // Assim as fotos base64 já estão no DOM da página — sem restrição de segurança
