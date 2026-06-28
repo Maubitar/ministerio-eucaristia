@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '8.2';
+const APP_VERSAO = '8.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -4423,8 +4423,7 @@ window.imprimirEscala = async function(){
     }).join('');
     blocos += `
     <div class="missa">
-      <div class="missa-hora"><span>⏰ ${h}</span><span class="datas">${datasLabel}</span><span class="resp-label">Resp: <strong>${responsavel||'—'}</strong>${respTel?` — ${respTel.replace(' (','').replace(')','')}`:''}
-</span></div>
+      <div class="missa-hora"><span style="font-size:18px;font-weight:900;letter-spacing:1px">⏰ ${h}</span></div>
       <table class="tab">
         <thead><tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Ministro(a)</th></tr></thead>
         <tbody>${linhas}</tbody>
@@ -5480,9 +5479,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   #print-area .pinfo{display:flex;justify-content:space-between;align-items:center;margin:10px 0 14px;font-size:12px;flex-wrap:wrap;gap:6px}
   #print-area .tipo{font-size:11px;color:#085041;font-weight:700;background:#e1f5ee;padding:3px 10px;border-radius:20px}
   #print-area .missa{margin-bottom:14px;page-break-inside:avoid}
-  #print-area .missa-hora{background:#085041;color:white;font-weight:700;font-size:12px;padding:6px 10px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:3px}
-  #print-area .missa-hora .datas{font-weight:400;font-size:10px;opacity:.85}
-  #print-area .resp-label{font-size:10px;font-weight:400;opacity:.9}
+  #print-area .missa-hora{background:#085041;color:white;font-weight:900;font-size:16px;padding:8px 12px;border-radius:6px 6px 0 0;letter-spacing:0.5px}
   #print-area table{width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none}
   #print-area th{background:#f3f5f4;font-size:10px;padding:5px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555;text-align:left}
   #print-area td{border:1px solid #e2e2e2;padding:4px 6px;font-size:12px;vertical-align:middle}
