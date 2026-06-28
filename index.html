@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '7.0';
+const APP_VERSAO = '7.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -4355,16 +4355,22 @@ window.imprimirEscala = async function(){
     const linhas = ordenados.map((m,i)=>{
       const isResp = m===responsavel;
       const telResp = isResp && respObj?.tel ? ` <span class="tel">📞 ${respObj.tel}</span>` : '';
+      const minObj = ministros.find(x=>x.nome===m);
+      const fotoTag = minObj?.foto
+        ? `<img src="${minObj.foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #e1f5ee">`
+        : `<div style="width:38px;height:38px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
       return `<tr>
         <td class="num">${i+1}</td>
-        <td class="nome${isResp?' resp':''}">${m}${isResp?' <span class="star">★ Responsável</span>':''}${telResp}</td>
+        <td class="foto">${fotoTag}</td>
+        <td class="nome${isResp?' resp':''}">${m}${isResp?' <span class="star">★</span>':''}${telResp}</td>
+        ${datasLabel.split(' · ').map(()=>'<td class="pres"></td>').join('')}
       </tr>`;
     }).join('');
     blocos += `
     <div class="missa">
       <div class="missa-hora"><span>⏰ ${h}</span> <span class="datas">${datasLabel}</span></div>
       <table class="tab">
-        <thead><tr><th class="num">Nº</th><th class="nome">Ministro</th></tr></thead>
+        <thead><tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Nomes Ministros(as)</th>${datasLabel.split(' · ').map(d=>`<th class="pres">${d}</th>`).join('')}</tr></thead>
         <tbody>${linhas}</tbody>
       </table>
     </div>`;
@@ -4390,8 +4396,9 @@ window.imprimirEscala = async function(){
     table.tab{width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none}
     table.tab th{background:#f3f5f4;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-transform:uppercase;letter-spacing:.5px;color:#555;text-align:left}
     table.tab td{border:1px solid #e2e2e2;padding:7px 8px;font-size:13px}
-    .num{width:42px;text-align:center;color:#888}
+    .num{width:36px;text-align:center;color:#888}
     th.num{text-align:center}
+    .foto{width:50px;text-align:center;padding:3px 4px!important}
     .nome.resp{font-weight:700}
     .star{font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:20px;font-weight:700;margin-left:4px}
     .tel{font-size:11px;color:#085041;font-weight:700;margin-left:6px;background:#e1f5ee;padding:1px 8px;border-radius:20px;white-space:nowrap}
