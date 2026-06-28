@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '8.0';
+const APP_VERSAO = '8.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -4401,21 +4401,20 @@ window.imprimirEscala = async function(){
       const telResp = isResp && respObj?.tel ? ` <span class="tel">📞 ${respObj.tel}</span>` : '';
       const foto = fotoCache[m];
       const fotoTag = foto
-        ? `<img src="${foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">`
-        : `<div style="width:38px;height:38px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        ? `<img src="${foto}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">`
+        : `<div style="width:42px;height:42px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
       return `<tr>
         <td class="num">${i+1}</td>
         <td class="foto">${fotoTag}</td>
-        <td class="nome${isResp?' resp':''}">${m}${isResp?' <span class="star">★</span>':''}${telResp}</td>
-        ${datas.map(()=>'<td class="pres"></td>').join('')}
+        <td class="nome${isResp?' resp':''}">${m}${isResp?' <span class="star">★ Responsável</span>':''}${telResp}</td>
       </tr>`;
     }).join('');
     blocos += `
     <div class="missa">
-      <div class="missa-hora"><span>⏰ ${h}</span> <span class="datas">${datasLabel}</span> <span class="resp-label">Responsável Escala: <strong>${responsavel||'—'}</strong>${respTel?` — ${respTel.replace(' (','').replace(')','')}`:''}
+      <div class="missa-hora"><span>⏰ ${h}</span><span class="datas">${datasLabel}</span><span class="resp-label">Resp: <strong>${responsavel||'—'}</strong>${respTel?` — ${respTel.replace(' (','').replace(')','')}`:''}
 </span></div>
       <table class="tab">
-        <thead><tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Nomes Ministros(as)</th>${datas.map(d=>`<th class="pres">${d}</th>`).join('')}</tr></thead>
+        <thead><tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Ministro(a)</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table>
     </div>`;
