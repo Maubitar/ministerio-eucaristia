@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.9';
+const APP_VERSAO = '7.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -1850,12 +1850,19 @@ window.renderEscala = async function(){
         </button>
       </div>
       ${g.responsavel?`<div style="font-size:11px;background:#faeeda;color:#633806;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${g.responsavel}</div>`:'' }
-      ${g.ministros.map((m,mi)=>`
-        <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #e8e8e8">
+      ${g.ministros.map((m,mi)=>{
+        const min = ministros.find(x=>x.nome===m);
+        const fotoEsc = min?.foto
+          ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
+          : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
+        return `
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
           <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
-          <span style="flex:1;font-size:12px">${m}</span>
+          ${fotoEsc}
+          <span style="flex:1;font-size:12px;font-weight:500">${m}</span>
           <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
         <div style="position:relative;flex:1">
           <input type="text" id="inp-${key}-${hora.replace(':','')}"
