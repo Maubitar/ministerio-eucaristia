@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '6.8';
+const APP_VERSAO = '6.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -1912,11 +1912,17 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
     const primeiro = idx===0;
     const bgBase = jaEsc ? '#f0faf5' : (outroH ? '#fdf6e3' : (primeiro ? '#eef7f2' : 'white'));
     const dim = (outroH && !jaEsc) ? 'opacity:.6;' : '';
+    const fotoEl = m.foto
+      ? `<img src="${m.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-right:8px;border:1.5px solid #e1f5ee">`
+      : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-right:8px">${iniciais(m.nome)}</div>`;
     return `<div onmousedown="addMin('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
-      style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;background:${bgBase};${dim}${primeiro?'border-left:3px solid #1D9E75;':''}"
+      style="padding:7px 12px;cursor:pointer;display:flex;align-items:center;background:${bgBase};${dim}${primeiro?'border-left:3px solid #1D9E75;':''}"
       onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${bgBase}'">
-      <span>${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}${(outroH&&!jaEsc)?` <span style="font-size:10px;color:#BA7517;font-weight:600">⚠️ já em ${outroH}</span>`:''}</span>
-      <span style="font-size:10px;color:#aaa">${(m[dispKey]||[]).join(' · ')}</span>
+      ${fotoEl}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${primeiro?'<span style=\"font-size:10px;color:#1D9E75;font-weight:700\">⏎ </span>':''}${m.nome}${jaEsc?' <span style="font-size:10px;color:#1D9E75">✓ escalado</span>':''}${(outroH&&!jaEsc)?` <span style="font-size:10px;color:#BA7517;font-weight:600">⚠️ já em ${outroH}</span>`:''}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:1px">${(m[dispKey]||[]).join(' · ')||'sem horário fixo'}</div>
+      </div>
     </div>`;
   }).join('');
 
@@ -1927,11 +1933,17 @@ window.acEscInteligente = function(inp, acId, key, hora, dispKey){
       const jaEsc = jaEscalados.has(m.nome);
       if(jaEsc) return '';
       const ehPlantao = m.plantao;
+      const fotoElEx = m.foto
+        ? `<img src="${m.foto}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-right:8px;opacity:.85">`
+        : `<div style="width:32px;height:32px;border-radius:50%;background:#f5e6c8;color:#9a6a10;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;margin-right:8px">${iniciais(m.nome)}</div>`;
       return `<div onmousedown="addMinForaDisp('${key}','${hora}','${m.nome.replace(/'/g,"\\'")}','${acId}')"
-        style="padding:8px 12px;cursor:pointer;font-size:12px;color:#9a6a10;background:#faeeda;opacity:.92;display:flex;justify-content:space-between;align-items:center"
+        style="padding:7px 12px;cursor:pointer;font-size:12px;color:#9a6a10;background:#faeeda;opacity:.92;display:flex;align-items:center"
         onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.92'">
-        <span>${m.nome}${ehPlantao?' <span style="font-size:10px;color:#185FA5;font-weight:600">🔔 plantão</span>':' <span style="font-size:10px">(fora do horário)</span>'}</span>
-        <span style="font-size:10px;font-weight:700;color:#BA7517">+ exceção</span>
+        ${fotoElEx}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600">${m.nome}${ehPlantao?' <span style="font-size:10px;color:#185FA5;font-weight:600">🔔 plantão</span>':' <span style="font-size:10px">(fora do horário)</span>'}</div>
+        </div>
+        <span style="font-size:10px;font-weight:700;color:#BA7517;flex-shrink:0">+ exceção</span>
       </div>`;
     }).join('');
   }
