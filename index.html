@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '7.9';
+const APP_VERSAO = '8.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -2306,11 +2306,19 @@ window.gerarImagemEscala = async function(){
     const linhas=ord.map((m,i)=>{
       const isResp=m===responsavel;
       const telResp = isResp && respObj?.tel ? ` <span style="font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 9px;border-radius:20px;margin-left:6px">📞 ${respObj.tel}</span>` : '';
-      return `<tr><td style="width:54px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:9px 10px;font-size:16px">${i+1}</td><td style="border:1px solid #e2e2e2;padding:9px 10px;font-size:16px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:12px;background:#faeeda;color:#7a4a06;padding:2px 9px;border-radius:20px;font-weight:700;margin-left:6px">★ Responsável</span>':''}${telResp}</td></tr>`;
+      const minObj = ministros.find(x=>x.nome===m);
+      const fotoHtml = minObj?.foto
+        ? `<img src="${minObj.foto}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e1f5ee" crossorigin="anonymous">`
+        : `<div style="width:48px;height:48px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+      return `<tr>
+        <td style="width:54px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:6px 8px;font-size:16px">${i+1}</td>
+        <td style="width:66px;text-align:center;border:1px solid #e2e2e2;padding:4px 6px">${fotoHtml}</td>
+        <td style="border:1px solid #e2e2e2;padding:9px 10px;font-size:16px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:12px;background:#faeeda;color:#7a4a06;padding:2px 9px;border-radius:20px;font-weight:700;margin-left:6px">★ Responsável</span>':''}${telResp}</td>
+      </tr>`;
     }).join('');
     blocos+=`<div style="margin-bottom:20px">
       <div style="background:#085041;color:white;font-weight:700;font-size:19px;padding:9px 16px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:14px;opacity:.85">${datasLabel}</span></div>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="width:54px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Nº</th><th style="text-align:left;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Ministro</th></tr></thead><tbody>${linhas}</tbody></table>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="width:54px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Nº</th><th style="width:66px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Foto</th><th style="text-align:left;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Ministro</th></tr></thead><tbody>${linhas}</tbody></table>
     </div>`;
   });
 
@@ -2341,8 +2349,10 @@ window.gerarImagemEscala = async function(){
   document.body.appendChild(wrap);
 
   try{
-    // espera as imagens das logos carregarem
-    await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=> img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })));
+    // espera as imagens (logos + fotos dos ministros) carregarem antes de capturar
+    await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
+      img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
+    ));
     // escala dinâmica para ALTÍSSIMA resolução, respeitando limites de canvas do navegador
     const alturaEstim = wrap.scrollHeight || 1200;
     // Navegadores suportam até ~16384px por lado. Buscamos a maior escala possível.
