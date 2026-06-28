@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '7.2';
+const APP_VERSAO = '7.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -4321,7 +4321,6 @@ window.imprimirEscala = async function(){
     catch(e){ esc={}; }
   }
   const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
-  const w=window.open('','_blank');
 
   let periodoLabel = '', subLabel = '';
   if(tipo==='dom'){
@@ -4332,6 +4331,18 @@ window.imprimirEscala = async function(){
     periodoLabel = 'Escala Semanal';
     subLabel = `Semana de ${semInfo?.periodo||''}`;
   }
+
+  // Pré-carrega todas as fotos como objetos Image para garantir que estão prontas
+  const fotoCache = {};
+  const todosMins = [];
+  horas.forEach(h=>{
+    const g=esc[h]||{ministros:[]};
+    g.ministros.forEach(nome=>{
+      const mo = ministros.find(x=>x.nome===nome);
+      if(mo && mo.foto && !fotoCache[nome]) fotoCache[nome]=mo.foto;
+      if(mo && !todosMins.find(x=>x.nome===nome)) todosMins.push(mo);
+    });
+  });
 
   let blocos='';
   horas.forEach(h=>{
@@ -4352,25 +4363,27 @@ window.imprimirEscala = async function(){
       const semDias=(SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
       datasLabel = semDias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
     }
+    const datas = datasLabel.split(' · ');
     const linhas = ordenados.map((m,i)=>{
       const isResp = m===responsavel;
       const telResp = isResp && respObj?.tel ? ` <span class="tel">📞 ${respObj.tel}</span>` : '';
-      const minObj = ministros.find(x=>x.nome===m);
-      const fotoTag = minObj?.foto
-        ? `<img src="${minObj.foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #e1f5ee">`
+      const foto = fotoCache[m];
+      const fotoTag = foto
+        ? `<img src="${foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">`
         : `<div style="width:38px;height:38px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
       return `<tr>
         <td class="num">${i+1}</td>
         <td class="foto">${fotoTag}</td>
         <td class="nome${isResp?' resp':''}">${m}${isResp?' <span class="star">★</span>':''}${telResp}</td>
-        ${datasLabel.split(' · ').map(()=>'<td class="pres"></td>').join('')}
+        ${datas.map(()=>'<td class="pres"></td>').join('')}
       </tr>`;
     }).join('');
     blocos += `
     <div class="missa">
-      <div class="missa-hora"><span>⏰ ${h}</span> <span class="datas">${datasLabel}</span></div>
+      <div class="missa-hora"><span>⏰ ${h}</span> <span class="datas">${datasLabel}</span> <span class="resp-label">Responsável Escala: <strong>${responsavel||'—'}</strong>${respTel?` — ${respTel.replace(' (','').replace(')','')}`:''}
+</span></div>
       <table class="tab">
-        <thead><tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Nomes Ministros(as)</th>${datasLabel.split(' · ').map(d=>`<th class="pres">${d}</th>`).join('')}</tr></thead>
+        <thead><tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Nomes Ministros(as)</th>${datas.map(d=>`<th class="pres">${d}</th>`).join('')}</tr></thead>
         <tbody>${linhas}</tbody>
       </table>
     </div>`;
@@ -4378,7 +4391,7 @@ window.imprimirEscala = async function(){
 
   if(!blocos) blocos = '<p style="text-align:center;color:#888;font-size:13px;padding:20px">Nenhum ministro escalado.</p>';
 
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${periodoLabel}</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${periodoLabel}</title>
   <style>
     *{box-sizing:border-box}
     body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:28px 32px}
@@ -4391,40 +4404,51 @@ window.imprimirEscala = async function(){
     .info{display:flex;justify-content:space-between;align-items:flex-end;margin:14px 0 18px;font-size:14px}
     .info .tipo{font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px}
     .missa{margin-bottom:16px;page-break-inside:avoid}
-    .missa-hora{background:#085041;color:white;font-weight:700;font-size:15px;padding:7px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center}
+    .missa-hora{background:#085041;color:white;font-weight:700;font-size:13px;padding:7px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px}
     .missa-hora .datas{font-weight:400;font-size:11px;opacity:.85}
+    .resp-label{font-size:11px;font-weight:400;opacity:.9}
     table.tab{width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none}
     table.tab th{background:#f3f5f4;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-transform:uppercase;letter-spacing:.5px;color:#555;text-align:left}
-    table.tab td{border:1px solid #e2e2e2;padding:7px 8px;font-size:13px}
+    table.tab td{border:1px solid #e2e2e2;padding:5px 8px;font-size:13px;vertical-align:middle}
     .num{width:36px;text-align:center;color:#888}
     th.num{text-align:center}
     .foto{width:50px;text-align:center;padding:3px 4px!important}
+    th.foto{text-align:center}
+    .pres{width:72px;text-align:center}
+    th.pres{text-align:center;font-size:10px}
     .nome.resp{font-weight:700}
     .star{font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:20px;font-weight:700;margin-left:4px}
     .tel{font-size:11px;color:#085041;font-weight:700;margin-left:6px;background:#e1f5ee;padding:1px 8px;border-radius:20px;white-space:nowrap}
     .rodape{text-align:center;margin-top:24px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px}
-    @media print{ body{padding:14px 18px} }
+    @media print{ body{padding:14px 18px} button{display:none} }
   </style></head>
   <body>
     <div class="cab">
       <img src="${APP_URL}/${LOGO_BASILICA}">
       <div class="ct">
         <p class="basilica">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1>Escala de Serviço</h1>
+        <h1>Lista de Presença</h1>
         <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
       </div>
       <img src="${APP_URL}/${LOGO_MESCE}">
     </div>
     <div class="info">
-      <div><strong>${subLabel}</strong></div>
+      <div><strong>Data:</strong> ${subLabel} &nbsp;&nbsp; <span style="font-size:12px;color:#666">Legendas: P – presente / F – faltou / S – substituição</span></div>
       <div class="tipo">${periodoLabel}</div>
     </div>
     ${blocos}
     <p class="rodape">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
     <script>window.onload=()=>window.print();<\/script>
-  </body></html>`);
-  w.document.close();
+  </body></html>`;
+
+  // Usa Blob URL em vez de document.write para garantir que as fotos base64 renderizam
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  // Libera o objeto URL após a janela carregar
+  if(w) w.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 5000); });
 };
+
 
 window.verDisponiveisReforco = function(){
   const tipo = document.getElementById('ref-tipo').value;
