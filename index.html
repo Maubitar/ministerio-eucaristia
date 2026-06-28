@@ -1763,165 +1763,10 @@ function recalcularComSemanas(){
 
   const sel = document.getElementById('esc-sem');
   if(sel) sel.innerHTML = '';
-  if(!_domingosCustom) atualizarChipsDomingos();
   renderEscala();
 }
 
-// ===== CONTROLE MANUAL DE DOMINGOS DA ESCALA =====
-// Permite ao coordenador definir exatamente quais domingos entram em cada escala,
-// independente do mês. Ex: escala de julho começa em 13/07 e vai até 03/08.
-
-let _domingosCustom = null; // null = usa automático; array = modo manual ativo
-
-// Atualiza os chips visuais na aba Escala
-function atualizarChipsDomingos(){
-  const el = document.getElementById('domingos-chips');
-  if(!el) return;
-  const lista = _domingosCustom || DOMINGOS_MES;
-  const modo = _domingosCustom ? '🔧 Manual' : '🗓️ Auto';
-  const cor = _domingosCustom ? '#BA7517' : '#085041';
-  const bg = _domingosCustom ? '#faeeda' : '#e1f5ee';
-  el.innerHTML = lista.map(d =>
-    `<span style="font-size:11px;padding:2px 9px;background:${bg};color:${cor};border-radius:20px;font-weight:600">${d}</span>`
-  ).join('') +
-  `<span style="font-size:10px;padding:2px 8px;background:#f5f5f3;color:#888;border-radius:20px;margin-left:2px">${modo}</span>`;
-}
-
-// Abre o modal de edição de domingos
-window.abrirEditarDomingos = function(){
-  // Preenche sugestões automáticas do mês
-  const sugestoesEl = document.getElementById('dom-sugestoes-chips');
-  if(sugestoesEl){
-    sugestoesEl.innerHTML = DOMINGOS_MES.map(d =>
-      `<span style="font-size:11px;padding:2px 9px;background:#e6f1fb;color:#185FA5;border-radius:20px;font-weight:600">${d}</span>`
-    ).join('');
-  }
-  // Inicializa lista editável com o estado atual
-  window._domEditando = _domingosCustom ? [..._domingosCustom] : [...DOMINGOS_MES];
-  renderListaEditavel();
-  // Preenche o input com o próximo domingo disponível como sugestão
-  const proxDom = proximoDomingo();
-  const inp = document.getElementById('dom-add-input');
-  if(inp && proxDom) inp.value = proxDom;
-  document.getElementById('modal-editar-domingos').style.display = 'flex';
-};
-
-// Retorna próximo domingo a partir de hoje (formato YYYY-MM-DD para o input date)
-function proximoDomingo(){
-  const d = new Date();
-  d.setDate(d.getDate() + (7 - d.getDay()) % 7 || 7);
-  return d.toISOString().slice(0,10);
-}
-
-// Converte YYYY-MM-DD → DD/MM
-function isoParaDDMM(iso){
-  if(!iso) return '';
-  const p = iso.split('-');
-  return p[2]+'/'+p[1];
-}
-
-// Converte DD/MM → YYYY-MM-DD (usa o ano do mês selecionado na escala como base)
-function ddmmParaISO(ddmm){
-  const p = ddmm.split('/');
-  const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-  const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
-  // Se o mês do domingo for menor que o mês atual da escala = provavelmente ano seguinte (ex: jan após dez)
-  const mesD = parseInt(p[1]);
-  const anoD = mesD < mes && mes >= 11 ? ano + 1 : ano;
-  return `${anoD}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-}
-
-// Renderiza a lista editável de domingos no modal
-function renderListaEditavel(){
-  const el = document.getElementById('dom-lista-editavel');
-  if(!el) return;
-  const lista = window._domEditando || [];
-  if(!lista.length){
-    el.innerHTML = '<p style="font-size:12px;color:#aaa;padding:8px 0">Nenhum domingo adicionado. Use o campo acima.</p>';
-    return;
-  }
-  // Ordena por data
-  lista.sort((a,b)=>{
-    const fa = ddmmParaISO(a), fb = ddmmParaISO(b);
-    return fa.localeCompare(fb);
-  });
-  el.innerHTML = lista.map((d,i) => `
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0">
-      <span style="font-size:18px">📅</span>
-      <span style="flex:1;font-size:14px;font-weight:600;color:#085041">${d}</span>
-      <button onclick="removerDomingo(${i})" style="border:none;background:none;color:#ccc;font-size:20px;cursor:pointer;padding:0 4px">×</button>
-    </div>`).join('');
-}
-
-// Usa a sugestão automática do mês
-window.usarSugestaoAutomatica = function(){
-  window._domEditando = [...DOMINGOS_MES];
-  renderListaEditavel();
-  toast('Domingos do mês copiados para edição.');
-};
-
-// Adiciona um domingo manualmente pelo input de data
-window.adicionarDomingoManual = function(){
-  const inp = document.getElementById('dom-add-input');
-  if(!inp || !inp.value){ toast('Escolha uma data.','warn'); return; }
-  const iso = inp.value; // YYYY-MM-DD
-  const ddmm = isoParaDDMM(iso);
-  // Verifica se é domingo
-  const d = new Date(iso+'T12:00:00');
-  if(d.getDay() !== 0){
-    toast('⚠️ Esta data não é um domingo! Verifique o calendário.','warn');
-    return;
-  }
-  if(!window._domEditando) window._domEditando = [];
-  if(window._domEditando.includes(ddmm)){
-    toast('Este domingo já está na lista.','warn');
-    return;
-  }
-  window._domEditando.push(ddmm);
-  renderListaEditavel();
-  // Avança o input para o próximo domingo
-  d.setDate(d.getDate()+7);
-  inp.value = d.toISOString().slice(0,10);
-};
-
-// Remove um domingo da lista editável
-window.removerDomingo = function(idx){
-  if(!window._domEditando) return;
-  window._domEditando.splice(idx,1);
-  renderListaEditavel();
-};
-
-// Confirma a lista e aplica na escala
-window.confirmarDomingos = function(){
-  const lista = window._domEditando || [];
-  if(!lista.length){ toast('Adicione ao menos um domingo.','warn'); return; }
-  // Ordena
-  lista.sort((a,b) => ddmmParaISO(a).localeCompare(ddmmParaISO(b)));
-  _domingosCustom = [...lista];
-  // Aplica em DOMINGOS_MES
-  DOMINGOS_MES.length = 0;
-  _domingosCustom.forEach(d => DOMINGOS_MES.push(d));
-  atualizarChipsDomingos();
-  fecharModal('modal-editar-domingos');
-  renderEscala();
-  toast(`✓ ${lista.length} domingo(s) definido(s) manualmente para esta escala.`);
-};
-
-// Ao trocar de mês, reseta o modo manual (volta para automático)
-// mas avisa o usuário antes de resetar se havia customização
-function resetarDomingosCustomSeNecessario(){
-  if(_domingosCustom){
-    _domingosCustom = null;
-  }
-}
-
-window.trocarMes = function(){
-  if(_domingosCustom){
-    _domingosCustom = null;
-    toast('Mês alterado — domingos voltaram ao modo automático.','warn');
-  }
-  recalcularComSemanas();
-};
+window.trocarMes = function(){ recalcularComSemanas(); };
 window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
 window.inicializarEscala = function(){ recalcularComSemanas(); };
 
@@ -2189,6 +2034,8 @@ window.addMin = function(key, hora, nome, acId){
   }
 
   escalas[key][hora].ministros.push(nome);
+  // Mantém ordem alfabética sempre
+  escalas[key][hora].ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
   if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
   const inpId = acId ? acId.replace('ac-','inp-') : null;
   if(inpId){ const inp=document.getElementById(inpId); if(inp) inp.value=''; }
@@ -5856,15 +5703,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </div>
     <div id="aviso-semanas" style="display:none;margin-bottom:8px"></div>
 
-    <!-- CONTROLE MANUAL DE DOMINGOS -->
-    <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:10px;padding:10px 12px;margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <p style="font-size:12px;font-weight:700;color:#a07d2a;margin:0">📅 Domingos desta escala</p>
-        <button onclick="abrirEditarDomingos()" style="font-size:11px;padding:4px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">✏️ Editar</button>
-      </div>
-      <div id="domingos-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-    </div>
-
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <select id="esc-tipo" onchange="renderEscala()" style="flex:1;margin:0">
         <option value="dom">Missas dominicais</option>
@@ -6540,38 +6378,6 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
     <input type="password" id="q-senha" placeholder="Crie uma senha (ex: 1234)" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:16px">
 
     <button onclick="iniciarQuiosque()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer">▶️ Ativar Quiosque</button>
-  </div>
-</div>
-
-<!-- MODAL EDITAR DOMINGOS DA ESCALA -->
-<div id="modal-editar-domingos" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-editar-domingos')">
-  <div class="modal-box" style="max-height:92vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div>
-        <p style="font-size:16px;font-weight:700">📅 Domingos desta escala</p>
-        <p style="font-size:11px;color:#888;margin:2px 0 0">Defina exatamente quais domingos entram nesta escala.</p>
-      </div>
-      <button onclick="fecharModal('modal-editar-domingos')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
-    </div>
-
-    <!-- Sugestão automática -->
-    <div id="dom-sugestoes" style="background:#e6f1fb;border-radius:8px;padding:10px;margin-bottom:10px">
-      <p style="font-size:11px;font-weight:700;color:#185FA5;margin:0 0 6px">💡 Sugestão automática do mês selecionado:</p>
-      <div id="dom-sugestoes-chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
-      <button onclick="usarSugestaoAutomatica()" style="font-size:11px;padding:4px 12px;border:none;border-radius:16px;background:#185FA5;color:white;cursor:pointer;font-weight:600">↓ Usar estes domingos</button>
-    </div>
-
-    <!-- Adicionar data manualmente -->
-    <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
-      <input type="date" id="dom-add-input" style="flex:1;margin:0;padding:9px;font-size:14px" placeholder="Adicionar domingo">
-      <button onclick="adicionarDomingoManual()" style="padding:9px 14px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer">+ Adicionar</button>
-    </div>
-
-    <!-- Lista dos domingos selecionados -->
-    <p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 8px">✅ Domingos confirmados nesta escala:</p>
-    <div id="dom-lista-editavel" style="margin-bottom:14px"></div>
-
-    <button onclick="confirmarDomingos()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Confirmar domingos</button>
   </div>
 </div>
 
