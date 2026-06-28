@@ -759,6 +759,97 @@ async function modoDisponibilidade(id){
   renderFormularioCadastro(m, false);
 }
 
+// ===== LISTA OFICIAL DOS 177 MINISTROS (colação jun/2026) =====
+// BLINDAGEM ABSOLUTA: ninguém fora desta lista pode criar cadastro pelo link universal.
+const _LISTA_OFICIAL_177 = [
+  "adriana do socorro rodrigues santos","adriana freitas","adriana vinagre conduru",
+  "alda terezinha pinheiro rodrigues","alessandra andrea silva de seixas duarte",
+  "alessandra dione cardoso leao","alex noronha","alzinei simor","alzira modesto vilhena filha",
+  "ana catarina nunez lopes tavares","ana cristina toscano felicio","ana dulcenor batista",
+  "ana maria carneiro mancebo","ana paula vieira","anderson brito",
+  "andrea ma dos santos sampaio morais","angelita barbosa da cunha","anne dos santos soares",
+  "antonio braz mileo","antonio carlos abbade pereira","antonio fernando alves vieira",
+  "antonio jose de azevedo vieira","antonio vicente junior","benedita ferreira iunes",
+  "brenda leitao sodre","breno freiras","carlos eduardo sampaio nascimento",
+  "carlos peres alexandre de souza","carlos reginaldo de oliveira santa brigida",
+  "carlos sergio fernandes da silva","carmen laura moura monteiro","christian wanzeller rocha",
+  "claudia diane silva marciao","claudio marcio alves vieira","claudio murilo athayde da silva",
+  "claudio ribeiro da silva","consuelo lima skeete","dalmira monteiro pontes simor",
+  "danielle lins tavares","danielle rocha da silva barbosa","danielli rodrigues da silva pinho",
+  "denise pinheiro da silva","diana ma coelho de souza figueiredo",
+  "dirce maria leite da cunha catarino","eda silveira","edileni campos da silva",
+  "edio virginio de miranda","edna maria ferreira cardoso","edno jose cardoso lopes",
+  "eliane maria mota de oliveira","emanuelle garcia daibes marques","euwaldo silveira",
+  "fabio geraldo freitas dos santos","fabiola rocha neves de lima",
+  "fathiane allyne santos araujo","fatima angelica santos araujo","fernanda padilha",
+  "filomena savino da paz","francisca edilene vicente","francy mary cavalcante alves",
+  "gerson conceicao araujo farias","gilvana goncalves","giuseppe di marco",
+  "gloria maria de oliveira silva","heliana keyla marques de oliveira alves",
+  "heliane christina braga gomes","henrique juvenal viana dos santos",
+  "iaponira novelino de oliveira","ignez helena ramos de mesquita","igor gameiro",
+  "ingrid todescatto frison","irani nazare dias barros","irla maria albuquerque marques",
+  "itla lima de freitas coelho","ivani pinheiro","ivania tavares lobo correa",
+  "izabel maria araujo de sousa","izabela ribeiro russo rodrigues","jaime pinheiro maciel",
+  "jarson joel santos da silva","jessyka ysla soares ponte cavalcante",
+  "joao alberto santos silva","joao carlos abreu correa","joao marcelo pinto marques cunha",
+  "joao roberto filho","joel do socorro cunha de moraes","jorge otavio bahia de rezende",
+  "jose arcanjo borges ramos","jose orlando moares de oliveira junior",
+  "jose roberto pereira damasceno","jose ronaldo mesquita alves",
+  "joseane cristine rodrigues dos santos borges","kayth rejane de araujo cardoso da veiga",
+  "lais do socorro vieira miranda","leila catia costa farias","leila rodrigues",
+  "lely maria marinho de mesquita","lena vania sodre monteiro","leonardo padilha",
+  "lianne maria magalhaes dias","lourenco santiago e silva junior","lucelia vieira miranda",
+  "lucia de fatima menezes","lucia maria cabral de oliveira","lucileide da silva pereira",
+  "lucilene ferreira da silva","luis alberto porto aleixo","manoel sidney santos ribeiro",
+  "manuela noronha","marcelo coelho de souza araujo","marcia cristina santos vieira",
+  "marcia holanda","marcio andre silva coelho","margareth s vieira lopes",
+  "maria angela simoes de almeida","maria celia ferreira da silva",
+  "maria celia novaeis teixeira","maria conceicao henriques de castro",
+  "maria da conceicao dos santos rodrigues","maria da graca fonseca santos",
+  "maria de nazare dias de lima","maria de nazare santos de oliveira",
+  "maria deolinda cunha sobral","maria do socorro dos santos nunes",
+  "maria gorete rodrigues dos santos","maria irismar oliveira de albuquerque",
+  "maria jesus amaral damasceno","maria jose oliveira da costa","maria liduina tavares braga",
+  "maria neusa monteiro","maria regina arruda barreto","mario jorge alves da silva",
+  "mauricio bitar mesquita","may da costa mendonca","milena fernandes caldato","milene brito",
+  "monique rocha zoni botelho","nadia helena b amaral e silva","odalea nunes de almeida lima",
+  "otavia dias santos","ozanira ferreira da silva","paula helena mendes lima",
+  "paulo roberto dias de moraes","pedro pereira da silva filho","rafaela cabral",
+  "raimunda katia souza nascimento","raquel netto lobato de castilho","regina barriga",
+  "renato marciao","roberta medeiros de rezende","rodrigo daibes marques da conceicao",
+  "rosa maria costa pinheiro de sousa","rosinethe de avis abreu","rossana maria de andrade lima",
+  "rubia frazao rocha","ruth helena melo goncalves de moraes","sandra maria melo",
+  "sandra pereira assuncao","sheila nazare de lima pereira de moraes",
+  "sheila nazare moraes da costa","sonia gorete veloso vieira",
+  "sonia helaine de souza santana maia","tais moraes rego","tania mara fernandes costa",
+  "tays mileo","telma goncalves","telma maria de oliveira araujo",
+  "thais helena picanco gemaque de sa","thais zumero toscano","thalys oliveira",
+  "thiago pessoa maia","valdilena de souza machado silva","vanessa cavaleiro de macedo",
+  "vera lucia seabra ribeiro","veronica ribeiro solheiro","vicente belisario de souza neto",
+  "zeneide miranda"
+];
+
+// Normaliza nome para comparação (remove acentos, espaços duplos, pontuação, maiúsculas)
+function _normNome(s){
+  return (s||'').toString().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z\s]/g,'')
+    .replace(/\s+/g,' ').trim();
+}
+
+// Retorna true se o nome estiver na lista oficial dos 177
+function nomeNaListaOficial(nomeOuNormado){
+  const n = _normNome(nomeOuNormado);
+  if(_LISTA_OFICIAL_177.includes(n)) return true;
+  // Cobre variações: nome sem partículas ou com abreviação
+  for(const of_ of _LISTA_OFICIAL_177){
+    const np=n.split(' '), op=of_.split(' ');
+    // Primeiro e último token iguais = mesma pessoa
+    if(np.length>=2 && op.length>=2 && np[0]===op[0] && np[np.length-1]===op[op.length-1]) return true;
+  }
+  return false;
+}
+
 // LINK UNIVERSAL: novo ministro se cadastra sozinho (sem precisar de link individual)
 function modoAutoCadastro(){
   // Passo 1: identificação por nome completo
@@ -827,7 +918,12 @@ window.identificarMinistro = async function(){
     // Encontrou cadastro(s) parecido(s) — pergunta "É você?"
     renderConfirmacaoIdentidade(nome, candidatos.slice(0,4).map(c=>c.m));
   } else {
-    // Ninguém parecido — cadastro novo, já com o nome preenchido
+    // BLINDAGEM LISTA OFICIAL: só deixa continuar se o nome estiver na lista dos 177
+    if(!nomeNaListaOficial(nomeNorm)){
+      cadastrarComoNovo(nome);
+      return;
+    }
+    // Nome está na lista oficial mas ainda não tem cadastro — abre formulário
     const m = { id:null, nome:nome, tel:'', endereco:'', estadoCivil:'', rg:'', cpf:'',
       paroquia:'Basílica Santuário de Nossa Senhora de Nazaré', dizimista:'', plantao:false,
       dispDom:[], dispSem:[], dispReforco:[], foto:'', nascimento:'' };
@@ -1331,8 +1427,24 @@ window.salvarAutoCadastro = async function(){
   if(dia && mesN){ dados.nascimento = `1900-${mesN}-${dia}`; }
 
   try{
-    // PROTEÇÃO ANTI-DUPLICIDADE: verifica se já existe um ministro com o mesmo
-    // nome, telefone ou CPF. Se existir, ATUALIZA em vez de criar um segundo cadastro.
+    // BLINDAGEM LISTA OFICIAL: primeiro verifica se o nome está na lista dos 177.
+    // Se não estiver, bloqueia imediatamente — sem checar o banco, sem criar nada.
+    if(!nomeNaListaOficial(nome)){
+      document.body.innerHTML = `
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;background:#f8f8f6">
+        <div style="background:white;border-radius:16px;padding:32px 22px;max-width:360px;box-shadow:0 2px 12px rgba(0,0,0,.08)">
+          <div style="font-size:52px;margin-bottom:12px">🔒</div>
+          <p style="font-size:18px;font-weight:700;color:#A32D2D;margin:0 0 10px">Nome não autorizado</p>
+          <p style="font-size:13px;color:#666;line-height:1.6;margin:0 0 14px">O nome <strong>"${nome}"</strong> não consta na lista oficial de ministros da MESCE.</p>
+          <p style="font-size:12px;color:#888;line-height:1.6;margin:0">Este link é exclusivo para os 177 ministros oficiais. Se houver erro, entre em contato com a Coordenação. 🙏</p>
+          <p style="font-size:12px;color:#085041;margin-top:16px;font-weight:600">Que Nossa Senhora de Nazaré abençoe você! 🕊️</p>
+          <button onclick="window.renderTelaIdentificacao()" style="margin-top:14px;width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">‹ Tentar novamente</button>
+        </div>
+      </div>`;
+      return;
+    }
+
+    // Nome está na lista oficial — busca o registro no banco para ATUALIZAR
     const snap = await getDocs(collection(db,'ministros'));
     const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
     const soDigitos = s => (s||'').toString().replace(/\D/g,'');
@@ -1343,32 +1455,23 @@ window.salvarAutoCadastro = async function(){
     snap.docs.forEach(d=>{
       if(existente) return;
       const x = d.data();
-      const mesmoNome = nomeNorm && norm(x.nome)===nomeNorm;
+      const xn = norm(x.nome||'');
+      const xp = xn.split(' '), np = nomeNorm.split(' ');
+      const mesmoNome = xn===nomeNorm || (np.length>=2 && xp.length>=2 && np[0]===xp[0] && np[np.length-1]===xp[xp.length-1]);
       const mesmoTel  = telDig.length>=8 && soDigitos(x.tel)===telDig;
       const mesmoCpf  = cpfDig.length>=11 && soDigitos(x.cpf)===cpfDig;
       if(mesmoNome || mesmoTel || mesmoCpf){ existente = {id:d.id}; }
     });
 
     if(existente){
-      // Já existe — atualiza o cadastro existente (evita duplicar)
+      // Já existe — atualiza o cadastro existente (nunca duplica)
       const dadosUpd = {...dados};
       delete dadosUpd.criadoEm;   // preserva a data de criação original
       delete dadosUpd.ativo;      // não reativa caso estivesse inativo sem querer
       await updateDoc(doc(db,'ministros',existente.id), dadosUpd);
     } else {
-      // BLINDAGEM: não permite criar novo ministro pelo link universal.
-      // Apenas os 177 já cadastrados podem atualizar seus dados.
-      document.body.innerHTML = `
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;background:#f8f8f6">
-        <div style="background:white;border-radius:16px;padding:32px 22px;max-width:360px;box-shadow:0 2px 12px rgba(0,0,0,.08)">
-          <div style="font-size:52px;margin-bottom:12px">🔒</div>
-          <p style="font-size:18px;font-weight:700;color:#A32D2D;margin:0 0 10px">Cadastro não encontrado</p>
-          <p style="font-size:13px;color:#666;line-height:1.6;margin:0 0 14px">Seu nome <strong>"${nome}"</strong> não foi encontrado na lista de ministros da MESCE.</p>
-          <p style="font-size:12px;color:#888;line-height:1.6;margin:0">Se você é ministro(a) da MESCE e acredita que houve um erro, entre em contato com a Coordenação para regularizar seu cadastro. 🙏</p>
-          <p style="font-size:12px;color:#085041;margin-top:16px;font-weight:600">Que Nossa Senhora de Nazaré abençoe você! 🕊️</p>
-        </div>
-      </div>`;
-      return;
+      // Está na lista oficial mas ainda não tem registro no banco — cria o primeiro e único
+      await addDoc(collection(db,'ministros'), dados);
     }
     document.body.innerHTML = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center;background:#f8f8f6">
