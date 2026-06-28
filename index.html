@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '8.3';
+const APP_VERSAO = '8.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -5469,7 +5469,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 #print-area{display:none}
 @media print{
   body > *:not(#print-area){display:none!important}
-  #print-area{display:block!important;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;padding:20px}
+  #print-area{display:block!important;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;padding:20px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   #print-area .cab{display:flex;align-items:center;gap:14px;border-bottom:3px solid #085041;padding-bottom:10px;margin-bottom:6px}
   #print-area .cab img{width:56px;height:56px;object-fit:contain}
   #print-area .cab .ct{flex:1;text-align:center}
@@ -5479,7 +5479,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   #print-area .pinfo{display:flex;justify-content:space-between;align-items:center;margin:10px 0 14px;font-size:12px;flex-wrap:wrap;gap:6px}
   #print-area .tipo{font-size:11px;color:#085041;font-weight:700;background:#e1f5ee;padding:3px 10px;border-radius:20px}
   #print-area .missa{margin-bottom:14px;page-break-inside:avoid}
-  #print-area .missa-hora{background:#085041;color:white;font-weight:900;font-size:16px;padding:8px 12px;border-radius:6px 6px 0 0;letter-spacing:0.5px}
+  #print-area .missa-hora{background:#085041 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;color:white !important;font-weight:900;font-size:16px;padding:8px 12px;border-radius:6px 6px 0 0;letter-spacing:0.5px}
   #print-area table{width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none}
   #print-area th{background:#f3f5f4;font-size:10px;padding:5px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555;text-align:left}
   #print-area td{border:1px solid #e2e2e2;padding:4px 6px;font-size:12px;vertical-align:middle}
