@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '8.5';
+const APP_VERSAO = '8.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -1763,10 +1763,125 @@ function recalcularComSemanas(){
 
   const sel = document.getElementById('esc-sem');
   if(sel) sel.innerHTML = '';
+  if(typeof atualizarChipsDomingos === 'function') atualizarChipsDomingos();
   renderEscala();
 }
 
-window.trocarMes = function(){ recalcularComSemanas(); };
+// ===== CONTROLE MANUAL DE DOMINGOS DA ESCALA =====
+let _domingosCustom = null;
+
+function atualizarChipsDomingos(){
+  const el = document.getElementById('domingos-chips');
+  if(!el) return;
+  const lista = _domingosCustom || DOMINGOS_MES;
+  const modo = _domingosCustom ? '🔧 Manual' : '🗓️ Auto';
+  const cor = _domingosCustom ? '#BA7517' : '#085041';
+  const bg = _domingosCustom ? '#faeeda' : '#e1f5ee';
+  el.innerHTML = lista.map(d =>
+    `<span style="font-size:11px;padding:2px 9px;background:${bg};color:${cor};border-radius:20px;font-weight:600">${d}</span>`
+  ).join('') +
+  `<span style="font-size:10px;padding:2px 8px;background:#f5f5f3;color:#888;border-radius:20px;margin-left:2px">${modo}</span>`;
+}
+
+window.abrirEditarDomingos = function(){
+  const sugestoesEl = document.getElementById('dom-sugestoes-chips');
+  if(sugestoesEl){
+    sugestoesEl.innerHTML = DOMINGOS_MES.map(d =>
+      `<span style="font-size:11px;padding:2px 9px;background:#e6f1fb;color:#185FA5;border-radius:20px;font-weight:600">${d}</span>`
+    ).join('');
+  }
+  window._domEditando = _domingosCustom ? [..._domingosCustom] : [...DOMINGOS_MES];
+  renderListaEditavel();
+  const proxDom = proximoDomingo();
+  const inp = document.getElementById('dom-add-input');
+  if(inp && proxDom) inp.value = proxDom;
+  document.getElementById('modal-editar-domingos').style.display = 'flex';
+};
+
+function proximoDomingo(){
+  const d = new Date();
+  d.setDate(d.getDate() + (7 - d.getDay()) % 7 || 7);
+  return d.toISOString().slice(0,10);
+}
+
+function isoParaDDMM(iso){
+  if(!iso) return '';
+  const p = iso.split('-');
+  return p[2]+'/'+p[1];
+}
+
+function ddmmParaISO(ddmm){
+  const p = ddmm.split('/');
+  const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const mesD = parseInt(p[1]);
+  const anoD = mesD < mes && mes >= 11 ? ano + 1 : ano;
+  return `${anoD}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+}
+
+function renderListaEditavel(){
+  const el = document.getElementById('dom-lista-editavel');
+  if(!el) return;
+  const lista = window._domEditando || [];
+  if(!lista.length){
+    el.innerHTML = '<p style="font-size:12px;color:#aaa;padding:8px 0">Nenhum domingo adicionado.</p>';
+    return;
+  }
+  lista.sort((a,b) => ddmmParaISO(a).localeCompare(ddmmParaISO(b)));
+  el.innerHTML = lista.map((d,i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0">
+      <span style="font-size:18px">📅</span>
+      <span style="flex:1;font-size:14px;font-weight:600;color:#085041">${d}</span>
+      <button onclick="removerDomingo(${i})" style="border:none;background:none;color:#ccc;font-size:20px;cursor:pointer;padding:0 4px">×</button>
+    </div>`).join('');
+}
+
+window.usarSugestaoAutomatica = function(){
+  window._domEditando = [...DOMINGOS_MES];
+  renderListaEditavel();
+};
+
+window.adicionarDomingoManual = function(){
+  const inp = document.getElementById('dom-add-input');
+  if(!inp || !inp.value){ toast('Escolha uma data.','warn'); return; }
+  const iso = inp.value;
+  const ddmm = isoParaDDMM(iso);
+  const d = new Date(iso+'T12:00:00');
+  if(d.getDay() !== 0){ toast('⚠️ Esta data não é um domingo!','warn'); return; }
+  if(!window._domEditando) window._domEditando = [];
+  if(window._domEditando.includes(ddmm)){ toast('Este domingo já está na lista.','warn'); return; }
+  window._domEditando.push(ddmm);
+  renderListaEditavel();
+  d.setDate(d.getDate()+7);
+  inp.value = d.toISOString().slice(0,10);
+};
+
+window.removerDomingo = function(idx){
+  if(!window._domEditando) return;
+  window._domEditando.splice(idx,1);
+  renderListaEditavel();
+};
+
+window.confirmarDomingos = function(){
+  const lista = window._domEditando || [];
+  if(!lista.length){ toast('Adicione ao menos um domingo.','warn'); return; }
+  lista.sort((a,b) => ddmmParaISO(a).localeCompare(ddmmParaISO(b)));
+  _domingosCustom = [...lista];
+  DOMINGOS_MES.length = 0;
+  _domingosCustom.forEach(d => DOMINGOS_MES.push(d));
+  atualizarChipsDomingos();
+  fecharModal('modal-editar-domingos');
+  renderEscala();
+  toast(`✓ ${lista.length} domingo(s) definido(s) manualmente.`);
+};
+
+window.trocarMes = function(){
+  if(_domingosCustom){
+    _domingosCustom = null;
+    toast('Mês alterado — domingos voltaram ao modo automático.','warn');
+  }
+  recalcularComSemanas();
+};
 window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
 window.inicializarEscala = function(){ recalcularComSemanas(); };
 
@@ -1860,7 +1975,10 @@ window.renderEscala = async function(){
 
     return `<div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="background:${tipo==='dom'?'#085041':'#185FA5'};color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
+          <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.25);padding:2px 9px;border-radius:20px;white-space:nowrap">${g.ministros.length} 👤</span>
+        </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">${datasLabel}</div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -5702,6 +5820,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </div>
     </div>
     <div id="aviso-semanas" style="display:none;margin-bottom:8px"></div>
+
+    <!-- CONTROLE MANUAL DE DOMINGOS -->
+    <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <p style="font-size:12px;font-weight:700;color:#a07d2a;margin:0">📅 Domingos desta escala</p>
+        <button onclick="abrirEditarDomingos()" style="font-size:11px;padding:4px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">✏️ Editar</button>
+      </div>
+      <div id="domingos-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    </div>
 
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <select id="esc-tipo" onchange="renderEscala()" style="flex:1;margin:0">
