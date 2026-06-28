@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '7.3';
+const APP_VERSAO = '7.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -941,10 +941,19 @@ window.confirmarIdentidadeForcar = async function(id){
 
 // Ministro disse que é novo — cria do zero com o nome já digitado
 window.cadastrarComoNovo = function(nome){
-  const m = { id:null, nome:nome, tel:'', endereco:'', estadoCivil:'', rg:'', cpf:'',
-    paroquia:'Basílica Santuário de Nossa Senhora de Nazaré', dizimista:'', plantao:false,
-    dispDom:[], dispSem:[], dispReforco:[], foto:'', nascimento:'' };
-  renderFormularioCadastro(m, true);
+  // BLINDAGEM: não permite criar novo ministro pelo link universal.
+  // Se chegou aqui, o nome digitado não casou com nenhum dos 177 cadastrados.
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;background:#f8f8f6">
+    <div style="background:white;border-radius:16px;padding:32px 22px;max-width:360px;box-shadow:0 2px 12px rgba(0,0,0,.08)">
+      <div style="font-size:52px;margin-bottom:12px">🔒</div>
+      <p style="font-size:18px;font-weight:700;color:#A32D2D;margin:0 0 10px">Nome não encontrado</p>
+      <p style="font-size:13px;color:#666;line-height:1.6;margin:0 0 14px">O nome <strong>"${nome}"</strong> não consta na lista de ministros da MESCE.</p>
+      <p style="font-size:12px;color:#888;line-height:1.6;margin:0">Este link é exclusivo para os ministros já cadastrados. Se você é ministro(a) da MESCE, tente digitar seu nome completo exatamente como foi registrado. Se o problema persistir, entre em contato com a Coordenação. 🙏</p>
+      <button onclick="window.renderTelaIdentificacao()" style="margin-top:18px;width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">‹ Tentar novamente</button>
+      <p style="font-size:12px;color:#085041;margin-top:14px;font-weight:600">Que Nossa Senhora de Nazaré abençoe você! 🕊️</p>
+    </div>
+  </div>`;
 };
 
 // Renderiza o formulário de cadastro/disponibilidade (usado pelos dois modos)
@@ -1347,7 +1356,19 @@ window.salvarAutoCadastro = async function(){
       delete dadosUpd.ativo;      // não reativa caso estivesse inativo sem querer
       await updateDoc(doc(db,'ministros',existente.id), dadosUpd);
     } else {
-      await addDoc(collection(db,'ministros'), dados);
+      // BLINDAGEM: não permite criar novo ministro pelo link universal.
+      // Apenas os 177 já cadastrados podem atualizar seus dados.
+      document.body.innerHTML = `
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;background:#f8f8f6">
+        <div style="background:white;border-radius:16px;padding:32px 22px;max-width:360px;box-shadow:0 2px 12px rgba(0,0,0,.08)">
+          <div style="font-size:52px;margin-bottom:12px">🔒</div>
+          <p style="font-size:18px;font-weight:700;color:#A32D2D;margin:0 0 10px">Cadastro não encontrado</p>
+          <p style="font-size:13px;color:#666;line-height:1.6;margin:0 0 14px">Seu nome <strong>"${nome}"</strong> não foi encontrado na lista de ministros da MESCE.</p>
+          <p style="font-size:12px;color:#888;line-height:1.6;margin:0">Se você é ministro(a) da MESCE e acredita que houve um erro, entre em contato com a Coordenação para regularizar seu cadastro. 🙏</p>
+          <p style="font-size:12px;color:#085041;margin-top:16px;font-weight:600">Que Nossa Senhora de Nazaré abençoe você! 🕊️</p>
+        </div>
+      </div>`;
+      return;
     }
     document.body.innerHTML = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center;background:#f8f8f6">
@@ -4441,12 +4462,14 @@ window.imprimirEscala = async function(){
     <script>window.onload=()=>window.print();<\/script>
   </body></html>`;
 
-  // Usa Blob URL em vez de document.write para garantir que as fotos base64 renderizam
-  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const w = window.open(url, '_blank');
-  // Libera o objeto URL após a janela carregar
-  if(w) w.addEventListener('load', ()=>{ setTimeout(()=>URL.revokeObjectURL(url), 5000); });
+  // Usa data URL para garantir que fotos base64 renderizam corretamente na impressão
+  const encoded = encodeURIComponent(html);
+  const w = window.open('about:blank', '_blank');
+  if(w){
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }
 };
 
 
