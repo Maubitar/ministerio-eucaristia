@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '7.7';
+const APP_VERSAO = '7.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -2750,8 +2750,13 @@ window.imprimirPresenca = function(){
     const linhas = ordenados.map((nome,i)=>{
       const isResp = nome===responsavel;
       const cels = datas.map(()=>`<td class="subst"></td><td class="letra"></td>`).join('');
+      const minObj = ministros.find(x=>x.nome===nome);
+      const fotoTag = minObj?.foto
+        ? `<img src="${minObj.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">`
+        : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(nome)}</div>`;
       return `<tr>
         <td class="num">${i+1}</td>
+        <td class="foto-col">${fotoTag}</td>
         <td class="nome${isResp?' resp-nome':''}">${nome}${isResp?' <span class="resp">★</span>':''}</td>
         ${cels}
       </tr>`;
@@ -2767,6 +2772,7 @@ window.imprimirPresenca = function(){
         <thead>
           <tr>
             <th class="num">Nº</th>
+            <th class="foto-col">Foto</th>
             <th class="nome">Nomes Ministros(as)</th>
             ${thDatas}
           </tr>
@@ -2776,59 +2782,19 @@ window.imprimirPresenca = function(){
     </div>`;
   }).join('');
 
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${periodoSem ? 'Semana '+periodoSem : 'Domingos'}</title>
-  <style>
-    @page{ size: landscape; margin: 9mm; }
-    *{box-sizing:border-box}
-    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:18px 22px}
-    .cab{display:flex;align-items:center;gap:18px;border-bottom:3px solid #085041;padding-bottom:10px;margin-bottom:6px}
-    .cab img{width:58px;height:58px;object-fit:contain}
-    .cab .ct{flex:1;text-align:center}
-    .cab .basilica{font-size:11px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
-    .cab h1{margin:2px 0;color:#085041;font-size:22px}
-    .cab .sub{font-size:11px;color:#555;margin:0}
-    .info{display:flex;justify-content:space-between;align-items:center;margin:10px 0 6px;font-size:13px}
-    .info .tipo{font-size:12px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px}
-    .info .leg{font-size:11px;color:#555}
-    .missa{margin-bottom:18px;page-break-inside:avoid}
-    .missa-hora{background:#085041;color:white;padding:7px 14px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center}
-    .missa-hora .hr{font-weight:700;font-size:14px}
-    .missa-hora .resp-info{font-size:12.5px;font-weight:400}
-    .missa-hora .resp-info strong{font-weight:700}
-    table.tab{width:100%;border-collapse:collapse;border:1.5px solid #333}
-    table.tab th{background:#dfe7e4;font-size:11px;padding:6px 4px;border:1px solid #333;color:#1a1a1a;text-align:center;font-weight:700}
-    table.tab td{border:1px solid #888;padding:4px 6px;font-size:11.5px;height:38px;vertical-align:middle}
-    table.tab tbody tr{height:38px}
-    th.data{background:#085041;color:white;font-size:12px}
-    td.subst{min-width:120px}
-    td.letra,th.letra{width:34px;text-align:center;background:#fafafa}
-    .num{width:30px;text-align:center;color:#888}
-    .nome{text-align:left;width:230px;line-height:1.15}
-    .nome.resp-nome{font-weight:700}
-    .resp{color:#BA7517;font-weight:700;margin-left:2px}
-    .rodape{text-align:center;margin-top:16px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:8px}
-  </style></head>
-  <body>
-    <div class="cab">
-      <img src="${APP_URL}/${LOGO_BASILICA}">
-      <div class="ct">
-        <p class="basilica">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1>Lista de Presença</h1>
-        <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      </div>
-      <img src="${APP_URL}/${LOGO_MESCE}">
-    </div>
-    <div class="info">
-      <div><strong>Data:</strong> ${dataLabel}</div>
-      <div class="leg"><strong>Legendas:</strong> P – presente / F – faltou / S – substituição</div>
-      <div class="tipo">Escala ${tipoEscala}</div>
-    </div>
+  const html = `
     ${blocos}
     <p class="rodape">Em caso de substituição (S), o responsável anota o nome do substituto na coluna da data &nbsp;·&nbsp; S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
-    <script>window.onload=()=>window.print();<\/script>
-  </body></html>`);
-  w.document.close();
+    <style>
+      @page{ size: landscape; margin: 9mm; }
+      .foto-col{width:46px;text-align:center;padding:2px 3px!important}
+      th.foto-col{text-align:center;font-size:9px}
+    </style>`;
+
+  const printArea = document.getElementById('print-area');
+  printArea.innerHTML = html;
+  window.print();
+  setTimeout(()=>{ printArea.innerHTML=''; }, 2000);
 };
 
 const presReuniaoMap = {};
