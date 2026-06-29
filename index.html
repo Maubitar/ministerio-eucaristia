@@ -1534,6 +1534,7 @@ window.nav = function(id, btn){
     reforco: ()=>renderReforco(),
     plantao: ()=>renderPlantonistas(),
     ausencias: ()=>renderAusencias(),
+    responsaveis: ()=>renderResponsaveis(),
     relatorios: ()=>renderRelatorios(),
     inicio: ()=>renderInicio(),
     eventos: ()=>renderEventos(),
@@ -4125,6 +4126,227 @@ window.imprimirRelatorioArquidiocese = function(){
   w.document.close();
 };
 
+// ===== CANAL DOS RESPONSÁVEIS =====
+
+// Coleta todos os responsáveis únicos da escala salva do mês
+async function coletarResponsaveis(){
+  const mesKey = getMesAtual();
+  const resp = {}; // nome -> [{hora, tipo}]
+
+  // Dominical
+  try{
+    const d = await getDoc(doc(db,'escalas',`escala_dom_${mesKey}`));
+    if(d.exists()){
+      Object.entries(d.data()).forEach(([hora,g])=>{
+        if(g && g.responsavel){
+          if(!resp[g.responsavel]) resp[g.responsavel]=[];
+          resp[g.responsavel].push({hora, tipo:'Dominical'});
+        }
+      });
+    }
+  }catch(e){}
+
+  // Semanais
+  for(let s=1;s<=6;s++){
+    try{
+      const d = await getDoc(doc(db,'escalas',`escala_sem_sem${s}_${mesKey}`));
+      if(d.exists()){
+        Object.entries(d.data()).forEach(([hora,g])=>{
+          if(g && g.responsavel){
+            if(!resp[g.responsavel]) resp[g.responsavel]=[];
+            resp[g.responsavel].push({hora, tipo:`${s}ª semana`});
+          }
+        });
+      }
+    }catch(e){}
+  }
+  return resp;
+}
+
+window.renderResponsaveis = async function(){
+  const cont = document.getElementById('resp-lista');
+  const countEl = document.getElementById('resp-count');
+  if(cont) cont.innerHTML = '<p style="font-size:12px;color:#888;padding:8px 0">Carregando responsáveis...</p>';
+
+  const resp = await coletarResponsaveis();
+  const nomes = Object.keys(resp).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+  if(countEl) countEl.textContent = `${nomes.length} responsável(is)`;
+
+  if(!nomes.length){
+    cont.innerHTML = `<div style="text-align:center;padding:24px 16px;color:#999">
+      <p style="font-size:32px;margin:0">⭐</p>
+      <p style="font-size:13px;font-weight:600;margin:8px 0 4px">Nenhum responsável definido</p>
+      <p style="font-size:12px;margin:0">Monte e salve a escala do mês para que os responsáveis apareçam aqui.</p>
+    </div>`;
+    return;
+  }
+
+  cont.innerHTML = nomes.map(nome=>{
+    const m = ministros.find(x=>x.nome===nome);
+    const tel = m ? (typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'')) : '';
+    const horarios = resp[nome];
+    const horariosTexto = horarios.map(h=>`${h.tipo} ${h.hora}`).join(' · ');
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0">
+      ${m?.foto
+        ? `<img src="${m.foto}" style="width:46px;height:46px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #faeeda">`
+        : `<div style="width:46px;height:46px;border-radius:50%;background:#faeeda;color:#BA7517;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${(nome.split(' ').map(x=>x[0]).slice(0,2).join(''))}</div>`}
+      <div style="flex:1;min-width:0">
+        <p style="font-size:13px;font-weight:700;margin:0;color:#085041">${nome}</p>
+        <p style="font-size:11px;color:#BA7517;margin:2px 0 0;font-weight:600">⭐ ${horariosTexto}</p>
+        ${!tel ? '<p style="font-size:10px;color:#A32D2D;margin:1px 0 0">⚠️ Sem telefone cadastrado</p>' : ''}
+      </div>
+      ${tel
+        ? `<button onclick="enviarMensagemResp('${nome.replace(/'/g,"\'")}','${tel}')" style="flex-shrink:0;padding:8px 12px;border:none;border-radius:18px;background:#25D366;color:white;font-size:12px;font-weight:700;cursor:pointer">📲 Enviar</button>`
+        : `<span style="font-size:10px;color:#bbb;flex-shrink:0">sem tel</span>`}
+    </div>`;
+  }).join('');
+};
+
+// Modelos de mensagem pré-definidos
+const _modelosResp = {
+  1: `📋 *NORMAS — Responsável de Missa*
+
+Olá, {NOME}! 🙏
+
+Você é o(a) responsável da missa das *{HORARIO}* este mês. Seguem as normas:
+
+• Chegar 15 min antes do horário
+• Verificar se todos os ministros escalados estão presentes
+• Organizar a distribuição nas filas
+• Em caso de falta, acionar um plantonista
+• Ao final, reportar à Coordenação qualquer ocorrência
+
+_Coordenação MESCE 2026_
+_Basílica Santuário de Nossa Senhora de Nazaré_ 🕊️`,
+
+  2: `⚠️ *PROCEDIMENTOS — Responsável de Missa*
+
+Olá, {NOME}! 🙏
+
+Como responsável das *{HORARIO}*, atente-se aos procedimentos:
+
+✅ Antes da missa: confirmar presença de todos os ministros
+✅ Durante: coordenar as filas e posições
+✅ Emergência: acionar plantonista via Coordenação
+✅ Após: registrar qualquer ausência ou ocorrência
+
+Qualquer dúvida, entre em contato com a Coordenação. 🙏
+
+_Coordenação MESCE 2026_
+_Basílica Santuário de Nossa Senhora de Nazaré_ 🕊️`,
+
+  3: `📢 *AVISO — Coordenação MESCE*
+
+Olá, {NOME}! 🙏
+
+Como responsável das *{HORARIO}*, informamos:
+
+[Escreva seu aviso aqui]
+
+_Coordenação MESCE 2026_
+_Basílica Santuário de Nossa Senhora de Nazaré_ 🕊️`,
+
+  4: `🙏 *Boas-vindas, Responsável!*
+
+Olá, {NOME}! 🕊️
+
+Este mês você é o(a) responsável da missa das *{HORARIO}* na Basílica de Nazaré. É uma missão de confiança e amor!
+
+Conte sempre com a Coordenação para o que precisar. Que Nossa Senhora de Nazaré abençoe seu serviço! 🙏
+
+_Coordenação MESCE 2026_
+_Basílica Santuário de Nossa Senhora de Nazaré_`
+};
+
+window.usarModeloResp = function(num){
+  const ta = document.getElementById('resp-mensagem');
+  if(ta) ta.value = _modelosResp[num] || '';
+};
+
+window.previewFotoResp = function(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e=>{
+    window._respFotoData = e.target.result;
+    document.getElementById('resp-foto-preview').src = e.target.result;
+    document.getElementById('resp-foto-preview').style.display = 'block';
+    document.getElementById('resp-foto-nome').textContent = file.name;
+    document.getElementById('resp-foto-remover').style.display = 'inline';
+  };
+  reader.readAsDataURL(file);
+};
+
+window.removerFotoResp = function(){
+  window._respFotoData = null;
+  document.getElementById('resp-foto-input').value = '';
+  document.getElementById('resp-foto-preview').style.display = 'none';
+  document.getElementById('resp-foto-nome').textContent = 'Nenhuma foto selecionada';
+  document.getElementById('resp-foto-remover').style.display = 'none';
+};
+
+// Envia mensagem para UM responsável
+window.enviarMensagemResp = function(nome, tel){
+  const msg = (document.getElementById('resp-mensagem')?.value || '').trim();
+  if(!msg){ toast('Escreva a mensagem antes de enviar.','warn'); return; }
+  const m = ministros.find(x=>x.nome===nome);
+  const horarios = [];
+  // Pega os horários do responsável da lista renderizada
+  document.querySelectorAll('#resp-lista .resp-horario').forEach(el=>{
+    if(el.closest('[data-nome]')?.getAttribute('data-nome')===nome) horarios.push(el.textContent);
+  });
+  const horarioTexto = horarios.join(', ') || 'seu horário';
+  const msgFinal = msg
+    .replace(/\{NOME\}/g, nome.split(' ')[0])
+    .replace(/\{NOME_COMPLETO\}/g, nome)
+    .replace(/\{HORARIO\}/g, horarioTexto);
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msgFinal)}`, '_blank');
+};
+
+// Envia para TODOS os responsáveis em sequência
+window.enviarParaTodosResp = async function(){
+  const msg = (document.getElementById('resp-mensagem')?.value || '').trim();
+  if(!msg){ toast('Escreva a mensagem antes de enviar.','warn'); return; }
+
+  const resp = await coletarResponsaveis();
+  const nomes = Object.keys(resp).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+  if(!nomes.length){ toast('Nenhum responsável encontrado. Salve a escala primeiro.','warn'); return; }
+
+  // Filtra só quem tem telefone
+  const comTel = nomes.filter(nome=>{
+    const m = ministros.find(x=>x.nome===nome);
+    return m && (typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'').length>=10);
+  });
+  const semTel = nomes.filter(nome=>!comTel.includes(nome));
+
+  if(!comTel.length){ toast('Nenhum responsável tem telefone cadastrado.','warn'); return; }
+
+  const ok = confirm(`📲 Enviar mensagem para ${comTel.length} responsável(is)?${semTel.length ? `
+
+⚠️ ${semTel.length} sem telefone: ${semTel.join(', ')}` : ''}
+
+O WhatsApp abrirá para cada um. Toque "Enviar" em cada conversa.`);
+  if(!ok) return;
+
+  // Abre sequencialmente com 1.5s de intervalo
+  comTel.forEach((nome, idx)=>{
+    setTimeout(()=>{
+      const m = ministros.find(x=>x.nome===nome);
+      const tel = typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+      const horarios = resp[nome].map(h=>`${h.tipo} ${h.hora}`).join(', ');
+      const msgFinal = msg
+        .replace(/\{NOME\}/g, nome.split(' ')[0])
+        .replace(/\{NOME_COMPLETO\}/g, nome)
+        .replace(/\{HORARIO\}/g, horarios);
+      window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msgFinal)}`, '_blank');
+    }, idx * 1500);
+  });
+
+  toast(`✓ Abrindo WhatsApp para ${comTel.length} responsável(is)...`,'ok');
+};
+
 window.filtrarMin = function(){ renderMinistros(document.getElementById('busca-min').value); };
 function renderMinistros(filtro){
   const lista=ministros.filter(m=>normalizarBusca(m.nome).includes(normalizarBusca(filtro)));
@@ -5945,6 +6167,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <button class="nb" data-sec="escala" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
   <button class="nb" data-sec="presenca" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
   <button class="nb" data-sec="relatorios" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
+  <button class="nb" data-sec="responsaveis" onclick="nav('responsaveis',this)"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.64A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>Responsáveis</button>
   <button class="nb" data-sec="ministros" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
   <button class="nb" data-sec="mais" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
 </nav>
@@ -6384,6 +6607,52 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Ministros que avisaram que não poderão servir em certas datas.</p>
   </div>
   <div id="ausencias-body"></div>
+</div>
+
+<!-- SEÇÃO: RESPONSÁVEIS DO MÊS -->
+<div id="s-responsaveis" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#BA7517,#d18a1f);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">⭐ Canal dos Responsáveis</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Envie normas, procedimentos e avisos direto para os responsáveis do mês.</p>
+  </div>
+
+  <!-- MENSAGEM -->
+  <div class="card">
+    <p class="ct">✍️ Mensagem para os responsáveis</p>
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <button onclick="usarModeloResp(1)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">📋 Normas</button>
+      <button onclick="usarModeloResp(2)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">⚠️ Procedimentos</button>
+      <button onclick="usarModeloResp(3)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">📢 Aviso geral</button>
+      <button onclick="usarModeloResp(4)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">🙏 Boas-vindas</button>
+    </div>
+    <textarea id="resp-mensagem" placeholder="Digite a mensagem que será enviada a todos os responsáveis..." style="width:100%;min-height:120px;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+    <p style="font-size:11px;color:#888;margin:4px 0 8px">A mensagem será personalizada com o nome e horário de cada responsável.</p>
+
+    <!-- Foto opcional -->
+    <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:9px;padding:10px;margin-bottom:10px">
+      <p style="font-size:12px;font-weight:700;color:#a07d2a;margin:0 0 6px">📷 Foto / documento (opcional)</p>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="file" id="resp-foto-input" accept="image/*" style="display:none" onchange="previewFotoResp(this)">
+        <button onclick="document.getElementById('resp-foto-input').click()" style="padding:7px 14px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;font-size:12px;font-weight:600;cursor:pointer">+ Anexar foto</button>
+        <span id="resp-foto-nome" style="font-size:11px;color:#888">Nenhuma foto selecionada</span>
+        <button id="resp-foto-remover" onclick="removerFotoResp()" style="display:none;border:none;background:none;color:#ccc;font-size:18px;cursor:pointer">×</button>
+      </div>
+      <img id="resp-foto-preview" style="display:none;margin-top:8px;max-width:100%;max-height:120px;border-radius:8px;object-fit:contain">
+    </div>
+
+    <button onclick="enviarParaTodosResp()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#25D366;color:white;font-size:15px;font-weight:700;cursor:pointer">📲 Enviar para todos os responsáveis</button>
+  </div>
+
+  <!-- LISTA DOS RESPONSÁVEIS -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <p class="ct" style="margin:0">⭐ Responsáveis do mês</p>
+      <span id="resp-count" style="font-size:11px;background:#faeeda;color:#BA7517;padding:2px 10px;border-radius:20px;font-weight:700"></span>
+    </div>
+    <p style="font-size:11px;color:#888;margin:0 0 10px;line-height:1.5">Extraídos automaticamente da escala salva. Para atualizar, salve a escala primeiro.</p>
+    <div id="resp-lista"></div>
+  </div>
 </div>
 
 <!-- SEÇÃO: DETALHE DO EVENTO (escala + presença) -->
