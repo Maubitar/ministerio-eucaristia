@@ -3912,10 +3912,105 @@ async function relArquidiocese(){
         </tr>`).join('')}
       </tbody>
     </table>
-    <div style="margin-top:12px">
-      <button onclick="imprimirRelatorioArquidiocese()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">🖨️ Imprimir relatório oficial</button>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button onclick="imprimirRelatorioArquidiocese()" style="flex:1;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">🖨️ Imprimir relatório oficial</button>
+      <button onclick="enviarRelatorioWhatsApp()" style="flex:1;padding:12px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer">📲 Enviar WhatsApp</button>
     </div>`;
 }
+
+window.enviarRelatorioWhatsApp = async function(){
+  const lista = [...ministros].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const fmt = nasc => {
+    if(!nasc) return '—';
+    const p = nasc.split('-');
+    if(p.length<3) return '—';
+    return `${p[2]}/${p[1]}`;
+  };
+  const hoje = new Date();
+  const dataFmt = `${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+
+  toast('Gerando imagem para WhatsApp...','ok');
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:white;padding:30px 28px;font-family:Arial,sans-serif';
+
+  // Divide em colunas de até 50 ministros para caber na imagem
+  const col1 = lista.slice(0, Math.ceil(lista.length/2));
+  const col2 = lista.slice(Math.ceil(lista.length/2));
+
+  const linhasCol = (col, offset) => col.map((m,i) => `
+    <tr style="border-bottom:1px solid #eee;background:${(i+offset)%2===0?'white':'#f8f8f6'}">
+      <td style="padding:5px 6px;text-align:center;color:#888;font-size:11px;width:28px">${i+offset+1}</td>
+      <td style="padding:5px 6px;font-size:11.5px;font-weight:500">${m.nome}</td>
+      <td style="padding:5px 6px;text-align:center;font-size:11px;color:#555;width:60px">${fmt(m.nascimento)}</td>
+      <td style="padding:5px 6px;text-align:center;font-size:11px;color:#555;width:110px">${(m.tel||'—').trim()}</td>
+    </tr>`).join('');
+
+  const tabelaHTML = (col, offset) => `
+    <table style="width:100%;border-collapse:collapse;border:1px solid #ccc;font-size:11px">
+      <thead><tr style="background:#085041">
+        <th style="color:white;padding:6px;text-align:center;font-size:10px;width:28px">Nº</th>
+        <th style="color:white;padding:6px;text-align:left;font-size:10px">Nome</th>
+        <th style="color:white;padding:6px;text-align:center;font-size:10px;width:60px">Nasc.</th>
+        <th style="color:white;padding:6px;text-align:center;font-size:10px;width:110px">Telefone</th>
+      </tr></thead>
+      <tbody>${linhasCol(col, offset)}</tbody>
+    </table>`;
+
+  wrap.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;border-bottom:3px solid #085041;padding-bottom:12px;margin-bottom:14px">
+      <img src="${APP_URL}/${LOGO_BASILICA}" crossorigin="anonymous" style="width:60px;height:60px;object-fit:contain">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Arquidiocese de Belém do Pará</p>
+        <h1 style="margin:3px 0;color:#085041;font-size:16px;font-weight:900">Ministros Extraordinários da Sagrada Comunhão Eucarística</h1>
+        <p style="font-size:11px;color:#666;margin:0">Basílica Santuário de Nossa Senhora de Nazaré · Belém – PA</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" crossorigin="anonymous" style="width:60px;height:60px;object-fit:contain">
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:10px">
+      <span>📋 Relatório oficial · Emitido em ${dataFmt}</span>
+      <strong style="color:#085041">${lista.length} ministros</strong>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>${tabelaHTML(col1, 0)}</div>
+      <div>${tabelaHTML(col2, col1.length)}</div>
+    </div>
+    <div style="text-align:center;margin-top:16px;font-size:11px;color:#333;font-weight:700;border-top:1px solid #eee;padding-top:10px">
+      Coordenação MESCE 2026 · Basílica Santuário de Nossa Senhora de Nazaré — Belém/PA
+    </div>`;
+
+  document.body.appendChild(wrap);
+
+  const imgs = wrap.querySelectorAll('img');
+  await Promise.all([...imgs].map(img => img.complete ? Promise.resolve() : new Promise(r=>{ img.onload=r; img.onerror=r; })));
+  await new Promise(r=>setTimeout(r,200));
+
+  try{
+    const canvas = await html2canvas(wrap, {scale:2, backgroundColor:'#ffffff', useCORS:true, logging:false});
+    canvas.toBlob(blob=>{
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `ministros_mesce_${dataFmt.replace(/\//g,'-')}.png`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+      // Abre WhatsApp web para o grupo
+      setTimeout(()=>{
+        const msg = `📋 *Ministros Extraordinários da Sagrada Comunhão Eucarística*
+Basílica Santuário de Nossa Senhora de Nazaré — Belém/PA
+
+${lista.length} ministros · Emitido em ${dataFmt}
+
+_Coordenação MESCE 2026_`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,'_blank');
+        toast('✓ Imagem baixada! Anexe no WhatsApp como foto.','ok');
+      }, 1000);
+    },'image/png',1.0);
+  }catch(e){
+    toast('Erro ao gerar imagem: '+e.message,'err');
+  }finally{
+    document.body.removeChild(wrap);
+  }
+};
 
 window.imprimirRelatorioArquidiocese = function(){
   const lista = [...ministros].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
@@ -3993,13 +4088,9 @@ window.imprimirRelatorioArquidiocese = function(){
       <tbody>${linhas}</tbody>
     </table>
 
-    <div class="assinatura">
-      <div>
-        <div class="linha">Coordenador(a) MESCE<br>Basílica Santuário de N. S. de Nazaré</div>
-      </div>
-      <div>
-        <div class="linha">Pe. Josué<br>Diretor Espiritual MESCE</div>
-      </div>
+    <div style="text-align:center;margin-top:30px;font-size:12px;color:#333;font-weight:700">
+      Coordenação MESCE 2026<br>
+      <span style="font-size:11px;font-weight:400;color:#666">Basílica Santuário de Nossa Senhora de Nazaré — Belém/PA</span>
     </div>
 
     <div class="rodape">
