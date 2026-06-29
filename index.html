@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '8.6';
+const APP_VERSAO = '8.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
@@ -534,7 +534,7 @@ window.removerUsuario = async function(i){
 // Detecta quando o app foi atualizado para uma nova versão e avisa de forma visível.
 function verificarVersao(){
   try{
-    // Mostra a versão atual no rodapé do "Mais" (sempre visível)
+    // Mostra a versão atual no rodapé do "Mais" e no header
     const lbl = document.getElementById('info-versao');
     if(lbl) lbl.textContent = 'versão ' + APP_VERSAO;
 
@@ -551,31 +551,49 @@ function verificarVersao(){
       }
     }
 
-    // Caso 2: atualização detectada por mudança de versão guardada
+    // Caso 2: versão anterior diferente da atual (incluindo aba anônima sem localStorage)
     const anterior = localStorage.getItem('sogi_versao');
-    if(anterior && anterior !== APP_VERSAO){
-      setTimeout(()=>mostrarBannerAtualizacao(anterior, APP_VERSAO), 600);
+    if(!anterior){
+      // Primeira abertura ou aba anônima — mostra versão atual discretamente no header
+      mostrarVersaoNoHeader(APP_VERSAO);
+    } else if(anterior !== APP_VERSAO){
+      // Versão mudou — mostra banner comemorativo
+      setTimeout(()=>mostrarBannerAtualizacao(anterior, APP_VERSAO), 800);
     }
     localStorage.setItem('sogi_versao', APP_VERSAO);
-  }catch(e){ /* se localStorage indisponível, ignora silenciosamente */ }
-  // Inicia a verificação automática de novas versões no servidor
+  }catch(e){}
   if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
+}
+
+// Badge de versão discreto no header (aparece sempre)
+function mostrarVersaoNoHeader(versao){
+  // Já existe badge? não duplica
+  if(document.getElementById('badge-versao')) return;
+  const header = document.querySelector('.header');
+  if(!header) return;
+  const badge = document.createElement('div');
+  badge.id = 'badge-versao';
+  badge.style.cssText = 'text-align:center;padding:2px 0 0;font-size:10px;opacity:.7;color:white;letter-spacing:.5px';
+  badge.textContent = 'S.O.G.I. v' + versao;
+  header.appendChild(badge);
 }
 
 // Confirmação visível de atualização — card central celebrativo, impossível de ignorar.
 function mostrarBannerAtualizacao(de, para){
   const existe = document.getElementById('banner-atualizacao');
   if(existe) existe.remove();
+  mostrarVersaoNoHeader(para);
   const overlay = document.createElement('div');
   overlay.id = 'banner-atualizacao';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn .3s ease';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn .3s ease';
   overlay.innerHTML = `
     <div style="background:white;border-radius:20px;padding:30px 26px;max-width:340px;width:100%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.3);animation:popIn .4s cubic-bezier(.2,1.3,.6,1)">
-      <div style="font-size:60px;line-height:1;margin-bottom:10px">🎉</div>
-      <p style="margin:0;font-size:19px;font-weight:800;color:#085041">Atualizado com sucesso!</p>
-      <div style="display:inline-block;background:#e1f5ee;color:#085041;font-size:15px;font-weight:700;padding:5px 16px;border-radius:20px;margin:12px 0 6px">Versão ${para}</div>
-      <p style="margin:6px 0 0;font-size:12px;color:#888">${de?`Atualizado da versão ${de}`:'Sistema atualizado'} · S.O.G.I. MESCE</p>
-      <button onclick="document.getElementById('banner-atualizacao').remove()" style="margin-top:18px;width:100%;padding:12px;border:none;border-radius:10px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">Continuar</button>
+      <div style="font-size:64px;line-height:1;margin-bottom:12px">🎉</div>
+      <p style="margin:0;font-size:20px;font-weight:800;color:#085041">Atualizado com sucesso!</p>
+      <div style="display:inline-block;background:#e1f5ee;color:#085041;font-size:16px;font-weight:700;padding:6px 20px;border-radius:20px;margin:14px 0 8px">Versão ${para}</div>
+      <p style="margin:4px 0 0;font-size:12px;color:#888">${de && de!==para ? `Atualizado da versão ${de}` : 'Sistema S.O.G.I. MESCE'} · Basílica de Nazaré</p>
+      <p style="margin:10px 0 0;font-size:12px;color:#1D9E75;font-weight:600">Que Nossa Senhora de Nazaré abençoe! 🕊️</p>
+      <button onclick="document.getElementById('banner-atualizacao').remove()" style="margin-top:18px;width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Continuar</button>
     </div>`;
   document.body.appendChild(overlay);
 }
