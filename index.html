@@ -31,8 +31,25 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '8.7';
+const APP_VERSAO = '8.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
+
+// ANTI-CACHE: força URL com versão para atualização instantânea
+(function(){
+  try{
+    const url = new URL(location.href);
+    const vAtual = url.searchParams.get('v');
+    if(!vAtual || vAtual !== APP_VERSAO){
+      // Só redireciona se não estiver no meio de um cadastro/link individual
+      const temParam = url.searchParams.has('ministro') || url.searchParams.has('disp') || url.searchParams.has('cadastro');
+      if(!temParam){
+        url.searchParams.set('v', APP_VERSAO);
+        // Substitui silenciosamente na barra de endereço sem recarregar
+        history.replaceState(null,'', url.toString());
+      }
+    }
+  }catch(e){}
+})();
 const GRUPO_WA = 'https://chat.whatsapp.com/FCYTsGKKR6m9pdORNNOHqJ';
 
 function calcularCalendario(ano, mes) {
@@ -364,7 +381,8 @@ async function checarVersaoServidor(automatico){
   if(_checandoVersao) return;
   _checandoVersao = true;
   try{
-    const url = location.href.split('?')[0].split('#')[0] + '?check=' + Date.now();
+    // Busca sem cache usando timestamp
+    const url = location.href.split('?')[0].split('#')[0] + '?v_check=' + Date.now();
     const resp = await fetch(url, {cache:'no-store'});
     const txt = await resp.text();
     // Extrai a versão do arquivo que está no servidor
@@ -397,7 +415,12 @@ function mostrarBannerNovaVersao(novaVersao){
     <button onclick="forcarAtualizacao()" style="padding:8px 20px;border:none;border-radius:20px;background:white;color:#17855f;font-size:13px;font-weight:700;cursor:pointer">🔄 Atualizar agora</button>`;
   document.body.appendChild(b);
   // Atualiza sozinho após 4 segundos (dá tempo de ler o aviso)
-  setTimeout(()=>{ forcarAtualizacao(); }, 4000);
+  setTimeout(()=>{
+    // Recarrega com ?v=novaVersao para quebrar cache de vez
+    const base = location.href.split('?')[0].split('#')[0];
+    localStorage.setItem('sogi_atualizando', APP_VERSAO);
+    location.replace(base + '?v=' + novaVersao);
+  }, 4000);
 }
 
 // Inicia a verificação automática: ao abrir e depois a cada 60 segundos
@@ -3961,8 +3984,8 @@ window.enviarRelatorioWhatsApp = async function(){
     <div style="display:flex;align-items:center;gap:16px;border-bottom:3px solid #085041;padding-bottom:12px;margin-bottom:14px">
       <img src="${APP_URL}/${LOGO_BASILICA}" crossorigin="anonymous" style="width:60px;height:60px;object-fit:contain">
       <div style="flex:1;text-align:center">
-        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Arquidiocese de Belém do Pará</p>
-        <h1 style="margin:3px 0;color:#085041;font-size:16px;font-weight:900">Ministros Extraordinários da Sagrada Comunhão Eucarística</h1>
+        <p style="font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+        <h1 style="margin:3px 0;color:#085041;font-size:16px;font-weight:900">Lista Oficial de Ministros — MESCE</h1>
         <p style="font-size:11px;color:#666;margin:0">Basílica Santuário de Nossa Senhora de Nazaré · Belém – PA</p>
       </div>
       <img src="${APP_URL}/${LOGO_MESCE}" crossorigin="anonymous" style="width:60px;height:60px;object-fit:contain">
@@ -4034,7 +4057,7 @@ window.imprimirRelatorioArquidiocese = function(){
 
   const w = window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Relatório Ministros MESCE — Arquidiocese de Belém</title>
+  <title>Lista Oficial de Ministros — MESCE · Basílica de Nazaré</title>
   <style>
     @page{ size: portrait; margin: 14mm 12mm; }
     *{box-sizing:border-box}
@@ -4064,8 +4087,8 @@ window.imprimirRelatorioArquidiocese = function(){
     <div class="cab">
       <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
       <div class="ct">
-        <p class="inst">Arquidiocese de Belém do Pará</p>
-        <h1>Ministros Extraordinários da Sagrada Comunhão Eucarística</h1>
+        <p class="inst">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+        <h1>Lista Oficial de Ministros — MESCE</h1>
         <p class="sub">Basílica Santuário de Nossa Senhora de Nazaré · Belém – PA</p>
       </div>
       <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
