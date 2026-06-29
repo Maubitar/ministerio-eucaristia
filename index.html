@@ -3406,6 +3406,7 @@ window.renderRelatorios = async function(){
   if(tab==='faltas') await relFaltas();
   if(tab==='escalas') await relEscalas();
   if(tab==='eventos') await relEventos();
+  if(tab==='arquidiocese') await relArquidiocese();
 };
 
 // Relatório: quem falta COMPLETAR o cadastro (foto, nascimento, telefone, disponibilidade)
@@ -3878,6 +3879,137 @@ async function relEventos(){
       <button onclick="nav('eventos')" style="padding:11px 18px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">📅 Abrir Eventos Especiais</button>
     </div>`;
 }
+
+// ===== RELATÓRIO ARQUIDIOCESE =====
+async function relArquidiocese(){
+  const lista = [...ministros].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const fmt = nasc => {
+    if(!nasc) return '—';
+    const p = nasc.split('-');
+    if(p.length<3) return '—';
+    return `${p[2]}/${p[1]}`;
+  };
+  const fmtTel = t => (t||'').trim() || '—';
+
+  document.getElementById('rel-body').innerHTML = `
+    <div style="background:#e1f5ee;border-radius:10px;padding:12px;margin-bottom:12px">
+      <p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 4px">📋 Relatório para a Arquidiocese de Belém</p>
+      <p style="font-size:11px;color:#666;margin:0">${lista.length} ministros · Dados: nome, nascimento e telefone</p>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#085041;color:white">
+        <th style="padding:7px 6px;text-align:center;width:32px">Nº</th>
+        <th style="padding:7px 6px;text-align:left">Nome</th>
+        <th style="padding:7px 6px;text-align:center">Nascimento</th>
+        <th style="padding:7px 6px;text-align:center">Telefone</th>
+      </tr></thead>
+      <tbody>
+        ${lista.map((m,i)=>`<tr style="border-bottom:1px solid #eee;background:${i%2===0?'white':'#f8f8f6'}">
+          <td style="padding:6px;text-align:center;color:#888">${i+1}</td>
+          <td style="padding:6px;font-weight:500">${m.nome}</td>
+          <td style="padding:6px;text-align:center;color:#555">${fmt(m.nascimento)}</td>
+          <td style="padding:6px;text-align:center;color:#555">${fmtTel(m.tel)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:12px">
+      <button onclick="imprimirRelatorioArquidiocese()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">🖨️ Imprimir relatório oficial</button>
+    </div>`;
+}
+
+window.imprimirRelatorioArquidiocese = function(){
+  const lista = [...ministros].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const fmt = nasc => {
+    if(!nasc) return '—';
+    const p = nasc.split('-');
+    if(p.length<3) return '—';
+    return `${p[2]}/${p[1]}`;
+  };
+
+  const hoje = new Date();
+  const dataFmt = `${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+
+  const linhas = lista.map((m,i)=>`
+    <tr style="border-bottom:1px solid #ddd;background:${i%2===0?'white':'#f8f8f6'}">
+      <td style="padding:6px 8px;text-align:center;color:#888;font-size:11px">${i+1}</td>
+      <td style="padding:6px 8px;font-size:12px;font-weight:500">${m.nome}</td>
+      <td style="padding:6px 8px;text-align:center;font-size:12px;color:#333">${fmt(m.nascimento)}</td>
+      <td style="padding:6px 8px;text-align:center;font-size:12px;color:#333">${(m.tel||'—').trim()}</td>
+    </tr>`).join('');
+
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Relatório Ministros MESCE — Arquidiocese de Belém</title>
+  <style>
+    @page{ size: portrait; margin: 14mm 12mm; }
+    *{box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .cab{display:flex;align-items:center;gap:16px;border-bottom:3px solid #085041;padding-bottom:12px;margin-bottom:10px}
+    .cab img{width:62px;height:62px;object-fit:contain}
+    .cab .ct{flex:1;text-align:center}
+    .cab .inst{font-size:10px;letter-spacing:1px;color:#555;margin:0;text-transform:uppercase;font-weight:700}
+    .cab h1{margin:3px 0;color:#085041;font-size:18px;font-weight:900}
+    .cab .sub{font-size:11px;color:#666;margin:0}
+    .info{display:flex;justify-content:space-between;align-items:center;margin:8px 0 12px;font-size:11px;color:#555}
+    .info strong{color:#085041}
+    table{width:100%;border-collapse:collapse;border:1px solid #ccc}
+    thead tr{background:#085041!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    thead th{color:white!important;padding:8px 6px;font-size:11px;text-align:left;font-weight:700;border:1px solid #066b50}
+    thead th:first-child{text-align:center;width:36px}
+    thead th:nth-child(3),thead th:nth-child(4){text-align:center}
+    tbody tr:nth-child(even){background:#f5f5f3!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    tbody td{padding:6px 8px;font-size:11.5px;border:1px solid #ddd;vertical-align:middle}
+    .rodape{text-align:center;margin-top:18px;font-size:9px;color:#999;border-top:1px solid #eee;padding-top:8px;line-height:1.6}
+    .assinatura{display:flex;justify-content:space-around;margin-top:40px;padding-top:10px}
+    .assinatura div{text-align:center;width:220px}
+    .assinatura .linha{border-top:1px solid #333;padding-top:6px;font-size:11px;color:#333}
+    @media print{button{display:none}}
+  </style></head>
+  <body>
+    <div class="cab">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="ct">
+        <p class="inst">Arquidiocese de Belém do Pará</p>
+        <h1>Ministros Extraordinários da Sagrada Comunhão Eucarística</h1>
+        <p class="sub">Basílica Santuário de Nossa Senhora de Nazaré · Belém – PA</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+
+    <div class="info">
+      <div>📋 <strong>Relatório oficial de ministros</strong> · Emitido em ${dataFmt}</div>
+      <div>Total: <strong>${lista.length} ministros</strong></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nº</th>
+          <th>Nome completo</th>
+          <th style="width:100px">Nascimento</th>
+          <th style="width:140px">Telefone / WhatsApp</th>
+        </tr>
+      </thead>
+      <tbody>${linhas}</tbody>
+    </table>
+
+    <div class="assinatura">
+      <div>
+        <div class="linha">Coordenador(a) MESCE<br>Basílica Santuário de N. S. de Nazaré</div>
+      </div>
+      <div>
+        <div class="linha">Pe. Josué<br>Diretor Espiritual MESCE</div>
+      </div>
+    </div>
+
+    <div class="rodape">
+      Ministério Extraordinário da Sagrada Comunhão Eucarística · Basílica Santuário de Nossa Senhora de Nazaré · Belém – PA<br>
+      S.O.G.I. — Sistema Operacional de Governança e Inteligência · Documento gerado em ${dataFmt}
+    </div>
+    <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+};
 
 window.filtrarMin = function(){ renderMinistros(document.getElementById('busca-min').value); };
 function renderMinistros(filtro){
@@ -5999,10 +6131,12 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <option value="faltas">Faltas disciplinares</option>
       <option value="escalas">🗂️ Histórico de escalas e responsáveis</option>
       <option value="eventos">Eventos especiais</option>
+      <option value="arquidiocese">📋 Relatório Arquidiocese (nome, nascimento, fone)</option>
     </select>
     <div id="rel-body"><p style="font-size:12px;color:#888">Selecione um relatório acima.</p></div>
     <div style="margin-top:12px;display:flex;gap:6px">
       <button class="btn-o" onclick="exportarCSV()" style="margin:0;flex:1">📥 Exportar CSV</button>
+      <button class="btn-o" onclick="imprimirRelatorioArquidiocese()" style="margin:0;flex:1;color:#085041;border-color:#085041">🖨️ Imprimir Arquidiocese</button>
     </div>
   </div>
 </div>
