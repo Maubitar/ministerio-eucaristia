@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.6';
+const APP_VERSAO = '9.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2083,78 +2083,91 @@ function atualizarChipPeriodoSemana(){
 }
 
 window.abrirEditarPeriodoSemana = function(){
-  const sem = document.getElementById('esc-sem')?.value;
-  if(!sem){ toast('Selecione uma semana primeiro.','warn'); return; }
-  const info = SEMANAS_MES[sem];
-  const custom = _periodoSemanaCustom[sem];
+  // Sempre abre pedindo só a data de INÍCIO da 1ª semana
+  // e calcula todas as outras automaticamente (segunda a sexta, pula domingo)
+  const custom1 = _periodoSemanaCustom['1'];
+  const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
 
-  // Calcula datas sugeridas (da semana atual ou customizada)
-  let iniSugerido, fimSugerido;
-  if(custom){
-    iniSugerido = custom.ini; fimSugerido = custom.fim;
-  } else if(info && info.dias && info.dias.length){
-    const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-    const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
-    const primeiroDia = info.dias[0];
-    const ultimoDia = info.dias[info.dias.length-1];
-    const ddmmParaISOlocal = (ddmm) => {
-      const p = ddmm.split('/');
-      const mesD = parseInt(p[1]);
-      const anoD = mesD < (mesAtualNum+1) && (mesAtualNum+1)>=12 ? anoAtualNum+1 : anoAtualNum;
-      return `${anoD}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-    };
-    iniSugerido = ddmmParaISOlocal(primeiroDia.data);
-    fimSugerido = ddmmParaISOlocal(ultimoDia.data);
+  // Sugestão: primeiro dia útil (segunda-feira) do mês
+  let sugestao;
+  if(custom1){
+    sugestao = custom1.ini;
   } else {
-    const hoje = new Date();
-    iniSugerido = hoje.toISOString().slice(0,10);
-    const fim = new Date(hoje); fim.setDate(fim.getDate()+6);
-    fimSugerido = fim.toISOString().slice(0,10);
+    const d = new Date(ano, mes, 1);
+    // Avança até segunda-feira
+    while(d.getDay() !== 1) d.setDate(d.getDate()+1);
+    sugestao = d.toISOString().slice(0,10);
   }
 
-  document.getElementById('periodo-sem-numero').textContent = `${sem}ª semana`;
-  document.getElementById('periodo-sem-ini').value = iniSugerido;
-  document.getElementById('periodo-sem-fim').value = fimSugerido;
-  window._periodoSemEditando = sem;
+  document.getElementById('periodo-sem-ini').value = sugestao;
   document.getElementById('modal-periodo-semana').style.display = 'flex';
 };
 
 window.confirmarPeriodoSemana = function(){
-  const sem = window._periodoSemEditando;
-  const ini = document.getElementById('periodo-sem-ini').value;
-  const fim = document.getElementById('periodo-sem-fim').value;
-  if(!ini || !fim){ toast('Preencha as duas datas.','warn'); return; }
-  if(fim < ini){ toast('A data final não pode ser antes da inicial.','warn'); return; }
+  const iniStr = document.getElementById('periodo-sem-ini').value;
+  if(!iniStr){ toast('Informe a data de início da 1ª semana.','warn'); return; }
 
-  // Calcula os dias da semana entre ini e fim, classificando por dia da semana
   const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-  const dIni = new Date(ini+'T12:00:00');
-  const dFim = new Date(fim+'T12:00:00');
-  const dias = [];
-  let cursor = new Date(dIni);
-  while(cursor <= dFim){
-    dias.push({ data: fmt(cursor), dia: DIAS_NOME[cursor.getDay()], mesRef: true });
-    cursor.setDate(cursor.getDate()+1);
+  const fmtPeriodo = (ini, fim) => `${fmt(ini)} a ${fmt(fim)}`;
+
+  // Cada semana = 6 dias (seg a sáb), pula domingo
+  // A partir do início da 1ª semana, gera todas as semanas do mês (até 6 semanas)
+  const totalSems = Object.keys(SEMANAS_MES).length || 5;
+  let cursor = new Date(iniStr + 'T12:00:00');
+  _periodoSemanaCustom = {}; // limpa customizações anteriores
+
+  for(let s = 1; s <= totalSems; s++){
+    const dIni = new Date(cursor);
+    const dFim = new Date(cursor);
+    dFim.setDate(dFim.getDate() + 5); // seg a sáb = 6 dias
+
+    const dias = [];
+    let d = new Date(dIni);
+    while(d <= dFim){
+      dias.push({ data: fmt(d), dia: DIAS_NOME[d.getDay()], mesRef: true });
+      d.setDate(d.getDate()+1);
+    }
+
+    const iniISO = dIni.toISOString().slice(0,10);
+    const fimISO = dFim.toISOString().slice(0,10);
+    _periodoSemanaCustom[String(s)] = { ini: iniISO, fim: fimISO };
+
+    if(!SEMANAS_MES[String(s)]) SEMANAS_MES[String(s)] = {};
+    SEMANAS_MES[String(s)].label = `${s}ª semana`;
+    SEMANAS_MES[String(s)].periodo = fmtPeriodo(dIni, dFim);
+    SEMANAS_MES[String(s)].dias = dias;
+    SEMANAS_MES[String(s)].cruzaMeses = dIni.getMonth() !== dFim.getMonth();
+
+    // Próxima semana começa na segunda seguinte (pula o domingo)
+    cursor.setDate(cursor.getDate() + 7);
   }
 
-  _periodoSemanaCustom[sem] = { ini, fim };
-  // Sobrescreve os dias dessa semana no SEMANAS_MES em memória
-  if(!SEMANAS_MES[sem]) SEMANAS_MES[sem] = { label: `${sem}ª semana`, periodo: '', dias: [] };
-  SEMANAS_MES[sem].periodo = `${ini.split('-').reverse().slice(0,2).join('/')} a ${fim.split('-').reverse().slice(0,2).join('/')}`;
-  SEMANAS_MES[sem].dias = dias;
-  SEMANAS_MES[sem].cruzaMeses = dIni.getMonth() !== dFim.getMonth();
+  // Atualiza o select com os novos períodos
+  const sel = document.getElementById('esc-sem');
+  if(sel){
+    sel.innerHTML = '';
+    for(let s=1; s<=totalSems; s++){
+      const opt = document.createElement('option');
+      opt.value = String(s);
+      const info = SEMANAS_MES[String(s)];
+      opt.textContent = `${info.label} — ${info.periodo}`;
+      sel.appendChild(opt);
+    }
+    sel.value = '1'; // volta para 1ª semana
+  }
 
   fecharModal('modal-periodo-semana');
   atualizarChipPeriodoSemana();
-  // Atualiza o texto do select também
-  const sel = document.getElementById('esc-sem');
-  if(sel){
-    const opt = Array.from(sel.options).find(o=>o.value===sem);
-    if(opt) opt.textContent = `${SEMANAS_MES[sem].label} — ${SEMANAS_MES[sem].periodo} 🔧`;
-  }
   renderEscala();
-  toast(`✓ Período da ${sem}ª semana definido manualmente.`);
+
+  // Mostra um resumo das semanas geradas
+  const resumo = Object.entries(_periodoSemanaCustom)
+    .map(([s,p])=>`${s}ª: ${p.ini.split('-').reverse().slice(0,2).join('/')} a ${p.fim.split('-').reverse().slice(0,2).join('/')}`)
+    .join(' · ');
+  toast(`✓ ${totalSems} semanas geradas automaticamente!`);
+  setTimeout(()=>toast(resumo), 3000);
 };
 
 // Navega para semana anterior
@@ -7545,18 +7558,23 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
 <!-- MODAL EDITAR PERÍODO DA SEMANA -->
 <div id="modal-periodo-semana" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-periodo-semana')">
   <div class="modal-box">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div>
-        <p style="font-size:16px;font-weight:700">📅 Período da <span id="periodo-sem-numero"></span></p>
-        <p style="font-size:11px;color:#888;margin:2px 0 0">Defina o início e fim exatos desta semana de serviço.</p>
+        <p style="font-size:16px;font-weight:700">📅 Definir semanas de serviço</p>
+        <p style="font-size:11px;color:#888;margin:2px 0 0">Informe o início da 1ª semana — as demais serão calculadas automaticamente.</p>
       </div>
       <button onclick="fecharModal('modal-periodo-semana')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
-    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Data inicial</label>
-    <input type="date" id="periodo-sem-ini" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
-    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Data final</label>
-    <input type="date" id="periodo-sem-fim" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:16px;box-sizing:border-box">
-    <button onclick="confirmarPeriodoSemana()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Confirmar período</button>
+    <div style="background:#e6f1fb;border-radius:8px;padding:10px 12px;margin-bottom:14px">
+      <p style="font-size:12px;color:#185FA5;margin:0;line-height:1.5">
+        Ex: 1ª semana começa em <strong>06/07 (segunda)</strong> → o app gera:<br>
+        2ª semana: 13/07 a 19/07<br>
+        3ª semana: 20/07 a 26/07... e assim por diante.
+      </p>
+    </div>
+    <label style="font-size:12px;color:#333;font-weight:700;display:block;margin-bottom:6px">📅 Início da 1ª semana de serviço:</label>
+    <input type="date" id="periodo-sem-ini" style="width:100%;padding:12px;border:1.5px solid #185FA5;border-radius:9px;font-size:15px;margin-bottom:16px;box-sizing:border-box;font-weight:600">
+    <button onclick="confirmarPeriodoSemana()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Gerar todas as semanas automaticamente</button>
   </div>
 </div>
 
