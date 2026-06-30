@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.3';
+const APP_VERSAO = '9.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -666,28 +666,31 @@ function verificarVersao(){
     // Caso 2: versão anterior diferente da atual (incluindo aba anônima sem localStorage)
     const anterior = localStorage.getItem('sogi_versao');
     if(!anterior){
-      // Primeira abertura ou aba anônima — mostra versão atual discretamente no header
-      mostrarVersaoNoHeader(APP_VERSAO);
+      // Primeira abertura ou aba anônima
     } else if(anterior !== APP_VERSAO){
       // Versão mudou — mostra banner comemorativo
       setTimeout(()=>mostrarBannerAtualizacao(anterior, APP_VERSAO), 800);
     }
     localStorage.setItem('sogi_versao', APP_VERSAO);
   }catch(e){}
+  // CORREÇÃO: o badge de versão SEMPRE aparece, em qualquer caso (não só na 1ª abertura)
+  mostrarVersaoNoHeader(APP_VERSAO);
   if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
 }
 
-// Badge de versão discreto no header (aparece sempre)
+// Badge de versão FIXO no header — sempre visível, nunca some, sempre atualizado
 function mostrarVersaoNoHeader(versao){
-  // Já existe badge? não duplica
-  if(document.getElementById('badge-versao')) return;
   const header = document.querySelector('.header');
   if(!header) return;
-  const badge = document.createElement('div');
-  badge.id = 'badge-versao';
-  badge.style.cssText = 'text-align:center;padding:2px 0 0;font-size:10px;opacity:.7;color:white;letter-spacing:.5px';
+  let badge = document.getElementById('badge-versao');
+  if(!badge){
+    badge = document.createElement('div');
+    badge.id = 'badge-versao';
+    badge.style.cssText = 'text-align:center;padding:2px 0 0;font-size:10px;opacity:.75;color:white;letter-spacing:.5px;font-weight:600';
+    header.appendChild(badge);
+  }
+  // Sempre atualiza o texto, mesmo se o badge já existir
   badge.textContent = 'S.O.G.I. v' + versao;
-  header.appendChild(badge);
 }
 
 // Confirmação visível de atualização — card central celebrativo, impossível de ignorar.
@@ -2555,16 +2558,55 @@ window.salvarEscala = async function(){
     : `escala_sem_sem${sem}_${getMesAtual()}`;
   const dados = escalas[key]||{};
   const totalEscalados = Object.values(dados).reduce((acc,g)=>acc+(g?.ministros?.length||0),0);
+
+  // PROTEÇÃO: se não há ninguém escalado, confirma antes de salvar vazio
+  // (evita sobrescrever uma escala que já tinha gente, por engano de navegação)
+  if(totalEscalados === 0){
+    const ok = confirm('⚠️ ATENÇÃO\n\nNão há nenhum ministro escalado nesta tela.\n\nSe você confirmar, vai salvar a escala VAZIA (pode apagar dados que já existiam).\n\nTem certeza que quer continuar?');
+    if(!ok){
+      toast('Salvamento cancelado.','warn');
+      return;
+    }
+  }
+
+  // Feedback IMEDIATO e visível de que o salvamento começou
+  const btn = document.querySelector('button[onclick="salvarEscala()"]');
+  const txtOriginal = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
+
   try{
     await setDoc(doc(db,'escalas',key), dados);
     _histResponsaveis = null; // invalida cache da memória do responsável
     marcarEscalaSalva(); // remove indicador de "não salvo" e limpa rascunho local
     const ref = tipo==='dom' ? 'Escala dominical' : `Escala ${SEMANAS_MES[sem]?.label||'semana '+sem}`;
-    toast(`✓ ${ref} salva com ${totalEscalados} ministro(s)! A Lista de Presença já está pronta na aba Presença.`);
+    // Toast mais visível e demorado, impossível de não notar
+    mostrarConfirmacaoSalvamento(ref, totalEscalados);
   }catch(e){
-    toast('❌ Erro ao salvar escala: '+e.message,'err');
+    // Erro CLARO e persistente — modal, não só toast que some sozinho
+    alert('❌ ERRO AO SALVAR A ESCALA\n\n'+e.message+'\n\nA escala NÃO foi salva. Verifique sua conexão com a internet e tente novamente.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = txtOriginal || '💾 Salvar Escala'; }
   }
 };
+
+// Confirmação visível e demorada — card central, não um toast que some em 3s
+function mostrarConfirmacaoSalvamento(ref, total){
+  const existe = document.getElementById('confirma-salvamento');
+  if(existe) existe.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'confirma-salvamento';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn .25s ease';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:18px;padding:26px 22px;max-width:320px;width:100%;text-align:center;box-shadow:0 10px 36px rgba(0,0,0,.3)">
+      <div style="font-size:50px;line-height:1;margin-bottom:8px">✅</div>
+      <p style="margin:0;font-size:17px;font-weight:800;color:#085041">Escala salva com sucesso!</p>
+      <p style="margin:8px 0 0;font-size:13px;color:#555">${ref}<br><strong>${total} ministro(s)</strong> escalado(s)</p>
+      <button onclick="document.getElementById('confirma-salvamento').remove()" style="margin-top:16px;width:100%;padding:11px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">OK, entendi</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  // Fecha sozinho em 5s se o coordenador não interagir
+  setTimeout(()=>{ const e=document.getElementById('confirma-salvamento'); if(e) e.remove(); }, 5000);
+}
 
 // Dado data (DD/MM) e hora, retorna {ministros:[], responsavel:''} buscando na escala SALVA
 // (sempre busca direto do Firestore — não usa o cache em memória de `escalas`, que pode
