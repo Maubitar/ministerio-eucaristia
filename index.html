@@ -4851,8 +4851,11 @@ function iniciarCameraScanner(facingMode){
   const constraints = {
     video: {
       facingMode: facingMode,
-      width: { ideal: window.innerWidth },
-      height: { ideal: window.innerHeight }
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      focusMode: 'continuous',      // foco automático contínuo
+      exposureMode: 'continuous',   // exposição automática
+      whiteBalanceMode: 'continuous' // balanço de branco automático
     }
   };
 
@@ -4866,9 +4869,18 @@ function iniciarCameraScanner(facingMode){
       video.style.transform = facingMode==='user' ? 'scaleX(-1)' : 'none';
       video.play();
       const st = document.getElementById('scanner-status');
-      if(st) st.textContent = facingMode==='user' ? '📷 Câmera frontal — aponte a carteirinha' : '📷 Aponte para o QR Code do ministro';
+      if(st) st.textContent = facingMode==='user' ? '📷 Câmera frontal ativa' : '📷 Pronto — aponte para a carteirinha';
       if(scannerInterval) clearInterval(scannerInterval);
-      scannerInterval = setInterval(()=>lerQRFrame(video), 250);
+      scannerInterval = setInterval(()=>lerQRFrame(video), 80);
+      // Ativa foco contínuo via track capabilities (melhora leitura em ambientes com luz)
+      try{
+        const track = stream.getVideoTracks()[0];
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        const settings = {};
+        if(caps.focusMode && caps.focusMode.includes('continuous')) settings.focusMode='continuous';
+        if(caps.exposureMode && caps.exposureMode.includes('continuous')) settings.exposureMode='continuous';
+        if(Object.keys(settings).length) track.applyConstraints({advanced:[settings]});
+      }catch(e){}
     })
     .catch(e=>{
       // Se câmera traseira falhar, tenta frontal
@@ -4890,44 +4902,77 @@ window.trocarCameraScanner = function(){
 let _scanLidos = new Set();   // ids já lidos nesta sessão (evita duplicidade)
 let _scanPausado = false;     // pausa durante o feedback de 2s
 
+// Canvas de alta resolução para melhor leitura
+let _scanCanvas = null;
+let _scanCtx = null;
+
 function lerQRFrame(video){
   if(_scanPausado) return;
   if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
-  const canvas = document.getElementById('scanner-canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video,0,0);
+  if(!video.videoWidth) return;
+
+  // Reusar canvas para evitar alocação repetida
+  if(!_scanCanvas){
+    _scanCanvas = document.getElementById('scanner-canvas');
+    _scanCtx = _scanCanvas.getContext('2d', {willReadFrequently:true});
+  }
+
+  // Usar resolução nativa do vídeo para máxima sensibilidade
+  const W = video.videoWidth;
+  const H = video.videoHeight;
+  if(_scanCanvas.width !== W) _scanCanvas.width = W;
+  if(_scanCanvas.height !== H) _scanCanvas.height = H;
+
+  _scanCtx.drawImage(video, 0, 0, W, H);
+
   try{
-    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
-    if(window.jsQR){
-      const code = jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
-      if(code && code.data.includes('ministro=')){
-        let id=null;
-        try{ id = new URL(code.data).searchParams.get('ministro'); }catch(e){ return; }
-        const m = ministros.find(x=>x.id===id);
-        if(!m) return;
+    if(!window.jsQR) return;
+    const imageData = _scanCtx.getImageData(0, 0, W, H);
 
-        // Evita duplicidade: se já leu este ministro nesta sessão, ignora
-        if(_scanLidos.has(id)){
-          mostrarFeedbackScan(m, true);
-          return;
-        }
-        _scanLidos.add(id);
+    // Tenta ler normal primeiro (mais rápido)
+    let code = jsQR(imageData.data, W, H, {inversionAttempts:'attemptBoth'});
 
-        // Se a secretária está usando o scanner (reunião/adoração), registra lá.
-        if(window._secContexto && typeof registrarPresencaSec==='function'){
-          registrarPresencaSec(id);
-        } else {
-          // Registra presença das MISSAS (escrita otimista)
-          if(typeof presAtual!=='undefined'){
-            if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
-            presAtual[id].status='P';
-            if(typeof renderPresenca==='function') renderPresenca();
-          }
-        }
-        mostrarFeedbackScan(m, false);
+    // Se não leu, aumenta contraste e tenta de novo (ambientes com muita luz)
+    if(!code){
+      const data = imageData.data;
+      for(let i=0; i<data.length; i+=4){
+        // Aumenta contraste: empurra claro para branco e escuro para preto
+        const avg = (data[i]+data[i+1]+data[i+2])/3;
+        const v = avg > 128 ? Math.min(255, avg*1.3) : Math.max(0, avg*0.7);
+        data[i] = data[i+1] = data[i+2] = v;
       }
+      code = jsQR(data, W, H, {inversionAttempts:'attemptBoth'});
+    }
+
+    if(code && code.data.includes('ministro=')){
+      let id = null;
+      try{ id = new URL(code.data).searchParams.get('ministro'); }catch(e){ return; }
+      if(!id) return;
+
+      const m = ministros.find(x=>x.id===id);
+      if(!m) return;
+
+      // Já lido nesta sessão — só mostra feedback rápido sem pausar
+      if(_scanLidos.has(id)){
+        // Feedback discreto sem pausar o scanner
+        const cont = document.getElementById('scanner-contador');
+        if(cont) cont.textContent = `✓ ${_scanLidos.size} presença(s) · ${m.nome.split(' ')[0]} já registrado`;
+        return;
+      }
+
+      // NOVO registro — pausa brevemente para feedback visual
+      _scanLidos.add(id);
+
+      if(window._secContexto && typeof registrarPresencaSec==='function'){
+        registrarPresencaSec(id);
+      } else {
+        if(typeof presAtual!=='undefined'){
+          if(!presAtual[id]) presAtual[id]={status:'',justificativa:''};
+          presAtual[id].status='P';
+          if(typeof renderPresenca==='function') renderPresenca();
+        }
+      }
+      mostrarFeedbackScan(m, false);
     }
   }catch(e){}
 }
@@ -4951,13 +4996,14 @@ function mostrarFeedbackScan(m, jaLido){
       </div>`;
     fb.style.display='flex';
   }
-  if(!jaLido) toast('✓ Presença: '+m.nome.split(' ')[0]);
+  if(!jaLido) toast('✓ '+m.nome.split(' ')[0]);
   const cont=document.getElementById('scanner-contador');
-  if(cont) cont.textContent = `✓ ${_scanLidos.size} presença(s) registrada(s) nesta leitura`;
+  if(cont) cont.textContent = `✓ ${_scanLidos.size} presença(s) registrada(s)`;
+  // Feedback rápido: 800ms para novo registro
   setTimeout(()=>{
     if(fb) fb.style.display='none';
-    _scanPausado = false; // volta a ler automaticamente
-  }, 2000);
+    _scanPausado = false;
+  }, 800);
 }
 
 window.pararScanner = function(){
