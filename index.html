@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.8';
+const APP_VERSAO = '9.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2113,9 +2113,8 @@ window.confirmarPeriodoSemana = function(){
   const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
   const fmtPeriodo = (ini, fim) => `${fmt(ini)} a ${fmt(fim)}`;
 
-  // Cada semana = 6 dias (seg a sáb), pula domingo
-  // A partir do início da 1ª semana, gera todas as semanas do mês (até 6 semanas)
-  const totalSems = Object.keys(SEMANAS_MES).length || 5;
+  // Usa a quantidade escolhida pelo coordenador no modal
+  const totalSems = parseInt(document.getElementById('periodo-sem-qtd')?.value || '4');
   let cursor = new Date(iniStr + 'T12:00:00');
   _periodoSemanaCustom = {}; // limpa customizações anteriores
 
@@ -2170,6 +2169,44 @@ window.confirmarPeriodoSemana = function(){
 };
 
 // ===== CARDS DE SEMANAS =====
+// Seleciona quantidade de semanas no modal
+window.selQtdSem = function(n, btn){
+  document.getElementById('periodo-sem-qtd').value = n;
+  document.querySelectorAll('[onclick^="selQtdSem"]').forEach(b=>{
+    b.style.background='white'; b.style.color='#555'; b.style.borderColor='#ddd';
+    b.textContent = b.textContent.replace(' ✓','');
+  });
+  btn.style.background='#e6f1fb'; btn.style.color='#185FA5'; btn.style.borderColor='#185FA5';
+  btn.textContent = n + ' ✓';
+  // Atualiza preview
+  const ini = document.getElementById('periodo-sem-ini')?.value;
+  if(ini) atualizarPreviewSemanas(ini, n);
+};
+
+// Preview das datas geradas antes de confirmar
+function atualizarPreviewSemanas(iniStr, qtd){
+  const el = document.getElementById('preview-semanas');
+  if(!el || !iniStr) return;
+  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  let cursor = new Date(iniStr+'T12:00:00');
+  let linhas = '';
+  for(let s=1; s<=qtd; s++){
+    const ini = new Date(cursor);
+    const fim = new Date(cursor); fim.setDate(fim.getDate()+5);
+    linhas += `${s}ª semana: <strong>${fmt(ini)} a ${fmt(fim)}</strong><br>`;
+    cursor.setDate(cursor.getDate()+7);
+  }
+  el.innerHTML = linhas || 'Selecione a data de início.';
+}
+
+// Observar mudança na data de início para atualizar preview
+document.addEventListener('change', e=>{
+  if(e.target.id==='periodo-sem-ini'){
+    const qtd = parseInt(document.getElementById('periodo-sem-qtd')?.value||'4');
+    atualizarPreviewSemanas(e.target.value, qtd);
+  }
+});
+
 window.atualizarCardsSemanas = function(){
   const cont = document.getElementById('painel-semanas-cards');
   if(!cont) return;
@@ -3738,35 +3775,123 @@ window.renderReforco = async function(){
   const tipo=document.getElementById('ref-tipo').value;
   const key=`reforco_${tipo}_${MES_ATUAL}`;
   if(!reforcos[key]){
-    try{ const d=await getDoc(doc(db,'reforcos',key)); reforcos[key]=d.exists()?d.data():{ministros:[]}; }
-    catch(e){ reforcos[key]={ministros:[]}; }
+    try{ const d=await getDoc(doc(db,'reforcos',key)); reforcos[key]=d.exists()?d.data():{ministros:[],horarios:{}}; }
+    catch(e){ reforcos[key]={ministros:[],horarios:{}}; }
   }
-  const lista=reforcos[key].ministros||[];
+  // Garante estrutura correta
+  if(!reforcos[key].horarios) reforcos[key].horarios = {};
   const rf=REFORCO_TIPOS.find(r=>r.id===tipo);
-  document.getElementById('ref-titulo').textContent=`Reforço — ${rf.label}`;
+  document.getElementById('ref-titulo').textContent=`Reforço — ${rf?.label||tipo}`;
 
-  // Ministros que marcaram ESTE reforço no cadastro (disponíveis para esse horário)
-  const jaNaLista = new Set(lista);
-  const disponiveisReforco = ministros.filter(m=>(m.dispReforco||[]).includes(tipo) && !jaNaLista.has(m.nome))
+  // Ministros disponíveis para este reforço
+  const jaNaLista = new Set(reforcos[key].ministros||[]);
+  const disponiveisReforco = ministros
+    .filter(m=>(m.dispReforco||[]).includes(tipo) && !jaNaLista.has(m.nome))
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
 
+  // ===== PAINEL DE HORÁRIOS (mesmo padrão das missas) =====
+  const horas = MISSAS_DOM; // reforço usa os mesmos horários das missas dominicais
+  const horariosHtml = horas.map(hora=>{
+    const h = reforcos[key].horarios[hora] || {ministros:[], responsavel:''};
+    if(!reforcos[key].horarios[hora]) reforcos[key].horarios[hora] = h;
+
+    const ord = [...(h.ministros||[])].sort((a,b)=>{
+      if(a===h.responsavel) return -1;
+      if(b===h.responsavel) return 1;
+      return a.localeCompare(b,'pt-BR');
+    });
+
+    const linhasMin = ord.length ? ord.map((m,i)=>{
+      const isResp = m===h.responsavel;
+      const mo = ministros.find(x=>x.nome===m);
+      const foto = mo?.foto
+        ? `<img src="${mo.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #ccc">`
+        : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0f0">
+        ${foto}
+        <span style="flex:1;font-size:13px;${isResp?'font-weight:700':''}">
+          ${m}${isResp?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 6px;border-radius:10px">★ Resp.</span>':''}
+        </span>
+        <button onclick="remMinReforcoHora('${key}','${hora}',${i})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:20px;padding:0 4px">×</button>
+      </div>`;
+    }).join('') : '<p style="font-size:12px;color:#bbb;padding:6px 0;margin:0">Nenhum escalado</p>';
+
+    const inpId = `inpref-${hora.replace(/[^a-z0-9]/gi,'_')}`;
+    const acId = `acref-${hora.replace(/[^a-z0-9]/gi,'_')}`;
+
+    return `<div style="background:white;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #e8e8e8;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+      <div style="background:#8B2FC9;color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
+        <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.22);padding:2px 9px;border-radius:20px">${(h.ministros||[]).length} 👤</span>
+      </div>
+      ${linhasMin}
+      <div style="position:relative;margin-top:8px">
+        <input id="${inpId}" type="text" placeholder="+ Adicionar ministro..." autocomplete="off"
+          oninput="acRefHora(this,'${acId}','${key}','${hora}')"
+          style="width:100%;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;box-sizing:border-box">
+        <div id="${acId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:100;max-height:180px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Disponíveis para adicionar
   const sugestoesHtml = disponiveisReforco.length ? `
-    <div style="background:#fdf6e3;border:1px solid #E8C66B;border-radius:10px;padding:12px;margin-bottom:12px">
-      <p style="font-size:12px;font-weight:700;color:#a07d2a;margin:0 0 8px">✨ Marcaram disponibilidade para este reforço (${disponiveisReforco.length}):</p>
+    <div style="background:#fdf6e3;border:1px solid #E8C66B;border-radius:10px;padding:12px;margin-bottom:10px">
+      <p style="font-size:12px;font-weight:700;color:#a07d2a;margin:0 0 8px">✨ Disponíveis para reforço (${disponiveisReforco.length})</p>
       ${disponiveisReforco.map(m=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 0">
           <span style="flex:1;font-size:13px">${m.nome}</span>
-          <button onclick="addMinReforcoDireto('${key}','${m.nome.replace(/'/g,"\\'")}')" style="font-size:11px;padding:4px 12px;border-radius:16px;border:none;background:#1D9E75;color:white;font-weight:600;cursor:pointer">+ Adicionar</button>
         </div>`).join('')}
     </div>` : '';
 
-  document.getElementById('ref-body').innerHTML= sugestoesHtml + (lista.length
-    ? `<p style="font-size:12px;font-weight:700;color:#085041;margin:8px 0">✓ Escalados no reforço (${lista.length}):</p>` + lista.map((m,i)=>`
-        <div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid #eee;gap:8px">
-          <span style="flex:1;font-size:13px">${m}</span>
-          <button onclick="remReforco('${key}',${i})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px">×</button>
-        </div>`).join('')
-    : (sugestoesHtml?'':'<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro de reforço.</p>'));
+  document.getElementById('ref-body').innerHTML = horariosHtml + sugestoesHtml;
+};
+
+// Autocomplete para reforço por horário
+window.acRefHora = function(inp, acId, key, hora){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById(acId);
+  if(v.length < 2){ ac.style.display='none'; return; }
+  const jaEscalados = new Set(reforcos[key]?.horarios?.[hora]?.ministros||[]);
+  const ms = ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaEscalados.has(m.nome)).slice(0,8);
+  if(!ms.length){ ac.style.display='none'; return; }
+  ac.style.display = 'block';
+  ac.innerHTML = ms.map(m=>`<div onmousedown="addMinReforcoHora('${key}','${hora}','${m.nome.replace(/'/g,"\'")}','${acId}')"
+    style="padding:9px 12px;cursor:pointer;font-size:13px"
+    onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
+};
+
+// Adicionar ministro a um horário do reforço
+window.addMinReforcoHora = function(key, hora, nome, acId){
+  if(!reforcos[key]) reforcos[key] = {ministros:[], horarios:{}};
+  if(!reforcos[key].horarios) reforcos[key].horarios = {};
+  if(!reforcos[key].horarios[hora]) reforcos[key].horarios[hora] = {ministros:[], responsavel:''};
+  if(!reforcos[key].horarios[hora].ministros.includes(nome)){
+    reforcos[key].horarios[hora].ministros.push(nome);
+    reforcos[key].horarios[hora].ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    // Adiciona também à lista geral (compatibilidade)
+    if(!reforcos[key].ministros) reforcos[key].ministros = [];
+    if(!reforcos[key].ministros.includes(nome)) reforcos[key].ministros.push(nome);
+  }
+  const ac = document.getElementById(acId); if(ac) ac.style.display='none';
+  const inpId = acId.replace('acref-','inpref-');
+  const inp = document.getElementById(inpId);
+  if(inp){ inp.value=''; setTimeout(()=>inp.focus(), 80); }
+  renderReforco();
+};
+
+// Remover ministro de um horário do reforço
+window.remMinReforcoHora = function(key, hora, idx){
+  if(reforcos[key]?.horarios?.[hora]?.ministros){
+    const nome = reforcos[key].horarios[hora].ministros[idx];
+    reforcos[key].horarios[hora].ministros.splice(idx, 1);
+    // Remove da lista geral se não está em nenhum horário
+    const emAlgumHorario = Object.values(reforcos[key].horarios).some(h=>(h.ministros||[]).includes(nome));
+    if(!emAlgumHorario && reforcos[key].ministros){
+      reforcos[key].ministros = reforcos[key].ministros.filter(m=>m!==nome);
+    }
+  }
+  renderReforco();
 };
 window.addMinReforcoDireto=function(key,nome){
   if(!reforcos[key]) reforcos[key]={ministros:[]};
@@ -7007,14 +7132,14 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <div id="painel-semanas-cards" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
-      <!-- Select oculto — usado internamente -->
+      <!-- Select oculto — usado internamente para compatibilidade com renderEscala -->
       <div id="esc-sem-wrap" style="display:none">
-        <select id="esc-sem" onchange="renderEscala();atualizarChipPeriodoSemana();atualizarCardsSemanas();" style="margin:0;width:100%">
+        <select id="esc-sem" onchange="renderEscala();atualizarCardsSemanas();" style="margin:0;width:100%">
         </select>
       </div>
       <div id="periodo-semana-chip" style="display:none"></div>
     </div>
-    <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5">
+    <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5;display:none">
       📌 Escala mensal — mesmos ministros em todos os domingos de junho
     </p>
     <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px">
@@ -7784,23 +7909,30 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
 <!-- MODAL EDITAR PERÍODO DA SEMANA -->
 <div id="modal-periodo-semana" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-periodo-semana')">
   <div class="modal-box">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div>
         <p style="font-size:16px;font-weight:700">📅 Definir semanas de serviço</p>
-        <p style="font-size:11px;color:#888;margin:2px 0 0">Informe o início da 1ª semana — as demais serão calculadas automaticamente.</p>
+        <p style="font-size:11px;color:#888;margin:2px 0 0">Informe o início e quantas semanas terá este mês.</p>
       </div>
       <button onclick="fecharModal('modal-periodo-semana')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
-    <div style="background:#e6f1fb;border-radius:8px;padding:10px 12px;margin-bottom:14px">
-      <p style="font-size:12px;color:#185FA5;margin:0;line-height:1.5">
-        Ex: 1ª semana começa em <strong>06/07 (segunda)</strong> → o app gera:<br>
-        2ª semana: 13/07 a 19/07<br>
-        3ª semana: 20/07 a 26/07... e assim por diante.
-      </p>
+
+    <label style="font-size:12px;color:#333;font-weight:700;display:block;margin-bottom:6px">📅 Início da 1ª semana:</label>
+    <input type="date" id="periodo-sem-ini" style="width:100%;padding:12px;border:1.5px solid #185FA5;border-radius:9px;font-size:15px;margin-bottom:12px;box-sizing:border-box;font-weight:600">
+
+    <label style="font-size:12px;color:#333;font-weight:700;display:block;margin-bottom:6px">Quantas semanas neste mês?</label>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button onclick="selQtdSem(3,this)" style="flex:1;padding:11px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:14px;font-weight:700;cursor:pointer">3</button>
+      <button onclick="selQtdSem(4,this)" id="btn-sem-qtd-4" style="flex:1;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:#e6f1fb;color:#185FA5;font-size:14px;font-weight:700;cursor:pointer">4 ✓</button>
+      <button onclick="selQtdSem(5,this)" style="flex:1;padding:11px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:14px;font-weight:700;cursor:pointer">5</button>
     </div>
-    <label style="font-size:12px;color:#333;font-weight:700;display:block;margin-bottom:6px">📅 Início da 1ª semana de serviço:</label>
-    <input type="date" id="periodo-sem-ini" style="width:100%;padding:12px;border:1.5px solid #185FA5;border-radius:9px;font-size:15px;margin-bottom:16px;box-sizing:border-box;font-weight:600">
-    <button onclick="confirmarPeriodoSemana()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Gerar todas as semanas automaticamente</button>
+    <input type="hidden" id="periodo-sem-qtd" value="4">
+
+    <div style="background:#e6f1fb;border-radius:8px;padding:10px 12px;margin-bottom:14px">
+      <p style="font-size:11px;color:#185FA5;margin:0;line-height:1.6" id="preview-semanas">Selecione a data de início para ver o preview das semanas.</p>
+    </div>
+
+    <button onclick="confirmarPeriodoSemana()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Confirmar e gerar semanas</button>
   </div>
 </div>
 
