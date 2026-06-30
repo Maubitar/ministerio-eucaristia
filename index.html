@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.4';
+const APP_VERSAO = '9.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -495,29 +495,38 @@ async function mostrarBannerNovaVersao(novaVersao){
       await Promise.all(nomes.map(n=>caches.delete(n)));
     }
   }catch(e){}
-  // Só recarrega sozinho se NÃO houver pendência — com 4s de aviso (tempo de ler)
+  // Só recarrega sozinho se NÃO houver pendência — agilizado para 1.5s
   setTimeout(()=>{
     const base = location.href.split('?')[0].split('#')[0];
     localStorage.setItem('sogi_atualizando', APP_VERSAO);
     location.replace(base + '?v=' + novaVersao + '&t=' + Date.now());
-  }, 4000);
+  }, 1500);
 }
 
 // Inicia a verificação automática: BLINDAGEM TOTAL contra versões desencontradas.
 // Checa rápido ao abrir e depois com frequência alta, em qualquer navegador/dispositivo.
 function iniciarVerificacaoAuto(){
-  // Primeira checagem em 3s (rápida, não espera 20s como antes)
-  setTimeout(()=>checarVersaoServidor(true), 3000);
-  // Segunda checagem em 10s (reforço)
-  setTimeout(()=>checarVersaoServidor(true), 10000);
-  // Depois, a cada 25 segundos (era 60s — reduz a janela de desincronização)
-  setInterval(()=>checarVersaoServidor(true), 25000);
-  // Também checa sempre que o app volta ao primeiro plano (usuário troca de aba e volta)
+  // Checagem IMEDIATA — sem esperar nada
+  checarVersaoServidor(true);
+  // Reforço rápido em 5s
+  setTimeout(()=>checarVersaoServidor(true), 5000);
+  // Depois, a cada 10 segundos (era 25s — máxima agilidade)
+  setInterval(()=>checarVersaoServidor(true), 10000);
+  // Checa sempre que o app volta ao primeiro plano (trocar de aba e voltar)
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState === 'visible') checarVersaoServidor(true);
   });
-  // Checa também quando o dispositivo reconecta à internet
+  // Checa quando o dispositivo reconecta à internet
   window.addEventListener('online', ()=>checarVersaoServidor(true));
+  // Checa também ao tocar/clicar em qualquer lugar do app (uso ativo = boa hora pra checar)
+  let _ultimoCheckClick = 0;
+  document.addEventListener('click', ()=>{
+    const agora = Date.now();
+    if(agora - _ultimoCheckClick > 8000){ // no máximo 1x a cada 8s, pra não floodar
+      _ultimoCheckClick = agora;
+      checarVersaoServidor(true);
+    }
+  });
 }
 
 // ===== LIMPEZA DE DADOS DE TESTE (só coordenador) =====
