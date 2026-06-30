@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.1';
+const APP_VERSAO = '9.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -404,7 +404,7 @@ async function checarVersaoServidor(automatico){
   return false;
 }
 
-function mostrarBannerNovaVersao(novaVersao){
+async function mostrarBannerNovaVersao(novaVersao){
   if(document.getElementById('banner-nova-versao')) return;
   const b = document.createElement('div');
   b.id = 'banner-nova-versao';
@@ -414,21 +414,37 @@ function mostrarBannerNovaVersao(novaVersao){
     <p style="margin:5px 0 12px;font-size:12px;opacity:.95">A versão ${novaVersao} já está pronta. Atualizando o app...</p>
     <button onclick="forcarAtualizacao()" style="padding:8px 20px;border:none;border-radius:20px;background:white;color:#17855f;font-size:13px;font-weight:700;cursor:pointer">🔄 Atualizar agora</button>`;
   document.body.appendChild(b);
-  // Atualiza sozinho após 4 segundos (dá tempo de ler o aviso)
+  // BLINDAGEM: limpa qualquer cache do navegador (Cache API) antes de recarregar
+  try{
+    if('caches' in window){
+      const nomes = await caches.keys();
+      await Promise.all(nomes.map(n=>caches.delete(n)));
+    }
+  }catch(e){}
+  // Atualiza sozinho após 2 segundos (reduzido de 4s — menos espera, mais sincronia)
   setTimeout(()=>{
-    // Recarrega com ?v=novaVersao para quebrar cache de vez
     const base = location.href.split('?')[0].split('#')[0];
     localStorage.setItem('sogi_atualizando', APP_VERSAO);
-    location.replace(base + '?v=' + novaVersao);
-  }, 4000);
+    // location.replace com timestamp + versão garante bypass total de cache
+    location.replace(base + '?v=' + novaVersao + '&t=' + Date.now());
+  }, 2000);
 }
 
-// Inicia a verificação automática: ao abrir e depois a cada 60 segundos
+// Inicia a verificação automática: BLINDAGEM TOTAL contra versões desencontradas.
+// Checa rápido ao abrir e depois com frequência alta, em qualquer navegador/dispositivo.
 function iniciarVerificacaoAuto(){
-  // Primeira checagem 20s após abrir (dá tempo de carregar tudo)
-  setTimeout(()=>checarVersaoServidor(true), 20000);
-  // Depois, a cada 60 segundos
-  setInterval(()=>checarVersaoServidor(true), 60000);
+  // Primeira checagem em 3s (rápida, não espera 20s como antes)
+  setTimeout(()=>checarVersaoServidor(true), 3000);
+  // Segunda checagem em 10s (reforço)
+  setTimeout(()=>checarVersaoServidor(true), 10000);
+  // Depois, a cada 25 segundos (era 60s — reduz a janela de desincronização)
+  setInterval(()=>checarVersaoServidor(true), 25000);
+  // Também checa sempre que o app volta ao primeiro plano (usuário troca de aba e volta)
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') checarVersaoServidor(true);
+  });
+  // Checa também quando o dispositivo reconecta à internet
+  window.addEventListener('online', ()=>checarVersaoServidor(true));
 }
 
 // ===== LIMPEZA DE DADOS DE TESTE (só coordenador) =====
