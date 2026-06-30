@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.7';
+const APP_VERSAO = '9.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2060,6 +2060,7 @@ window.trocarAbaEscala = function(tipo){
     if(painelDom) painelDom.style.display='none';
     if(painelSem) painelSem.style.display='block';
     atualizarChipPeriodoSemana();
+    atualizarCardsSemanas();
   }
   renderEscala();
 };
@@ -2158,16 +2159,59 @@ window.confirmarPeriodoSemana = function(){
     sel.value = '1'; // volta para 1ª semana
   }
 
+  // Seleciona a 1ª semana e atualiza os cards
+  const selFirst = document.getElementById('esc-sem');
+  if(selFirst){ selFirst.value='1'; }
   fecharModal('modal-periodo-semana');
   atualizarChipPeriodoSemana();
+  atualizarCardsSemanas();
   renderEscala();
+  toast(`✓ ${totalSems} semanas geradas! Clique em cada semana para escalar.`);
+};
 
-  // Mostra um resumo das semanas geradas
-  const resumo = Object.entries(_periodoSemanaCustom)
-    .map(([s,p])=>`${s}ª: ${p.ini.split('-').reverse().slice(0,2).join('/')} a ${p.fim.split('-').reverse().slice(0,2).join('/')}`)
-    .join(' · ');
-  toast(`✓ ${totalSems} semanas geradas automaticamente!`);
-  setTimeout(()=>toast(resumo), 3000);
+// ===== CARDS DE SEMANAS =====
+window.atualizarCardsSemanas = function(){
+  const cont = document.getElementById('painel-semanas-cards');
+  if(!cont) return;
+  const sems = Object.keys(SEMANAS_MES).sort((a,b)=>parseInt(a)-parseInt(b));
+  if(!sems.length){
+    cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:8px 0">Clique em "Definir datas" para cadastrar as semanas.</p>';
+    return;
+  }
+  const semAtual = document.getElementById('esc-sem')?.value || '1';
+  cont.innerHTML = sems.map(s=>{
+    const info = SEMANAS_MES[s];
+    const ativo = s === semAtual;
+    const nMin = Object.values(escalas[`escala_sem_sem${s}_${getMesAtual()}`]||{})
+      .reduce((a,g)=>a+(g?.ministros?.length||0),0);
+    return `<div onclick="selecionarSemana('${s}')" style="
+      display:flex;align-items:center;gap:10px;padding:10px 12px;
+      border-radius:9px;cursor:pointer;
+      background:${ativo?'#185FA5':'white'};
+      border:1.5px solid ${ativo?'#185FA5':'#cde'};
+      transition:all .15s">
+      <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;
+        background:${ativo?'white':'#185FA5'};color:${ativo?'#185FA5':'white'};
+        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">
+        ${s}
+      </div>
+      <div style="flex:1">
+        <p style="font-size:13px;font-weight:700;margin:0;color:${ativo?'white':'#185FA5'}">${info.label||s+'ª semana'}</p>
+        <p style="font-size:11px;margin:1px 0 0;color:${ativo?'rgba(255,255,255,.8)':'#888'}">${info.periodo||'período não definido'}</p>
+      </div>
+      <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;
+        background:${nMin>0?(ativo?'rgba(255,255,255,.25)':'#e1f5ee'):'transparent'};
+        color:${nMin>0?(ativo?'white':'#085041'):'#bbb'}">
+        ${nMin>0?nMin+' 👤':'vazia'}
+      </span>
+    </div>`;
+  }).join('');
+};
+
+window.selecionarSemana = function(s){
+  const sel = document.getElementById('esc-sem');
+  if(sel){ sel.value = s; sel.dispatchEvent(new Event('change')); }
+  atualizarCardsSemanas();
 };
 
 // Navega para semana anterior
@@ -2479,7 +2523,10 @@ window.addMin = function(key, hora, nome, acId){
   marcarEscalaNaoSalva();
   if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
   const inpId = acId ? acId.replace('ac-','inp-') : null;
-  if(inpId){ const inp=document.getElementById(inpId); if(inp) inp.value=''; }
+  if(inpId){
+    const inp=document.getElementById(inpId);
+    if(inp){ inp.value=''; setTimeout(()=>{inp.focus();}, 100); }
+  }
   renderEscala();
 };
 
@@ -2785,8 +2832,14 @@ window.compartilharEscala = async function(){
 
 // Gera a escala como IMAGEM PNG no padrão da impressão, para anexar no WhatsApp como foto.
 window.gerarImagemEscala = async function(){
-  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
-  const key = tipo==='dom' ? `escala_dom_${getMesAtual()}` : `escala_sem_sem${sem}_${getMesAtual()}`;
+  const tipo=document.getElementById('esc-tipo').value;
+  // SE SEMANAL: gera imagem de TODAS as semanas juntas
+  if(tipo === 'sem'){
+    await gerarImagemTodasSemanas();
+    return;
+  }
+  const sem=document.getElementById('esc-sem').value;
+  const key = `escala_dom_${getMesAtual()}`;
   let esc=escalas[key];
   if(!esc){
     try{ const d=await getDoc(doc(db,'escalas',key)); esc=d.exists()?d.data():{}; escalas[key]=esc; }
@@ -5398,15 +5451,191 @@ function datasDestacadas(tipo, sem){
   }
 }
 
+// ===== IMPRIMIR TODAS AS SEMANAS JUNTAS =====
+async function imprimirTodasSemanasJuntas(){
+  const mesKey = getMesAtual();
+  const sems = Object.keys(SEMANAS_MES).sort((a,b)=>parseInt(a)-parseInt(b));
+  toast('Carregando todas as semanas...','ok');
+
+  let blocosTodos = '';
+  for(const s of sems){
+    const key = `escala_sem_sem${s}_${mesKey}`;
+    if(!escalas[key]){
+      try{ const d=await getDoc(doc(db,'escalas',key)); escalas[key]=d.exists()?d.data():{}; }
+      catch(e){ escalas[key]={}; }
+    }
+    const esc = escalas[key];
+    const info = SEMANAS_MES[s];
+    const temDados = MISSAS_SEM.some(h=>(esc[h]?.ministros||[]).length>0);
+    if(!temDados) continue;
+
+    let linhasSem = '';
+    MISSAS_SEM.forEach(h=>{
+      const g = esc[h]||{ministros:[],responsavel:''};
+      if(!g.ministros.length) return;
+      const resp = g.responsavel;
+      const ord = [...g.ministros].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
+      const datasLabel = dias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
+      const linhas = ord.map((m,i)=>{
+        const isResp = m===resp;
+        const mo = ministros.find(x=>x.nome===m);
+        const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">` : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        return `<tr>
+          <td style="width:30px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:5px;font-size:11px">${i+1}</td>
+          <td style="width:46px;text-align:center;border:1px solid #e2e2e2;padding:3px">${fotoTag}</td>
+          <td style="border:1px solid #e2e2e2;padding:7px;font-size:12px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 6px;border-radius:10px">★ Resp.</span>':''}</td>
+        </tr>`;
+      }).join('');
+      linhasSem += `<div style="margin-bottom:12px;break-inside:avoid">
+        <div style="background:#185FA5;color:white;padding:7px 12px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between">
+          <span style="font-weight:700;font-size:14px">⏰ ${h}</span>
+          <span style="font-size:11px;opacity:.85">${datasLabel}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none">
+          <thead><tr><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #cfcfcf;width:30px">Nº</th><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #cfcfcf;width:46px">Foto</th><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #cfcfcf;text-align:left">Ministro(a)</th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>`;
+    });
+    if(!linhasSem) continue;
+
+    blocosTodos += `<div style="margin-bottom:24px;break-inside:avoid">
+      <div style="background:#185FA5;color:white;padding:8px 14px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:800;font-size:15px">${info?.label||s+'ª semana'}</span>
+        <span style="font-size:12px;opacity:.9">${info?.periodo||''}</span>
+      </div>
+      ${linhasSem}
+    </div>`;
+  }
+
+  if(!blocosTodos){ toast('Nenhuma semana escalada ainda.','warn'); return; }
+
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Escalas Semanais — ${getMesAtual()}</title>
+  <style>
+    @page{size:portrait;margin:10mm}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:16px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .cab{display:flex;align-items:center;gap:14px;border-bottom:3px solid #185FA5;padding-bottom:10px;margin-bottom:14px}
+    .cab img{width:52px;height:52px;object-fit:contain}
+    .cab .ct{flex:1;text-align:center}
+    .cab h1{margin:2px 0;color:#185FA5;font-size:18px;font-weight:900}
+    .cab .sub{font-size:11px;color:#555;margin:0}
+    @media print{button{display:none}}
+  </style></head><body>
+  <div class="cab">
+    <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+    <div class="ct">
+      <p style="font-size:10px;letter-spacing:1px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+      <h1>Escalas Semanais</h1>
+      <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+    </div>
+    <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+  </div>
+  ${blocosTodos}
+  <p style="text-align:center;margin-top:16px;font-size:9px;color:#999;border-top:1px solid #eee;padding-top:8px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+// ===== GERAR IMAGEM DE TODAS AS SEMANAS PARA WHATSAPP =====
+async function gerarImagemTodasSemanas(){
+  toast('Gerando imagem de todas as semanas...','ok');
+  const mesKey = getMesAtual();
+  const sems = Object.keys(SEMANAS_MES).sort((a,b)=>parseInt(a)-parseInt(b));
+
+  // Carrega todas as escalas semanais
+  for(const s of sems){
+    const key = `escala_sem_sem${s}_${mesKey}`;
+    if(!escalas[key]){
+      try{ const d=await getDoc(doc(db,'escalas',key)); escalas[key]=d.exists()?d.data():{}; }
+      catch(e){ escalas[key]={}; }
+    }
+  }
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:900px;background:white;padding:30px;font-family:Arial,sans-serif';
+
+  let blocos = '';
+  for(const s of sems){
+    const key = `escala_sem_sem${s}_${mesKey}`;
+    const esc = escalas[key]||{};
+    const info = SEMANAS_MES[s];
+    const temDados = MISSAS_SEM.some(h=>(esc[h]?.ministros||[]).length>0);
+    if(!temDados) continue;
+
+    let horasBlocos = '';
+    MISSAS_SEM.forEach(h=>{
+      const g = esc[h]||{ministros:[],responsavel:''};
+      if(!g.ministros.length) return;
+      const resp = g.responsavel;
+      const ord = [...g.ministros].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
+      const datasLabel = dias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
+      const linhas = ord.map((m,i)=>{
+        const isResp = m===resp;
+        const mo = ministros.find(x=>x.nome===m);
+        const fotoTag = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:38px;height:38px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">` : `<div style="width:38px;height:38px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        return `<tr><td style="width:30px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:5px">${i+1}</td><td style="width:52px;text-align:center;border:1px solid #e2e2e2;padding:4px">${fotoTag}</td><td style="border:1px solid #e2e2e2;padding:8px;font-size:14px;${isResp?'font-weight:700':''}">${m}${isResp?' ★':''}</td></tr>`;
+      }).join('');
+      horasBlocos += `<div style="margin-bottom:10px"><div style="background:#185FA5;color:white;padding:7px 12px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between"><span style="font-weight:700;font-size:15px">⏰ ${h}</span><span style="font-size:12px;opacity:.85">${datasLabel}</span></div><table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="background:#f0f4fb;font-size:11px;padding:6px;border:1px solid #cfcfcf;width:30px">Nº</th><th style="background:#f0f4fb;font-size:11px;padding:6px;border:1px solid #cfcfcf;width:52px">Foto</th><th style="background:#f0f4fb;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-align:left">Ministro(a)</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+    });
+    if(!horasBlocos) continue;
+    blocos += `<div style="margin-bottom:20px;border:2px solid #185FA5;border-radius:10px;overflow:hidden"><div style="background:#185FA5;color:white;padding:10px 16px;display:flex;justify-content:space-between"><span style="font-weight:800;font-size:16px">${info?.label||s+'ª semana'}</span><span style="font-size:13px;opacity:.9">${info?.periodo||''}</span></div><div style="padding:10px">${horasBlocos}</div></div>`;
+  }
+
+  if(!blocos){ toast('Nenhuma semana escalada.','warn'); return; }
+
+  wrap.innerHTML = `
+    <div style="display:flex;align-items:center;gap:18px;border-bottom:4px solid #185FA5;padding-bottom:14px;margin-bottom:16px">
+      <img src="${APP_URL}/${LOGO_BASILICA}" crossorigin="anonymous" style="width:70px;height:70px;object-fit:contain">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:11px;letter-spacing:1px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1 style="margin:4px 0;color:#185FA5;font-size:24px">Escalas Semanais</h1>
+        <p style="font-size:13px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" crossorigin="anonymous" style="width:70px;height:70px;object-fit:contain">
+    </div>
+    ${blocos}
+    <p style="text-align:center;margin-top:16px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>`;
+  document.body.appendChild(wrap);
+
+  const imgs = wrap.querySelectorAll('img');
+  await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
+  await new Promise(r=>setTimeout(r,200));
+
+  try{
+    const canvas = await html2canvas(wrap,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
+    canvas.toBlob(blob=>{
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`escalas_semanais_${getMesAtual()}.png`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+      document.getElementById('modal-imagem').style.display='flex';
+    },'image/png',1.0);
+  }catch(e){ toast('Erro ao gerar imagem: '+e.message,'err'); }
+  finally{ document.body.removeChild(wrap); }
+}
+
 window.imprimirEscala = async function(){
-  const tipo=document.getElementById('esc-tipo').value, sem=document.getElementById('esc-sem').value;
-  const key = tipo==='dom' ? `escala_dom_${getMesAtual()}` : `escala_sem_sem${sem}_${getMesAtual()}`;
+  const tipo=document.getElementById('esc-tipo').value;
+  const sem=document.getElementById('esc-sem').value;
+
+  // SE SEMANAL: imprime TODAS as semanas juntas em um só documento
+  if(tipo === 'sem'){
+    await imprimirTodasSemanasJuntas();
+    return;
+  }
+
+  const key = `escala_dom_${getMesAtual()}`;
   let esc=escalas[key];
   if(!esc){
     try{ const d=await getDoc(doc(db,'escalas',key)); esc=d.exists()?d.data():{}; escalas[key]=esc; }
     catch(e){ esc={}; }
   }
-  const horas=tipo==='dom'?MISSAS_DOM:MISSAS_SEM;
+  const horas=MISSAS_DOM;
 
   let periodoLabel = '', subLabel = '';
   if(tipo==='dom'){
@@ -6769,24 +6998,21 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <!-- ===== PAINEL SEMANAL ===== -->
     <div id="painel-esc-sem" style="display:none">
 
-      <!-- NAVEGAÇÃO ENTRE SEMANAS -->
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
-        <button onclick="semanaAnterior()" style="padding:9px 14px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer">← Anterior</button>
-        <div id="esc-sem-wrap" style="flex:1">
-          <select id="esc-sem" onchange="renderEscala();atualizarChipPeriodoSemana();" style="margin:0;width:100%">
-          </select>
+      <!-- PAINEL LIMPO DE SEMANAS -->
+      <div style="background:#e6f1fb;border:1.5px solid #185FA5;border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <p style="font-size:13px;font-weight:700;color:#185FA5;margin:0">📅 Semanas escaladas</p>
+          <button onclick="abrirEditarPeriodoSemana()" style="font-size:11px;padding:5px 12px;border:1.5px solid #185FA5;border-radius:16px;background:white;color:#185FA5;cursor:pointer;font-weight:700">✏️ Definir datas</button>
         </div>
-        <button onclick="semanaProxima()" style="padding:9px 14px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer">Próxima →</button>
+        <div id="painel-semanas-cards" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
-      <!-- CONTROLE MANUAL DO PERÍODO DA SEMANA -->
-      <div style="background:#e6f1fb;border:1.5px solid #9cc3e8;border-radius:10px;padding:10px 12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <p style="font-size:12px;font-weight:700;color:#185FA5;margin:0">📅 Período desta semana</p>
-          <button onclick="abrirEditarPeriodoSemana()" style="font-size:11px;padding:4px 10px;border:1px solid #185FA5;border-radius:16px;background:white;color:#185FA5;cursor:pointer;font-weight:600">✏️ Editar</button>
-        </div>
-        <div id="periodo-semana-chip" style="font-size:12px;color:#185FA5;font-weight:600"></div>
+      <!-- Select oculto — usado internamente -->
+      <div id="esc-sem-wrap" style="display:none">
+        <select id="esc-sem" onchange="renderEscala();atualizarChipPeriodoSemana();atualizarCardsSemanas();" style="margin:0;width:100%">
+        </select>
       </div>
+      <div id="periodo-semana-chip" style="display:none"></div>
     </div>
     <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5">
       📌 Escala mensal — mesmos ministros em todos os domingos de junho
