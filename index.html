@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.2';
+const APP_VERSAO = '9.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -137,6 +137,62 @@ const MISSAS_SEM_DIAS = {
 };
 
 let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={};
+
+// ===== PROTEÇÃO CONTRA PERDA DE DADOS NÃO SALVOS =====
+// Sempre que a escala é alterada em memória (antes de clicar "Salvar"), guardamos
+// um rascunho automático no localStorage. Se o app recarregar (atualização, fechar
+// aba sem querer, etc.), o rascunho é recuperado e oferecido de volta ao coordenador.
+let _escalaAlteradaSemSalvar = false;
+
+function marcarEscalaNaoSalva(){
+  _escalaAlteradaSemSalvar = true;
+  try{
+    localStorage.setItem('sogi_rascunho_escala', JSON.stringify({
+      escalas, ts: Date.now(), mes: window.MES_ATUAL_DIN || MES_ATUAL
+    }));
+  }catch(e){}
+  // Mostra um indicador visual discreto de "não salvo"
+  const ind = document.getElementById('indicador-nao-salvo');
+  if(ind) ind.style.display = 'inline-flex';
+}
+
+function marcarEscalaSalva(){
+  _escalaAlteradaSemSalvar = false;
+  try{ localStorage.removeItem('sogi_rascunho_escala'); }catch(e){}
+  const ind = document.getElementById('indicador-nao-salvo');
+  if(ind) ind.style.display = 'none';
+}
+
+// Ao carregar o app, verifica se existe um rascunho não salvo de uma sessão anterior
+function verificarRascunhoEscala(){
+  try{
+    const raw = localStorage.getItem('sogi_rascunho_escala');
+    if(!raw) return;
+    const dados = JSON.parse(raw);
+    // Só oferece recuperação se o rascunho for de até 2 horas atrás (evita lixo antigo)
+    if(Date.now() - dados.ts > 2*60*60*1000){
+      localStorage.removeItem('sogi_rascunho_escala');
+      return;
+    }
+    const ok = confirm('🔔 ENCONTRAMOS UM RASCUNHO NÃO SALVO\n\nDetectamos uma escala que estava sendo montada e não foi salva (provavelmente por uma atualização ou fechamento inesperado).\n\nDeseja recuperar esse rascunho agora?');
+    if(ok){
+      Object.assign(escalas, dados.escalas);
+      toast('✓ Rascunho recuperado! Confira e clique em "Salvar Escala" para confirmar.', 'warn');
+      if(typeof renderEscala === 'function') setTimeout(renderEscala, 500);
+    } else {
+      localStorage.removeItem('sogi_rascunho_escala');
+    }
+  }catch(e){}
+}
+
+// Avisa o navegador para confirmar antes de fechar/recarregar se houver alterações não salvas
+window.addEventListener('beforeunload', function(e){
+  if(_escalaAlteradaSemSalvar){
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
 
 // =========================================================
 // CONTADOR CENTRALIZADO — única fonte de verdade para
@@ -271,6 +327,7 @@ function mostrarLogin(){
         else if(papel==='secretaria'){ nav('secretaria'); }
         else { irPara('inicio'); }
         verificarVersao();
+        setTimeout(verificarRascunhoEscala, 1200);
         return;
       } else {
         // usuário não existe mais — limpa a sessão
@@ -313,6 +370,7 @@ window.fazerLogin = function(){
     else if(papel==='secretaria'){ nav('secretaria'); }
     else { irPara('inicio'); }
     verificarVersao();
+    setTimeout(verificarRascunhoEscala, 1200);
     if(encontrado.trocarSenha && encontrado.papel==='coordenador'){
       setTimeout(()=>toast('🔒 Recomendado: troque a senha padrão em "Mais → Configurações"','warn'), 1500);
     }
@@ -406,28 +464,43 @@ async function checarVersaoServidor(automatico){
 
 async function mostrarBannerNovaVersao(novaVersao){
   if(document.getElementById('banner-nova-versao')) return;
+
+  // PROTEÇÃO CRÍTICA: se há escala (ou qualquer trabalho) não salvo, NUNCA recarrega
+  // sozinho. Mostra o aviso e espera o coordenador salvar e confirmar manualmente.
+  const temPendencia = (typeof _escalaAlteradaSemSalvar !== 'undefined') && _escalaAlteradaSemSalvar;
+
   const b = document.createElement('div');
   b.id = 'banner-nova-versao';
   b.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#1D9E75,#17855f);color:white;padding:16px 20px;border-radius:14px;box-shadow:0 6px 24px rgba(29,158,117,.45);max-width:90%;width:360px;text-align:center;animation:bannerDown .4s ease';
+
+  if(temPendencia){
+    b.style.background = 'linear-gradient(135deg,#BA7517,#d18a1f)';
+    b.innerHTML = `
+      <p style="margin:0;font-size:15px;font-weight:700">⚠️ Nova versão disponível</p>
+      <p style="margin:5px 0 12px;font-size:12px;opacity:.95">Você tem uma <strong>escala não salva</strong>! Salve antes de atualizar, ou seus dados serão perdidos.</p>
+      <button onclick="document.getElementById('banner-nova-versao').remove()" style="padding:8px 20px;border:none;border-radius:20px;background:white;color:#a05c10;font-size:13px;font-weight:700;cursor:pointer">Entendi, vou salvar primeiro</button>`;
+    document.body.appendChild(b);
+    // NÃO recarrega sozinho — espera o coordenador agir
+    return;
+  }
+
   b.innerHTML = `
     <p style="margin:0;font-size:15px;font-weight:700">🎉 Nova versão disponível!</p>
     <p style="margin:5px 0 12px;font-size:12px;opacity:.95">A versão ${novaVersao} já está pronta. Atualizando o app...</p>
     <button onclick="forcarAtualizacao()" style="padding:8px 20px;border:none;border-radius:20px;background:white;color:#17855f;font-size:13px;font-weight:700;cursor:pointer">🔄 Atualizar agora</button>`;
   document.body.appendChild(b);
-  // BLINDAGEM: limpa qualquer cache do navegador (Cache API) antes de recarregar
   try{
     if('caches' in window){
       const nomes = await caches.keys();
       await Promise.all(nomes.map(n=>caches.delete(n)));
     }
   }catch(e){}
-  // Atualiza sozinho após 2 segundos (reduzido de 4s — menos espera, mais sincronia)
+  // Só recarrega sozinho se NÃO houver pendência — com 4s de aviso (tempo de ler)
   setTimeout(()=>{
     const base = location.href.split('?')[0].split('#')[0];
     localStorage.setItem('sogi_atualizando', APP_VERSAO);
-    // location.replace com timestamp + versão garante bypass total de cache
     location.replace(base + '?v=' + novaVersao + '&t=' + Date.now());
-  }, 2000);
+  }, 4000);
 }
 
 // Inicia a verificação automática: BLINDAGEM TOTAL contra versões desencontradas.
@@ -2351,6 +2424,7 @@ window.addMin = function(key, hora, nome, acId){
   escalas[key][hora].ministros.push(nome);
   // Mantém ordem alfabética sempre
   escalas[key][hora].ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  marcarEscalaNaoSalva();
   if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
   const inpId = acId ? acId.replace('ac-','inp-') : null;
   if(inpId){ const inp=document.getElementById(inpId); if(inp) inp.value=''; }
@@ -2406,6 +2480,7 @@ window.addMinDoModal = function(key, hora, nome, btn){
 
 window.remMin = function(key, hora, mi){
   escalas[key][hora].ministros.splice(mi,1);
+  marcarEscalaNaoSalva();
   renderEscala();
 };
 
@@ -2483,6 +2558,7 @@ window.salvarEscala = async function(){
   try{
     await setDoc(doc(db,'escalas',key), dados);
     _histResponsaveis = null; // invalida cache da memória do responsável
+    marcarEscalaSalva(); // remove indicador de "não salvo" e limpa rascunho local
     const ref = tipo==='dom' ? 'Escala dominical' : `Escala ${SEMANAS_MES[sem]?.label||'semana '+sem}`;
     toast(`✓ ${ref} salva com ${totalEscalados} ministro(s)! A Lista de Presença já está pronta na aba Presença.`);
   }catch(e){
@@ -6600,6 +6676,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px">
       👁 Visualizar todas as escalas do mês
     </button>
+    <div id="indicador-nao-salvo" style="display:none;align-items:center;gap:6px;background:#fff4e0;border:1.5px solid #BA7517;border-radius:8px;padding:8px 12px;margin-bottom:8px">
+      <span style="font-size:14px">⚠️</span>
+      <span style="font-size:12px;color:#a05c10;font-weight:700">Você tem alterações não salvas! Clique em "Salvar Escala" para não perder.</span>
+    </div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button class="btn-g" onclick="salvarEscala()" style="margin:0;flex:1;min-width:80px">💾 Salvar Escala</button>
       <button onclick="imprimirEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
