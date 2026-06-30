@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.9';
+const APP_VERSAO = '10.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2084,25 +2084,27 @@ function atualizarChipPeriodoSemana(){
 }
 
 window.abrirEditarPeriodoSemana = function(){
-  // Sempre abre pedindo só a data de INÍCIO da 1ª semana
-  // e calcula todas as outras automaticamente (segunda a sexta, pula domingo)
   const custom1 = _periodoSemanaCustom['1'];
+  // Usa o mês E ANO do seletor da escala — não o mês atual do sistema
   const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
   const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
 
-  // Sugestão: primeiro dia útil (segunda-feira) do mês
   let sugestao;
   if(custom1){
     sugestao = custom1.ini;
   } else {
-    const d = new Date(ano, mes, 1);
-    // Avança até segunda-feira
+    // Sugere a primeira segunda-feira do mês selecionado no seletor
+    const d = new Date(ano, mes - 1, 1); // mes-1 pois Date usa 0-indexed
     while(d.getDay() !== 1) d.setDate(d.getDate()+1);
     sugestao = d.toISOString().slice(0,10);
   }
 
   document.getElementById('periodo-sem-ini').value = sugestao;
   document.getElementById('modal-periodo-semana').style.display = 'flex';
+
+  // Gera preview imediato com a sugestão
+  const qtd = parseInt(document.getElementById('periodo-sem-qtd')?.value||'4');
+  atualizarPreviewSemanas(sugestao, qtd);
 };
 
 window.confirmarPeriodoSemana = function(){
@@ -2210,34 +2212,46 @@ document.addEventListener('change', e=>{
 window.atualizarCardsSemanas = function(){
   const cont = document.getElementById('painel-semanas-cards');
   if(!cont) return;
-  const sems = Object.keys(SEMANAS_MES).sort((a,b)=>parseInt(a)-parseInt(b));
+
+  // Só mostra semanas que foram DEFINIDAS para o mês atual
+  const sems = Object.keys(_periodoSemanaCustom||{}).sort((a,b)=>parseInt(a)-parseInt(b));
+
   if(!sems.length){
-    cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:8px 0">Clique em "Definir datas" para cadastrar as semanas.</p>';
+    cont.innerHTML = `<div style="text-align:center;padding:18px 12px">
+      <p style="font-size:28px;margin:0 0 6px">📅</p>
+      <p style="font-size:13px;font-weight:700;color:#185FA5;margin:0 0 4px">Nenhuma semana definida para este mês</p>
+      <p style="font-size:12px;color:#888;margin:0 0 12px">Clique em "Definir datas" para configurar as semanas de julho.</p>
+      <button onclick="abrirEditarPeriodoSemana()" style="padding:10px 22px;border:none;border-radius:20px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">📅 Definir datas agora</button>
+    </div>`;
     return;
   }
-  const semAtual = document.getElementById('esc-sem')?.value || '1';
+
+  const semAtual = document.getElementById('esc-sem')?.value || sems[0];
   cont.innerHTML = sems.map(s=>{
-    const info = SEMANAS_MES[s];
+    const per = _periodoSemanaCustom[s];
+    const fmt = iso => iso ? iso.split('-').reverse().slice(0,2).join('/') : '';
+    const periodo = per ? `${fmt(per.ini)} a ${fmt(per.fim)}` : '';
     const ativo = s === semAtual;
-    const nMin = Object.values(escalas[`escala_sem_sem${s}_${getMesAtual()}`]||{})
+    const mesKey = getMesAtual();
+    const nMin = Object.values(escalas[`escala_sem_sem${s}_${mesKey}`]||{})
       .reduce((a,g)=>a+(g?.ministros?.length||0),0);
     return `<div onclick="selecionarSemana('${s}')" style="
-      display:flex;align-items:center;gap:10px;padding:10px 12px;
-      border-radius:9px;cursor:pointer;
+      display:flex;align-items:center;gap:10px;padding:11px 14px;
+      border-radius:10px;cursor:pointer;
       background:${ativo?'#185FA5':'white'};
-      border:1.5px solid ${ativo?'#185FA5':'#cde'};
-      transition:all .15s">
-      <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;
+      border:1.5px solid ${ativo?'#185FA5':'#d0dce8'};
+      box-shadow:${ativo?'0 2px 8px rgba(24,95,165,.25)':'0 1px 3px rgba(0,0,0,.05)'}">
+      <div style="flex-shrink:0;width:30px;height:30px;border-radius:50%;
         background:${ativo?'white':'#185FA5'};color:${ativo?'#185FA5':'white'};
-        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">
+        display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">
         ${s}
       </div>
-      <div style="flex:1">
-        <p style="font-size:13px;font-weight:700;margin:0;color:${ativo?'white':'#185FA5'}">${info.label||s+'ª semana'}</p>
-        <p style="font-size:11px;margin:1px 0 0;color:${ativo?'rgba(255,255,255,.8)':'#888'}">${info.periodo||'período não definido'}</p>
+      <div style="flex:1;min-width:0">
+        <p style="font-size:13px;font-weight:700;margin:0;color:${ativo?'white':'#185FA5'}">${s}ª semana</p>
+        <p style="font-size:11px;margin:2px 0 0;color:${ativo?'rgba(255,255,255,.85)':'#777'}">${periodo}</p>
       </div>
-      <span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;
-        background:${nMin>0?(ativo?'rgba(255,255,255,.25)':'#e1f5ee'):'transparent'};
+      <span style="flex-shrink:0;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
+        background:${nMin>0?(ativo?'rgba(255,255,255,.22)':'#e1f5ee'):'transparent'};
         color:${nMin>0?(ativo?'white':'#085041'):'#bbb'}">
         ${nMin>0?nMin+' 👤':'vazia'}
       </span>
@@ -2281,9 +2295,14 @@ window.semanaProxima = function(){
 window.trocarMes = function(){
   if(_domingosCustom){
     _domingosCustom = null;
-    toast('Mês alterado — domingos voltaram ao modo automático.','warn');
   }
+  // Ao trocar de mês, zera as semanas customizadas — cada mês tem seu próprio período
+  _periodoSemanaCustom = {};
+  // Limpa o SEMANAS_MES para não mostrar semanas do mês anterior
+  Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
   recalcularComSemanas();
+  // Atualiza o painel de semanas (agora vazio)
+  if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
 };
 window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
 window.inicializarEscala = function(){ recalcularComSemanas(); };
