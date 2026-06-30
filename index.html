@@ -4826,23 +4826,65 @@ window.imprimirQR = function(){
 let scannerStream = null;
 let scannerInterval = null;
 
+let _scannerFacingMode = 'environment'; // começa com câmera traseira
+
 window.abrirScanner = function(){
-  document.getElementById('modal-scanner').style.display='flex';
+  const el = document.getElementById('modal-scanner');
+  el.style.display = 'flex';
+  // Tela cheia no celular
+  try{ if(el.requestFullscreen) el.requestFullscreen(); }catch(e){}
   document.getElementById('scanner-status').textContent='Iniciando câmera...';
   _scanLidos = new Set();
   _scanPausado = false;
   const cont=document.getElementById('scanner-contador'); if(cont) cont.textContent='';
   const fb=document.getElementById('scanner-feedback'); if(fb) fb.style.display='none';
+  iniciarCameraScanner(_scannerFacingMode);
+};
+
+function iniciarCameraScanner(facingMode){
+  _scannerFacingMode = facingMode;
   const video = document.getElementById('scanner-video');
-  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+  // Para stream anterior
+  if(scannerStream){ scannerStream.getTracks().forEach(t=>t.stop()); scannerStream=null; }
+  if(scannerInterval){ clearInterval(scannerInterval); scannerInterval=null; }
+
+  const constraints = {
+    video: {
+      facingMode: facingMode,
+      width: { ideal: window.innerWidth },
+      height: { ideal: window.innerHeight }
+    }
+  };
+
+  navigator.mediaDevices.getUserMedia(constraints)
     .then(stream=>{
       scannerStream = stream;
       video.srcObject = stream;
+      video.setAttribute('playsinline','');
+      video.muted = true;
+      // Espelha só câmera frontal
+      video.style.transform = facingMode==='user' ? 'scaleX(-1)' : 'none';
       video.play();
-      document.getElementById('scanner-status').textContent='Aponte para o QR Code de cada ministro';
-      scannerInterval = setInterval(()=>lerQRFrame(video),350);
+      const st = document.getElementById('scanner-status');
+      if(st) st.textContent = facingMode==='user' ? '📷 Câmera frontal — aponte a carteirinha' : '📷 Aponte para o QR Code do ministro';
+      if(scannerInterval) clearInterval(scannerInterval);
+      scannerInterval = setInterval(()=>lerQRFrame(video), 250);
     })
-    .catch(()=>{ document.getElementById('scanner-status').textContent='⚠️ Câmera não disponível. Use HTTPS.'; });
+    .catch(e=>{
+      // Se câmera traseira falhar, tenta frontal
+      if(facingMode==='environment'){
+        iniciarCameraScanner('user');
+      } else {
+        const st=document.getElementById('scanner-status');
+        if(st) st.textContent='⚠️ Câmera não disponível. Use HTTPS.';
+      }
+    });
+}
+
+window.trocarCameraScanner = function(){
+  const novo = _scannerFacingMode==='environment' ? 'user' : 'environment';
+  iniciarCameraScanner(novo);
+  toast(novo==='user' ? 'Câmera frontal' : 'Câmera traseira');
 };
 
 let _scanLidos = new Set();   // ids já lidos nesta sessão (evita duplicidade)
@@ -4895,14 +4937,17 @@ function mostrarFeedbackScan(m, jaLido){
   _scanPausado = true;
   const fb = document.getElementById('scanner-feedback');
   if(fb){
+    const cor = jaLido ? '#BA7517' : '#1D9E75';
+    const bgCor = jaLido ? 'rgba(186,117,23,.95)' : 'rgba(8,80,65,.95)';
     const fotoHtml = m.foto
-      ? `<img src="${m.foto}" style="width:88px;height:110px;object-fit:cover;border-radius:10px;border:3px solid ${jaLido?'#BA7517':'#1D9E75'}">`
-      : `<div style="width:88px;height:110px;border-radius:10px;background:#e1f5ee;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#085041;border:3px solid ${jaLido?'#BA7517':'#1D9E75'}">${iniciais(m.nome)}</div>`;
+      ? `<img src="${m.foto}" style="width:160px;height:200px;object-fit:cover;border-radius:16px;border:4px solid white;box-shadow:0 8px 32px rgba(0,0,0,.4)">`
+      : `<div style="width:160px;height:200px;border-radius:16px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:60px;font-weight:700;color:white;border:4px solid white">${iniciais(m.nome)}</div>`;
+    fb.style.background = bgCor;
     fb.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;animation:none">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:30px 20px;text-align:center">
         ${fotoHtml}
-        <p style="font-size:16px;font-weight:700;color:#1a1a1a;margin:0;text-align:center">${m.nome}</p>
-        <p style="font-size:13px;font-weight:700;margin:0;color:${jaLido?'#BA7517':'#1D9E75'}">${jaLido?'⚠️ Já registrado':'✓ Presença confirmada'}</p>
+        <p style="font-size:26px;font-weight:800;color:white;margin:0;text-shadow:0 2px 8px rgba(0,0,0,.3)">${m.nome}</p>
+        <p style="font-size:20px;font-weight:700;margin:0;color:white;background:rgba(255,255,255,.2);padding:8px 24px;border-radius:30px">${jaLido?'⚠️ Já registrado':'✓ Presença confirmada'}</p>
       </div>`;
     fb.style.display='flex';
   }
@@ -4924,6 +4969,8 @@ window.pararScanner = function(){
   _scanPausado = false;
   const fb=document.getElementById('scanner-feedback'); if(fb) fb.style.display='none';
   document.getElementById('modal-scanner').style.display='none';
+  // Sai da tela cheia se estiver
+  try{ if(document.exitFullscreen) document.exitFullscreen(); }catch(e){}
 };
 
 window.exportarCSV=function(){
@@ -6764,26 +6811,73 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 </div>
 
 <!-- MODAL SCANNER QR CODE -->
-<div id="modal-scanner" class="modal-bg" onclick="if(event.target===this)pararScanner()">
-  <div class="modal-box" style="max-width:360px;text-align:center">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div>
-        <p style="font-size:16px;font-weight:700">📷 Scanner de Presença</p>
-        <p style="font-size:11px;color:#888">Aponte para o QR Code do ministro</p>
-      </div>
-      <button onclick="pararScanner()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+<!-- SCANNER TELA CHEIA — estilo câmera do celular -->
+<div id="modal-scanner" style="display:none;position:fixed;inset:0;z-index:9999;background:#000;flex-direction:column">
+
+  <!-- Vídeo ocupa toda a tela -->
+  <video id="scanner-video" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" playsinline muted></video>
+  <canvas id="scanner-canvas" style="display:none"></canvas>
+
+  <!-- Overlay escuro nas bordas (mira central) -->
+  <div style="position:absolute;inset:0;pointer-events:none">
+    <!-- Topo escuro -->
+    <div style="position:absolute;top:0;left:0;right:0;height:22%;background:rgba(0,0,0,0.55)"></div>
+    <!-- Baixo escuro -->
+    <div style="position:absolute;bottom:0;left:0;right:0;height:28%;background:rgba(0,0,0,0.55)"></div>
+    <!-- Esquerda escura -->
+    <div style="position:absolute;top:22%;bottom:28%;left:0;width:8%;background:rgba(0,0,0,0.55)"></div>
+    <!-- Direita escura -->
+    <div style="position:absolute;top:22%;bottom:28%;right:0;width:8%;background:rgba(0,0,0,0.55)"></div>
+    <!-- Moldura da mira (cantos verdes) -->
+    <div style="position:absolute;top:22%;left:8%;right:8%;bottom:28%">
+      <!-- Canto superior esquerdo -->
+      <div style="position:absolute;top:0;left:0;width:36px;height:36px;border-top:4px solid #1D9E75;border-left:4px solid #1D9E75;border-radius:4px 0 0 0"></div>
+      <!-- Canto superior direito -->
+      <div style="position:absolute;top:0;right:0;width:36px;height:36px;border-top:4px solid #1D9E75;border-right:4px solid #1D9E75;border-radius:0 4px 0 0"></div>
+      <!-- Canto inferior esquerdo -->
+      <div style="position:absolute;bottom:0;left:0;width:36px;height:36px;border-bottom:4px solid #1D9E75;border-left:4px solid #1D9E75;border-radius:0 0 0 4px"></div>
+      <!-- Canto inferior direito -->
+      <div style="position:absolute;bottom:0;right:0;width:36px;height:36px;border-bottom:4px solid #1D9E75;border-right:4px solid #1D9E75;border-radius:0 0 4px 0"></div>
+      <!-- Linha de escaneamento animada -->
+      <div id="scan-line" style="position:absolute;left:4px;right:4px;height:2px;background:linear-gradient(90deg,transparent,#1D9E75,transparent);animation:scanLine 2s linear infinite"></div>
     </div>
-    <div style="position:relative">
-      <video id="scanner-video" style="width:100%;border-radius:10px;background:#000;max-height:280px"></video>
-      <div id="scanner-feedback" style="display:none;position:absolute;inset:0;background:rgba(255,255,255,.96);border-radius:10px;align-items:center;justify-content:center;backdrop-filter:blur(2px)"></div>
-    </div>
-    <canvas id="scanner-canvas" style="display:none"></canvas>
-    <p id="scanner-contador" style="font-size:12px;margin-top:10px;color:#085041;font-weight:700;min-height:18px"></p>
-    <p id="scanner-resultado" style="display:none"></p>
-    <p id="scanner-status" style="font-size:11px;color:#888;margin-top:2px">Câmera iniciando...</p>
-    <p style="font-size:10px;color:#aaa;margin-top:6px;line-height:1.4">📷 Leitura contínua: aponte para cada crachá, a presença é registrada automaticamente.</p>
   </div>
+
+  <!-- Topo: título + fechar -->
+  <div style="position:absolute;top:0;left:0;right:0;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;z-index:10">
+    <div>
+      <p style="color:white;font-size:16px;font-weight:700;margin:0;text-shadow:0 1px 4px rgba(0,0,0,.5)">📷 Scanner de Presença</p>
+      <p id="scanner-status" style="color:rgba(255,255,255,.8);font-size:12px;margin:2px 0 0">Iniciando câmera...</p>
+    </div>
+    <button onclick="pararScanner()" style="width:40px;height:40px;border:none;border-radius:50%;background:rgba(0,0,0,.5);color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+  </div>
+
+  <!-- Contador central (abaixo da mira) -->
+  <div style="position:absolute;bottom:28%;left:0;right:0;text-align:center;padding:12px 0 0">
+    <p id="scanner-contador" style="color:white;font-size:13px;font-weight:700;margin:0;text-shadow:0 1px 4px rgba(0,0,0,.6);min-height:20px"></p>
+  </div>
+
+  <!-- Botões inferiores: trocar câmera -->
+  <div style="position:absolute;bottom:0;left:0;right:0;padding:20px 30px 36px;display:flex;justify-content:center;align-items:center;gap:24px;z-index:10">
+    <button onclick="trocarCameraScanner()" style="width:56px;height:56px;border:2px solid white;border-radius:50%;background:rgba(0,0,0,.4);color:white;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Trocar câmera">🔄</button>
+    <div style="text-align:center">
+      <p style="color:rgba(255,255,255,.7);font-size:11px;margin:0">Aponte para a carteirinha</p>
+      <p style="color:rgba(255,255,255,.5);font-size:10px;margin:2px 0 0">Leitura automática e contínua</p>
+    </div>
+  </div>
+
+  <!-- Feedback de presença (cobre a tela toda) -->
+  <div id="scanner-feedback" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:20"></div>
+  <p id="scanner-resultado" style="display:none"></p>
 </div>
+
+<style>
+@keyframes scanLine {
+  0%   { top: 4px; }
+  50%  { top: calc(100% - 6px); }
+  100% { top: 4px; }
+}
+</style>
 
 <!-- MODAL VISUALIZAÇÃO GERAL DAS ESCALAS -->
 <div id="modal-vis" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-vis')">
