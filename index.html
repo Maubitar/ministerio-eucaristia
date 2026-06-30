@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '9.5';
+const APP_VERSAO = '9.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2585,11 +2585,32 @@ window.salvarEscala = async function(){
 
   try{
     await setDoc(doc(db,'escalas',key), dados);
-    _histResponsaveis = null; // invalida cache da memória do responsável
-    marcarEscalaSalva(); // remove indicador de "não salvo" e limpa rascunho local
+    _histResponsaveis = null;
+    marcarEscalaSalva();
     const ref = tipo==='dom' ? 'Escala dominical' : `Escala ${SEMANAS_MES[sem]?.label||'semana '+sem}`;
-    // Toast mais visível e demorado, impossível de não notar
     mostrarConfirmacaoSalvamento(ref, totalEscalados);
+
+    // AVANÇO AUTOMÁTICO: após salvar semana, abre a próxima automaticamente
+    if(tipo === 'sem'){
+      const selSem = document.getElementById('esc-sem');
+      if(selSem){
+        const semAtual = parseInt(selSem.value);
+        const totalSems = Object.keys(SEMANAS_MES).length;
+        const proxSem = semAtual + 1;
+        if(proxSem <= totalSems){
+          setTimeout(()=>{
+            selSem.value = String(proxSem);
+            selSem.dispatchEvent(new Event('change'));
+            toast(`📅 Abrindo ${SEMANAS_MES[String(proxSem)]?.label || proxSem+'ª semana'}...`);
+          }, 1800); // avança após 1.8s (dá tempo de ver a confirmação)
+        } else {
+          // Era a última semana — avisa que concluiu todas
+          setTimeout(()=>{
+            toast('✅ Todas as semanas do mês foram salvas!');
+          }, 1800);
+        }
+      }
+    }
   }catch(e){
     // Erro CLARO e persistente — modal, não só toast que some sozinho
     alert('❌ ERRO AO SALVAR A ESCALA\n\n'+e.message+'\n\nA escala NÃO foi salva. Verifique sua conexão com a internet e tente novamente.');
