@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.0';
+const APP_VERSAO = '10.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -1633,7 +1633,7 @@ window.nav = function(id, btn){
     ministros: ()=>renderMinistros(''),
     escala: ()=>{ const t=document.getElementById('esc-tipo')?.value||'dom'; trocarAbaEscala(t); },
     presenca: ()=>{ if(!window.presModo) window.presModo='dom'; renderPresenca(); },
-    reforco: ()=>renderReforco(),
+    reforco: ()=>{ trocarAbaReforco(document.getElementById('ref-tipo')?.value||'sab12'); },
     plantao: ()=>renderPlantonistas(),
     ausencias: ()=>renderAusencias(),
     responsaveis: ()=>renderResponsaveis(),
@@ -4666,6 +4666,240 @@ window.imprimirRelatorioArquidiocese = function(){
   w.document.close();
 };
 
+// ===== REFORÇO — ABA DEDICADA =====
+window.trocarAbaReforco = function(tipo, btn){
+  // Atualiza select interno
+  const sel = document.getElementById('ref-tipo');
+  if(sel){ sel.value = tipo; }
+
+  // Atualiza visual das abas
+  ['sab12','sab17','qui18'].forEach(t=>{
+    const b = document.getElementById(`ref-aba-${t}`);
+    if(!b) return;
+    if(t === tipo){
+      b.style.background = '#6B21A8'; b.style.color = 'white';
+    } else {
+      b.style.background = '#f5f0fa'; b.style.color = '#6B21A8';
+    }
+  });
+
+  renderReforcoNova();
+};
+
+// Atualiza label do mês no header do reforço
+function atualizarLabelMesReforco(){
+  const el = document.getElementById('ref-mes-label');
+  if(!el) return;
+  const m = document.getElementById('esc-mes')?.value;
+  const a = document.getElementById('esc-ano')?.value;
+  const NOMES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  el.textContent = m && a ? `${NOMES[parseInt(m)]} ${a}` : '';
+}
+
+// Renderiza o reforço na nova seção dedicada (mesmo padrão visual das missas, cor roxa)
+window.renderReforcoNova = async function(){
+  const tipo = document.getElementById('ref-tipo')?.value || 'sab12';
+  const key = `reforco_${tipo}_${getMesAtual()}`;
+
+  if(!reforcos[key]){
+    try{
+      const d = await getDoc(doc(db,'reforcos',key));
+      reforcos[key] = d.exists() ? d.data() : {ministros:[], horarios:{}};
+    }catch(e){ reforcos[key] = {ministros:[], horarios:{}}; }
+  }
+  if(!reforcos[key].horarios) reforcos[key].horarios = {};
+
+  const LABELS = {sab12:'Sábado 12:00h', sab17:'Sábado 17:00h', qui18:'Quinta-feira 18:00h'};
+  const label = LABELS[tipo] || tipo;
+
+  // Ministros disponíveis para este reforço
+  const todosEscalados = new Set(reforcos[key].ministros||[]);
+  const dispReforco = ministros
+    .filter(m=>(m.dispReforco||[]).includes(tipo) && !todosEscalados.has(m.nome))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+
+  // Escalados neste reforço (lista geral, sem divisão por horário ainda)
+  const lista = [...(reforcos[key].ministros||[])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const resp = reforcos[key].responsavel || '';
+
+  const ord = [...lista].sort((a,b)=>{
+    if(a===resp) return -1;
+    if(b===resp) return 1;
+    return a.localeCompare(b,'pt-BR');
+  });
+
+  const linhasMin = ord.length ? ord.map((m,i)=>{
+    const isResp = m === resp;
+    const mo = ministros.find(x=>x.nome===m);
+    const foto = mo?.foto
+      ? `<img src="${mo.foto}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #e8d5f0">`
+      : `<div style="width:42px;height:42px;border-radius:50%;background:#f0e6fa;color:#6B21A8;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0e6fa">
+      ${foto}
+      <span style="flex:1;font-size:13px;font-weight:${isResp?700:400}">
+        ${m}${isResp?' <span style="font-size:10px;background:#f0e6fa;color:#6B21A8;padding:1px 7px;border-radius:10px">★ Resp.</span>':''}
+      </span>
+      <button onclick="remMinReforcoNova('${key}',${i})"
+        style="border:none;background:none;cursor:pointer;color:#ccc;font-size:22px;padding:0 4px;line-height:1">×</button>
+    </div>`;
+  }).join('') : `<p style="font-size:13px;color:#bbb;text-align:center;padding:16px 0">
+    Nenhum ministro escalado ainda.</p>`;
+
+  // Disponíveis
+  const dispHtml = dispReforco.length ? `
+    <div style="background:#fdf6ff;border:1px solid #e8d5f0;border-radius:10px;padding:10px 12px;margin-top:10px">
+      <p style="font-size:12px;font-weight:700;color:#6B21A8;margin:0 0 8px">✨ Disponíveis para este reforço (${dispReforco.length})</p>
+      ${dispReforco.map(m=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f5eefa">
+          <span style="flex:1;font-size:13px">${m.nome}</span>
+          <button onclick="addMinReforcoNova('${key}','${m.nome.replace(/'/g,"\'")}', true)"
+            style="font-size:11px;padding:4px 12px;border-radius:16px;border:none;background:#6B21A8;color:white;font-weight:600;cursor:pointer">+ Add</button>
+        </div>`).join('')}
+    </div>` : '';
+
+  const inpId = `inpref-nova`;
+  const acId = `acref-nova`;
+
+  const el = document.getElementById('ref-body-nova');
+  if(!el) return;
+
+  el.innerHTML = `
+    <!-- Card principal igual ao das missas, cor roxa -->
+    <div style="background:white;border-radius:12px;padding:14px;border:1.5px solid #e8d5f0;box-shadow:0 2px 8px rgba(107,33,168,.08)">
+      <!-- Header roxo igual ao cabeçalho de horário das missas -->
+      <div style="background:#6B21A8;color:white;margin:-14px -14px 12px;padding:10px 14px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:800;font-size:16px">⭐ ${label}</span>
+        <span style="font-size:12px;font-weight:700;background:rgba(255,255,255,.22);padding:3px 12px;border-radius:20px">${ord.length} 👤</span>
+      </div>
+
+      ${linhasMin}
+
+      <!-- Campo de busca -->
+      <div style="position:relative;margin-top:12px">
+        <input id="${inpId}" type="text" placeholder="+ Buscar e adicionar ministro..."
+          autocomplete="off"
+          oninput="acRefNova(this,'${acId}','${key}')"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarPrimeiraOpcao('${acId}');}"
+          style="margin:0;border-color:#c4a8e8">
+        <div id="${acId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:100;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+      </div>
+
+      <!-- Responsável -->
+      <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:#888;white-space:nowrap">★ Responsável:</span>
+        <select onchange="setRespReforco('${key}',this.value)" style="flex:1;margin:0;font-size:12px;padding:6px">
+          <option value="">— Nenhum —</option>
+          ${ord.map(m=>`<option value="${m.replace(/"/g,'&quot;')}" ${m===resp?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    ${dispHtml}`;
+
+  atualizarLabelMesReforco();
+};
+
+// Autocomplete do reforço na nova seção
+window.acRefNova = function(inp, acId, key){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById(acId);
+  if(v.length < 2){ ac.style.display='none'; return; }
+  const jaEscalados = new Set(reforcos[key]?.ministros||[]);
+  const ms = ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaEscalados.has(m.nome)).slice(0,8);
+  if(!ms.length){ ac.style.display='none'; return; }
+  ac.style.display = 'block';
+  ac.innerHTML = ms.map(m=>`<div onmousedown="addMinReforcoNova('${key}','${m.nome.replace(/'/g,"\'")}',false,'${acId}')"
+    style="padding:9px 12px;cursor:pointer;font-size:13px"
+    onmouseover="this.style.background='#f5f0fa'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
+};
+
+// Adicionar ministro ao reforço
+window.addMinReforcoNova = function(key, nome, viaDisp, acId){
+  if(!reforcos[key]) reforcos[key] = {ministros:[], horarios:{}};
+  if(!reforcos[key].ministros) reforcos[key].ministros = [];
+  if(!reforcos[key].ministros.includes(nome)){
+    reforcos[key].ministros.push(nome);
+    reforcos[key].ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  }
+  if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+  const inp=document.getElementById('inpref-nova');
+  if(inp){ inp.value=''; setTimeout(()=>inp.focus(),80); }
+  renderReforcoNova();
+};
+
+// Remover ministro do reforço
+window.remMinReforcoNova = function(key, idx){
+  if(reforcos[key]?.ministros) reforcos[key].ministros.splice(idx,1);
+  renderReforcoNova();
+};
+
+// Definir responsável do reforço
+window.setRespReforco = function(key, nome){
+  if(!reforcos[key]) reforcos[key] = {ministros:[], horarios:{}};
+  reforcos[key].responsavel = nome;
+};
+
+// Imprimir reforço
+window.imprimirReforco = async function(){
+  const tipo = document.getElementById('ref-tipo')?.value || 'sab12';
+  const key = `reforco_${tipo}_${getMesAtual()}`;
+  const LABELS = {sab12:'Sábado 12:00h', sab17:'Sábado 17:00h', qui18:'Quinta-feira 18:00h'};
+  const lista = reforcos[key]?.ministros||[];
+  if(!lista.length){ toast('Nenhum ministro escalado no reforço.','warn'); return; }
+  const resp = reforcos[key]?.responsavel||'';
+  const ord = [...lista].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+  const hoje = new Date();
+  const dataFmt = `${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+  const linhas = ord.map((m,i)=>{
+    const isResp = m===resp;
+    const mo = ministros.find(x=>x.nome===m);
+    const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e8d5f0">` : `<div style="width:40px;height:40px;border-radius:50%;background:#f0e6fa;color:#6B21A8;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+    return `<tr style="background:${i%2===0?'white':'#fdf6ff'}">
+      <td style="padding:8px;text-align:center;color:#888;border:1px solid #e8d5f0;font-size:12px">${i+1}</td>
+      <td style="padding:6px;text-align:center;border:1px solid #e8d5f0">${fotoTag}</td>
+      <td style="padding:8px;font-size:13px;border:1px solid #e8d5f0;${isResp?'font-weight:700':''}">${m}${isResp?' ★':''}</td>
+    </tr>`;
+  }).join('');
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reforço MESCE</title>
+  <style>@page{margin:12mm}body{font-family:'Segoe UI',Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}@media print{button{display:none}}</style></head><body>
+  <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #6B21A8;padding-bottom:10px;margin-bottom:14px">
+    <img src="${APP_URL}/${LOGO_BASILICA}" style="width:56px;height:56px;object-fit:contain" onerror="this.style.display='none'">
+    <div style="flex:1;text-align:center">
+      <p style="font-size:10px;color:#555;margin:0;text-transform:uppercase;font-weight:700;letter-spacing:1px">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      <h1 style="margin:3px 0;color:#6B21A8;font-size:18px">⭐ Escala de Reforço</h1>
+      <p style="font-size:12px;color:#888;margin:0">${LABELS[tipo]} · Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+    <img src="${APP_URL}/${LOGO_MESCE}" style="width:56px;height:56px;object-fit:contain" onerror="this.style.display='none'">
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:12px">
+    <span>Emitido em ${dataFmt}</span>
+    <strong style="color:#6B21A8">${lista.length} ministro(s)</strong>
+  </div>
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr style="background:#6B21A8">
+      <th style="color:white;padding:8px;font-size:11px;width:36px;text-align:center">Nº</th>
+      <th style="color:white;padding:8px;font-size:11px;width:52px">Foto</th>
+      <th style="color:white;padding:8px;font-size:11px;text-align:left">Ministro(a)</th>
+    </tr></thead>
+    <tbody>${linhas}</tbody>
+  </table>
+  <p style="text-align:center;margin-top:20px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:8px">Coordenação MESCE 2026 · Basílica Santuário de Nossa Senhora de Nazaré — Belém/PA</p>
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+};
+
+// Redirecionar renderReforco para a nova versão quando estiver na aba dedicada
+const _renderReforcoOriginal = window.renderReforco;
+window.renderReforco = async function(){
+  const nova = document.getElementById('ref-body-nova');
+  if(nova && nova.offsetParent !== null){
+    await renderReforcoNova();
+  } else if(typeof _renderReforcoOriginal === 'function'){
+    await _renderReforcoOriginal();
+  }
+};
+
 // ===== CANAL DOS RESPONSÁVEIS =====
 
 // Coleta todos os responsáveis únicos da escala salva do mês
@@ -6976,6 +7210,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <button class="nb" data-sec="escala" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
   <button class="nb" data-sec="presenca" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
   <button class="nb" data-sec="relatorios" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
+  <button class="nb" data-sec="reforco" onclick="nav('reforco',this)"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>Reforço</button>
   <button class="nb" data-sec="responsaveis" onclick="nav('responsaveis',this)"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.64A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>Responsáveis</button>
   <button class="nb" data-sec="ministros" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
   <button class="nb" data-sec="mais" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
@@ -7442,6 +7677,57 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Ministros que avisaram que não poderão servir em certas datas.</p>
   </div>
   <div id="ausencias-body"></div>
+</div>
+
+<!-- SEÇÃO: REFORÇO -->
+<div id="s-reforco" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+
+  <!-- Header roxo — diferencia do verde da escala -->
+  <div class="card" style="background:linear-gradient(135deg,#6B21A8,#8B2FC9);border:none;margin-bottom:0">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <p style="font-size:17px;font-weight:800;color:white;margin:0">⭐ Escala de Reforço</p>
+        <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Ministros escalados nos horários de reforço semanal</p>
+      </div>
+      <div style="text-align:right">
+        <p id="ref-mes-label" style="font-size:11px;color:rgba(255,255,255,.7);margin:0">Mês atual</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Seletor do tipo de reforço — abas visuais -->
+  <div style="display:flex;gap:0;margin-bottom:14px;border:1.5px solid #e8d5f0;border-radius:10px;overflow:hidden">
+    <button id="ref-aba-sab12" onclick="trocarAbaReforco('sab12',this)"
+      style="flex:1;padding:11px 6px;border:none;background:#6B21A8;color:white;font-size:12px;font-weight:700;cursor:pointer;line-height:1.3">
+      ⭐ Sáb<br>12:00h
+    </button>
+    <button id="ref-aba-sab17" onclick="trocarAbaReforco('sab17',this)"
+      style="flex:1;padding:11px 6px;border:none;background:#f5f0fa;color:#6B21A8;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #e8d5f0;line-height:1.3">
+      ⭐ Sáb<br>17:00h
+    </button>
+    <button id="ref-aba-qui18" onclick="trocarAbaReforco('qui18',this)"
+      style="flex:1;padding:11px 6px;border:none;background:#f5f0fa;color:#6B21A8;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #e8d5f0;line-height:1.3">
+      ⭐ Qui<br>18:00h
+    </button>
+  </div>
+
+  <!-- Select oculto (compatibilidade) -->
+  <select id="ref-tipo" style="display:none" onchange="renderReforco()">
+    <option value="sab12">Sábado 12:00h</option>
+    <option value="sab17">Sábado 17:00h</option>
+    <option value="qui18">Quinta-feira 18:00h</option>
+  </select>
+
+  <!-- Corpo do reforço — renderizado pelo renderReforco() -->
+  <div id="ref-body-nova"></div>
+
+  <!-- Botões de ação -->
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1;background:#6B21A8;border-color:#6B21A8">💾 Salvar Reforço</button>
+    <button onclick="imprimirReforco()" style="flex:1;padding:12px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>
+  </div>
+  <button onclick="compartilharReforco()" style="width:100%;margin-top:8px;padding:12px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer">📲 Enviar via WhatsApp</button>
 </div>
 
 <!-- SEÇÃO: RESPONSÁVEIS DO MÊS -->
