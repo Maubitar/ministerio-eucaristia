@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.2';
+const APP_VERSAO = '10.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -267,7 +267,13 @@ window.addEventListener('load', async()=>{
     // Mostra a tela de login (o app só abre após autenticar)
     mostrarLogin();
   } catch(e) {
-    document.getElementById('loading-msg').textContent = 'Erro: '+e.message;
+    console.error('Erro na inicialização:', e);
+    document.getElementById('loading-msg').textContent = 'Erro: '+e.message+' — Recarregue a página.';
+    // Garante que o app não fica travado — tenta mostrar login após 3s mesmo com erro
+    setTimeout(()=>{
+      document.getElementById('loading').style.display='none';
+      if(typeof mostrarLogin==='function') mostrarLogin();
+    }, 3000);
   }
 });
 
@@ -2060,7 +2066,7 @@ window.confirmarDomingos = function(){
 };
 
 // ===== ABAS DOMINICAL / SEMANAL =====
-window.trocarAbaEscala = function(tipo){
+window.trocarAbaEscala = async function(tipo){
   const escTipo = document.getElementById('esc-tipo');
   if(escTipo) escTipo.value = tipo;
 
@@ -2132,7 +2138,7 @@ window.abrirEditarPeriodoSemana = function(){
   atualizarPreviewSemanas(sugestao, qtd);
 };
 
-window.confirmarPeriodoSemana = function(){
+window.confirmarPeriodoSemana = async function(){
   const iniStr = document.getElementById('periodo-sem-ini').value;
   if(!iniStr){ toast('Informe a data de início da 1ª semana.','warn'); return; }
 
@@ -2248,6 +2254,8 @@ document.addEventListener('change', e=>{
 
 // Carrega semanas persistidas no Firebase para o mês atual
 async function carregarSemanasSalvas(){
+  // Só executa se o Firebase já está inicializado
+  if(!db) return;
   const mesKey = getMesAtual();
   // Só carrega se ainda não tem em memória para este mês
   if(Object.keys(_periodoSemanaCustom||{}).length > 0) return;
