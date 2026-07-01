@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.9';
+const APP_VERSAO = '11.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -4008,7 +4008,7 @@ window.renderReforco = async function(){
     const acId = `acref-${hora.replace(/[^a-z0-9]/gi,'_')}`;
 
     return `<div style="background:white;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #e8e8e8;box-shadow:0 1px 4px rgba(0,0,0,.06)">
-      <div style="background:#8B2FC9;color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
+      <div style="background:#0E7C7B;color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
         <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
         <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.22);padding:2px 9px;border-radius:20px">${(h.ministros||[]).length} 👤</span>
       </div>
@@ -4846,9 +4846,9 @@ window.trocarAbaReforco = function(tipo, btn){
     const b = document.getElementById(`ref-aba-${t}`);
     if(!b) return;
     if(t === tipo){
-      b.style.background = '#6B21A8'; b.style.color = 'white';
+      b.style.background = '#0A5F5E'; b.style.color = 'white';
     } else {
-      b.style.background = '#f5f0fa'; b.style.color = '#6B21A8';
+      b.style.background = '#e0f2f1'; b.style.color = '#0A5F5E';
     }
   });
 
@@ -4901,12 +4901,12 @@ window.renderReforcoNova = async function(){
     const isResp = m === resp;
     const mo = ministros.find(x=>x.nome===m);
     const foto = mo?.foto
-      ? `<img src="${mo.foto}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #e8d5f0">`
-      : `<div style="width:42px;height:42px;border-radius:50%;background:#f0e6fa;color:#6B21A8;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
-    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0e6fa">
+      ? `<img src="${mo.foto}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #b2dfdb">`
+      : `<div style="width:42px;height:42px;border-radius:50%;background:#e0f2f1;color:#0A5F5E;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #e0f2f1">
       ${foto}
       <span style="flex:1;font-size:13px;font-weight:${isResp?700:400}">
-        ${m}${isResp?' <span style="font-size:10px;background:#f0e6fa;color:#6B21A8;padding:1px 7px;border-radius:10px">★ Resp.</span>':''}
+        ${m}${isResp?' <span style="font-size:10px;background:#e0f2f1;color:#0A5F5E;padding:1px 7px;border-radius:10px">★ Resp.</span>':''}
       </span>
       <button onclick="remMinReforcoNova('${key}',${i})"
         style="border:none;background:none;cursor:pointer;color:#ccc;font-size:22px;padding:0 4px;line-height:1">×</button>
@@ -4916,13 +4916,13 @@ window.renderReforcoNova = async function(){
 
   // Disponíveis
   const dispHtml = dispReforco.length ? `
-    <div style="background:#fdf6ff;border:1px solid #e8d5f0;border-radius:10px;padding:10px 12px;margin-top:10px">
-      <p style="font-size:12px;font-weight:700;color:#6B21A8;margin:0 0 8px">✨ Disponíveis para este reforço (${dispReforco.length})</p>
+    <div style="background:#f0faf9;border:1px solid #b2dfdb;border-radius:10px;padding:10px 12px;margin-top:10px">
+      <p style="font-size:12px;font-weight:700;color:#0A5F5E;margin:0 0 8px">✨ Disponíveis para este reforço (${dispReforco.length})</p>
       ${dispReforco.map(m=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f5eefa">
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e0f2f1">
           <span style="flex:1;font-size:13px">${m.nome}</span>
           <button onclick="addMinReforcoNova('${key}','${m.nome.replace(/'/g,"\'")}', true)"
-            style="font-size:11px;padding:4px 12px;border-radius:16px;border:none;background:#6B21A8;color:white;font-weight:600;cursor:pointer">+ Add</button>
+            style="font-size:11px;padding:4px 12px;border-radius:16px;border:none;background:#0A5F5E;color:white;font-weight:600;cursor:pointer">+ Add</button>
         </div>`).join('')}
     </div>` : '';
 
@@ -4934,9 +4934,9 @@ window.renderReforcoNova = async function(){
 
   el.innerHTML = `
     <!-- Card principal igual ao das missas, cor roxa -->
-    <div style="background:white;border-radius:12px;padding:14px;border:1.5px solid #e8d5f0;box-shadow:0 2px 8px rgba(107,33,168,.08)">
-      <!-- Header roxo igual ao cabeçalho de horário das missas -->
-      <div style="background:#6B21A8;color:white;margin:-14px -14px 12px;padding:10px 14px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center">
+    <div style="background:white;border-radius:12px;padding:14px;border:1.5px solid #b2dfdb;box-shadow:0 2px 8px rgba(14,124,123,.08)">
+      <!-- Header do card de reforço -->
+      <div style="background:#0A5F5E;color:white;margin:-14px -14px 12px;padding:10px 14px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center">
         <span style="font-weight:800;font-size:16px">⭐ ${label}</span>
         <span style="font-size:12px;font-weight:700;background:rgba(255,255,255,.22);padding:3px 12px;border-radius:20px">${ord.length} 👤</span>
       </div>
@@ -4949,7 +4949,7 @@ window.renderReforcoNova = async function(){
           autocomplete="off"
           oninput="acRefNova(this,'${acId}','${key}')"
           onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarPrimeiraOpcao('${acId}');}"
-          style="margin:0;border-color:#c4a8e8">
+          style="margin:0;border-color:#80cbc4">
         <div id="${acId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:100;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
       </div>
 
@@ -4978,7 +4978,7 @@ window.acRefNova = function(inp, acId, key){
   ac.style.display = 'block';
   ac.innerHTML = ms.map(m=>`<div onmousedown="addMinReforcoNova('${key}','${m.nome.replace(/'/g,"\'")}',false,'${acId}')"
     style="padding:9px 12px;cursor:pointer;font-size:13px"
-    onmouseover="this.style.background='#f5f0fa'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
+    onmouseover="this.style.background='#e0f2f1'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
 };
 
 // Adicionar ministro ao reforço
@@ -5021,31 +5021,31 @@ window.imprimirReforco = async function(){
   const linhas = ord.map((m,i)=>{
     const isResp = m===resp;
     const mo = ministros.find(x=>x.nome===m);
-    const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e8d5f0">` : `<div style="width:40px;height:40px;border-radius:50%;background:#f0e6fa;color:#6B21A8;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-    return `<tr style="background:${i%2===0?'white':'#fdf6ff'}">
-      <td style="padding:8px;text-align:center;color:#888;border:1px solid #e8d5f0;font-size:12px">${i+1}</td>
-      <td style="padding:6px;text-align:center;border:1px solid #e8d5f0">${fotoTag}</td>
-      <td style="padding:8px;font-size:13px;border:1px solid #e8d5f0;${isResp?'font-weight:700':''}">${m}${isResp?' ★':''}</td>
+    const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #b2dfdb">` : `<div style="width:40px;height:40px;border-radius:50%;background:#e0f2f1;color:#0A5F5E;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+    return `<tr style="background:${i%2===0?'white':'#f0faf9'}">
+      <td style="padding:8px;text-align:center;color:#888;border:1px solid #b2dfdb;font-size:12px">${i+1}</td>
+      <td style="padding:6px;text-align:center;border:1px solid #b2dfdb">${fotoTag}</td>
+      <td style="padding:8px;font-size:13px;border:1px solid #b2dfdb;${isResp?'font-weight:700':''}">${m}${isResp?' ★':''}</td>
     </tr>`;
   }).join('');
   const w = window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reforço MESCE</title>
   <style>@page{margin:12mm}body{font-family:'Segoe UI',Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}@media print{button{display:none}}</style></head><body>
-  <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #6B21A8;padding-bottom:10px;margin-bottom:14px">
+  <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #0A5F5E;padding-bottom:10px;margin-bottom:14px">
     <img src="${APP_URL}/${LOGO_BASILICA}" style="width:56px;height:56px;object-fit:contain" onerror="this.style.display='none'">
     <div style="flex:1;text-align:center">
       <p style="font-size:10px;color:#555;margin:0;text-transform:uppercase;font-weight:700;letter-spacing:1px">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      <h1 style="margin:3px 0;color:#6B21A8;font-size:18px">⭐ Escala de Reforço</h1>
+      <h1 style="margin:3px 0;color:#0A5F5E;font-size:18px">⭐ Escala de Reforço</h1>
       <p style="font-size:12px;color:#888;margin:0">${LABELS[tipo]} · Basílica Santuário de Nossa Senhora de Nazaré</p>
     </div>
     <img src="${APP_URL}/${LOGO_MESCE}" style="width:56px;height:56px;object-fit:contain" onerror="this.style.display='none'">
   </div>
   <div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:12px">
     <span>Emitido em ${dataFmt}</span>
-    <strong style="color:#6B21A8">${lista.length} ministro(s)</strong>
+    <strong style="color:#0A5F5E">${lista.length} ministro(s)</strong>
   </div>
   <table style="width:100%;border-collapse:collapse">
-    <thead><tr style="background:#6B21A8">
+    <thead><tr style="background:#0A5F5E">
       <th style="color:white;padding:8px;font-size:11px;width:36px;text-align:center">Nº</th>
       <th style="color:white;padding:8px;font-size:11px;width:52px">Foto</th>
       <th style="color:white;padding:8px;font-size:11px;text-align:left">Ministro(a)</th>
@@ -7283,7 +7283,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .acao-card::after{content:"";position:absolute;right:-24px;bottom:-24px;width:90px;height:90px;background:rgba(255,255,255,.12);border-radius:50%}
 .ac-verde{background:linear-gradient(135deg,#085041,#1D9E75);color:white}
 .ac-azul{background:linear-gradient(135deg,#134E8E,#2E7BC4);color:white}
-.ac-roxo{background:linear-gradient(135deg,#5B21A8,#8B2FC9);color:white}
+.ac-teal{background:linear-gradient(135deg,#0A5F5E,#0E7C7B);color:white}
 .ac-dourado{background:linear-gradient(135deg,#8A5A0C,#C89A3C);color:white}
 /* Menu secundário compacto */
 .home-menu{background:white;border-radius:16px;padding:6px;box-shadow:0 2px 10px rgba(0,0,0,.05);margin-bottom:16px}
@@ -7462,7 +7462,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <div class="ac-sub">Missas e reuniões</div>
       </div>
     </button>
-    <button class="acao-card ac-roxo" onclick="irPara('reforco')">
+    <button class="acao-card ac-teal" onclick="irPara('reforco')">
       <span class="ac-ic">⭐</span>
       <div>
         <div class="ac-tx">Reforço</div>
@@ -7482,7 +7482,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <p class="home-sec-titulo">Gestão</p>
   <div class="home-menu">
     <button class="hm-item" onclick="irPara('relatorios')">
-      <span class="hm-ic" style="background:#f0e6fb;color:#6B3FA0">📊</span>
+      <span class="hm-ic" style="background:#e0f2f1;color:#0E7C7B">📊</span>
       <span class="hm-tx"><b>Relatórios</b><span>Frequência, faltas e escalas</span></span>
       <span class="hm-seta">›</span>
     </button>
@@ -7871,8 +7871,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="s-reforco" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
 
-  <!-- Header roxo — diferencia do verde da escala -->
-  <div class="card" style="background:linear-gradient(135deg,#6B21A8,#8B2FC9);border:none;margin-bottom:0">
+  <!-- Header do reforço — diferencia do verde da escala -->
+  <div class="card" style="background:linear-gradient(135deg,#0A5F5E,#0E7C7B);border:none;margin-bottom:0">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div>
         <p style="font-size:17px;font-weight:800;color:white;margin:0">⭐ Escala de Reforço</p>
@@ -7885,17 +7885,17 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   </div>
 
   <!-- Seletor do tipo de reforço — abas visuais -->
-  <div style="display:flex;gap:0;margin-bottom:14px;border:1.5px solid #e8d5f0;border-radius:10px;overflow:hidden">
+  <div style="display:flex;gap:0;margin-bottom:14px;border:1.5px solid #b2dfdb;border-radius:10px;overflow:hidden">
     <button id="ref-aba-sab12" onclick="trocarAbaReforco('sab12',this)"
-      style="flex:1;padding:11px 6px;border:none;background:#6B21A8;color:white;font-size:12px;font-weight:700;cursor:pointer;line-height:1.3">
+      style="flex:1;padding:11px 6px;border:none;background:#0A5F5E;color:white;font-size:12px;font-weight:700;cursor:pointer;line-height:1.3">
       ⭐ Sáb<br>12:00h
     </button>
     <button id="ref-aba-sab17" onclick="trocarAbaReforco('sab17',this)"
-      style="flex:1;padding:11px 6px;border:none;background:#f5f0fa;color:#6B21A8;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #e8d5f0;line-height:1.3">
+      style="flex:1;padding:11px 6px;border:none;background:#e0f2f1;color:#0A5F5E;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #b2dfdb;line-height:1.3">
       ⭐ Sáb<br>17:00h
     </button>
     <button id="ref-aba-qui18" onclick="trocarAbaReforco('qui18',this)"
-      style="flex:1;padding:11px 6px;border:none;background:#f5f0fa;color:#6B21A8;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #e8d5f0;line-height:1.3">
+      style="flex:1;padding:11px 6px;border:none;background:#e0f2f1;color:#0A5F5E;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #b2dfdb;line-height:1.3">
       ⭐ Qui<br>18:00h
     </button>
   </div>
@@ -7912,7 +7912,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
   <!-- Botões de ação -->
   <div style="display:flex;gap:8px;margin-top:10px">
-    <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1;background:#6B21A8;border-color:#6B21A8">💾 Salvar Reforço</button>
+    <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1;background:#0A5F5E;border-color:#0A5F5E">💾 Salvar Reforço</button>
     <button onclick="imprimirReforco()" style="flex:1;padding:12px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>
   </div>
   <button onclick="compartilharReforco()" style="width:100%;margin-top:8px;padding:12px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer">📲 Enviar via WhatsApp</button>
