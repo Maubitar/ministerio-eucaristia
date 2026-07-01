@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.7';
+const APP_VERSAO = '10.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -1672,7 +1672,7 @@ window.nav = function(id, btn){
 window.voltar = function(){
   if(!_navHistorico.length){ irPara('inicio'); return; }
   const anterior = _navHistorico.pop();
-  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5};
+  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5, reforco:null, responsaveis:null, financeiro:null, secretaria:null, eventos:null, plantao:null, ausencias:null};
   const botoes = document.querySelectorAll('.nb');
   const btn = botoes[mapa[anterior]] || null;
   _navVoltando = true;
@@ -1691,7 +1691,7 @@ function atualizarBotaoVoltar(){
 
 // Navega para uma seção a partir de atalhos do dashboard, ativando o botão correto da barra inferior
 window.irPara = function(id){
-  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5};
+  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5, reforco:null, responsaveis:null, financeiro:null, secretaria:null, eventos:null, plantao:null, ausencias:null};
   const botoes = document.querySelectorAll('.nb');
   const btn = botoes[mapa[id]] || null;
   nav(id, btn);
@@ -7244,6 +7244,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sb-ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px}
 .sb-tx{font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.2}
 .sb-sub{font-size:10px;color:#999;line-height:1.2}
+/* ===== HOME PREMIUM v2 ===== */
+.home-acoes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.acao-card{position:relative;border:none;border-radius:18px;padding:18px 16px;cursor:pointer;text-align:left;overflow:hidden;transition:transform .14s,box-shadow .14s;box-shadow:0 3px 14px rgba(0,0,0,.08);min-height:104px;display:flex;flex-direction:column;justify-content:space-between}
+.acao-card:active{transform:scale(.97)}
+.acao-card:hover{box-shadow:0 6px 20px rgba(0,0,0,.14)}
+.acao-card .ac-ic{font-size:26px;line-height:1;margin-bottom:auto}
+.acao-card .ac-tx{font-size:15px;font-weight:800;line-height:1.15;margin-top:10px}
+.acao-card .ac-sub{font-size:10.5px;opacity:.82;margin-top:3px;line-height:1.25;font-weight:500}
+.acao-card::after{content:"";position:absolute;right:-24px;bottom:-24px;width:90px;height:90px;background:rgba(255,255,255,.12);border-radius:50%}
+.ac-verde{background:linear-gradient(135deg,#085041,#1D9E75);color:white}
+.ac-azul{background:linear-gradient(135deg,#134E8E,#2E7BC4);color:white}
+.ac-roxo{background:linear-gradient(135deg,#5B21A8,#8B2FC9);color:white}
+.ac-dourado{background:linear-gradient(135deg,#8A5A0C,#C89A3C);color:white}
+/* Menu secundário compacto */
+.home-menu{background:white;border-radius:16px;padding:6px;box-shadow:0 2px 10px rgba(0,0,0,.05);margin-bottom:16px}
+.hm-item{display:flex;align-items:center;gap:12px;padding:13px 12px;border:none;background:none;width:100%;cursor:pointer;border-radius:11px;transition:background .12s;text-align:left}
+.hm-item:hover{background:#f6f8f7}
+.hm-item:active{background:#eef2f0}
+.hm-item + .hm-item{border-top:1px solid #f2f2f0}
+.hm-ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.hm-tx{flex:1}
+.hm-tx b{display:block;font-size:13.5px;font-weight:700;color:#1a1a1a;line-height:1.2}
+.hm-tx span{font-size:11px;color:#999;line-height:1.2}
+.hm-seta{color:#ccc;font-size:18px;flex-shrink:0}
+.home-sec-titulo{font-size:12px;font-weight:700;color:#9a9a9a;text-transform:uppercase;letter-spacing:.6px;margin:0 0 8px 4px}
 .btn-voltar{display:none;align-items:center;gap:5px;background:white;border:1.5px solid #e8e8e8;border-radius:20px;padding:7px 14px 7px 11px;font-size:13px;font-weight:600;color:#085041;cursor:pointer;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);transition:transform .1s,background .15s}
 .btn-voltar:hover{background:#f5faf8}
 .btn-voltar:active{transform:scale(.96)}
@@ -7393,80 +7418,85 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários no mês</div></div>
   </div>
 
-  <!-- SETOR: Serviço Litúrgico -->
-  <div class="setor">
-    <p class="setor-titulo"><span class="setor-ic" style="background:#e1f5ee">⛪</span> Serviço Litúrgico</p>
-    <div class="setor-grid">
-      <button class="setor-btn" onclick="irPara('escala')">
-        <span class="sb-ic" style="background:#e1f5ee;color:#085041">📅</span>
-        <span class="sb-tx">Montar Escala</span>
-        <span class="sb-sub">Dominical e semanal</span>
-      </button>
-      <button class="setor-btn" onclick="irPara('presenca')">
-        <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">✓</span>
-        <span class="sb-tx">Marcar Presença</span>
-        <span class="sb-sub">Missas, reuniões, adoração</span>
-      </button>
-      <button class="setor-btn" onclick="irPara('eventos')">
-        <span class="sb-ic" style="background:#085041;color:white">📅</span>
-        <span class="sb-tx">Eventos Especiais</span>
-        <span class="sb-sub">Círio, procissões, festas</span>
-      </button>
-      <button class="setor-btn" onclick="irPara('plantao')">
-        <span class="sb-ic" style="background:#fdecef;color:#C2185B">🔔</span>
-        <span class="sb-tx">Plantonistas</span>
-        <span class="sb-sub">Reservas para substituição</span>
-      </button>
-      <button class="setor-btn" onclick="irPara('ausencias')">
-        <span class="sb-ic" style="background:#fdf6e3;color:#BA7517">📅</span>
-        <span class="sb-tx">Ausências</span>
-        <span class="sb-sub">Quem avisou que não pode</span>
-      </button>
-    </div>
+  <!-- AÇÕES PRINCIPAIS — destaque premium -->
+  <div class="home-acoes">
+    <button class="acao-card ac-verde" onclick="irPara('escala')">
+      <span class="ac-ic">📅</span>
+      <div>
+        <div class="ac-tx">Montar Escala</div>
+        <div class="ac-sub">Dominical e semanal</div>
+      </div>
+    </button>
+    <button class="acao-card ac-azul" onclick="irPara('presenca')">
+      <span class="ac-ic">✓</span>
+      <div>
+        <div class="ac-tx">Marcar Presença</div>
+        <div class="ac-sub">Missas e reuniões</div>
+      </div>
+    </button>
+    <button class="acao-card ac-roxo" onclick="irPara('reforco')">
+      <span class="ac-ic">⭐</span>
+      <div>
+        <div class="ac-tx">Reforço</div>
+        <div class="ac-sub">Escala de apoio</div>
+      </div>
+    </button>
+    <button class="acao-card ac-dourado" onclick="irPara('ministros')">
+      <span class="ac-ic">👥</span>
+      <div>
+        <div class="ac-tx">Ministros</div>
+        <div class="ac-sub">177 cadastrados</div>
+      </div>
+    </button>
   </div>
 
-  <!-- SETOR: Ministros & Cadastros -->
-  <div class="setor">
-    <p class="setor-titulo"><span class="setor-ic" style="background:#faeeda">👥</span> Ministros & Cadastros</p>
-    <div class="setor-grid">
-      <button class="setor-btn" onclick="irPara('ministros')">
-        <span class="sb-ic" style="background:#faeeda;color:#BA7517">👤</span>
-        <span class="sb-tx">Ver Ministros</span>
-        <span class="sb-sub">Perfis, fotos, carteirinhas</span>
-      </button>
-      <button class="setor-btn" onclick="document.getElementById('modal-cad').style.display='flex'">
-        <span class="sb-ic" style="background:#e1f5ee;color:#1D9E75">➕</span>
-        <span class="sb-tx">Novo Ministro</span>
-        <span class="sb-sub">Cadastrar manualmente</span>
-      </button>
-    </div>
+  <!-- MENU SECUNDÁRIO — compacto e elegante -->
+  <p class="home-sec-titulo">Gestão</p>
+  <div class="home-menu">
+    <button class="hm-item" onclick="irPara('relatorios')">
+      <span class="hm-ic" style="background:#f0e6fb;color:#6B3FA0">📊</span>
+      <span class="hm-tx"><b>Relatórios</b><span>Frequência, faltas e escalas</span></span>
+      <span class="hm-seta">›</span>
+    </button>
+    <button class="hm-item" onclick="irPara('responsaveis')">
+      <span class="hm-ic" style="background:#e1f5ee;color:#1D9E75">📞</span>
+      <span class="hm-tx"><b>Canal dos Responsáveis</b><span>Contato dos responsáveis por horário</span></span>
+      <span class="hm-seta">›</span>
+    </button>
+    <button class="hm-item" onclick="irPara('financeiro')">
+      <span class="hm-ic" style="background:#e6f1fb;color:#185FA5">💰</span>
+      <span class="hm-tx"><b>Financeiro</b><span>Mensalidades, despesas e saldo</span></span>
+      <span class="hm-seta">›</span>
+    </button>
+    <button class="hm-item" onclick="irPara('secretaria')">
+      <span class="hm-ic" style="background:#faeeda;color:#BA7517">📋</span>
+      <span class="hm-tx"><b>Secretaria</b><span>Aniversários, reuniões e cartões</span></span>
+      <span class="hm-seta">›</span>
+    </button>
   </div>
 
-  <!-- SETOR: Gestão & Relatórios -->
-  <div class="setor">
-    <p class="setor-titulo"><span class="setor-ic" style="background:#f0e6fb">📊</span> Gestão & Relatórios</p>
-    <div class="setor-grid">
-      <button class="setor-btn" onclick="irPara('relatorios')">
-        <span class="sb-ic" style="background:#f0e6fb;color:#6B3FA0">📊</span>
-        <span class="sb-tx">Relatórios</span>
-        <span class="sb-sub">Frequência, faltas, escalas</span>
-      </button>
-      <button class="setor-btn" onclick="irPara('financeiro')">
-        <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">💰</span>
-        <span class="sb-tx">Financeiro</span>
-        <span class="sb-sub">Mensalidades, despesas, saldo</span>
-      </button>
-      <button class="setor-btn" onclick="irRelatorio('atualizacao')">
-        <span class="sb-ic" style="background:#e6f1fb;color:#185FA5">✅</span>
-        <span class="sb-tx">Quem Atualizou</span>
-        <span class="sb-sub">Cobrar pendentes</span>
-      </button>
-      <button class="setor-btn" onclick="irPara('secretaria')">
-        <span class="sb-ic" style="background:#faeeda;color:#BA7517">📋</span>
-        <span class="sb-tx">Secretaria</span>
-        <span class="sb-sub">Aniversários, reuniões, cartões</span>
-      </button>
-    </div>
+  <p class="home-sec-titulo">Serviço</p>
+  <div class="home-menu">
+    <button class="hm-item" onclick="irPara('eventos')">
+      <span class="hm-ic" style="background:#e1f5ee;color:#085041">📅</span>
+      <span class="hm-tx"><b>Eventos Especiais</b><span>Círio, procissões e festas</span></span>
+      <span class="hm-seta">›</span>
+    </button>
+    <button class="hm-item" onclick="irPara('plantao')">
+      <span class="hm-ic" style="background:#fdecef;color:#C2185B">🔔</span>
+      <span class="hm-tx"><b>Plantonistas</b><span>Reservas para substituição</span></span>
+      <span class="hm-seta">›</span>
+    </button>
+    <button class="hm-item" onclick="irPara('ausencias')">
+      <span class="hm-ic" style="background:#fdf6e3;color:#BA7517">🗓️</span>
+      <span class="hm-tx"><b>Ausências</b><span>Quem avisou que não pode servir</span></span>
+      <span class="hm-seta">›</span>
+    </button>
+    <button class="hm-item" onclick="document.getElementById('modal-cad').style.display='flex'">
+      <span class="hm-ic" style="background:#e1f5ee;color:#1D9E75">➕</span>
+      <span class="hm-tx"><b>Novo Ministro</b><span>Cadastrar manualmente</span></span>
+      <span class="hm-seta">›</span>
+    </button>
   </div>
 
   <div class="card">
