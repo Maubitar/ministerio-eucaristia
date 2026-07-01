@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.4';
+const APP_VERSAO = '10.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2079,6 +2079,8 @@ window.trocarAbaEscala = function(tipo){
     if(btnDom){ btnDom.style.background='#f0f0ee'; btnDom.style.color='#666'; }
     if(painelDom) painelDom.style.display='none';
     if(painelSem) painelSem.style.display='block';
+    // Carrega semanas salvas para o mês atual
+    carregarSemanasLocais();
     atualizarChipPeriodoSemana();
     atualizarCardsSemanas();
   }
@@ -2183,11 +2185,21 @@ window.confirmarPeriodoSemana = function(){
   // Seleciona a 1ª semana e atualiza os cards
   const selFirst = document.getElementById('esc-sem');
   if(selFirst){ selFirst.value='1'; }
+
+  // SALVA no localStorage — simples, seguro, sem Firebase
+  try{
+    const mesKey = getMesAtual();
+    localStorage.setItem(`sogi_semanas_${mesKey}`, JSON.stringify({
+      periodos: _periodoSemanaCustom,
+      totalSems
+    }));
+  }catch(e){}
+
   fecharModal('modal-periodo-semana');
   atualizarChipPeriodoSemana();
   atualizarCardsSemanas();
   renderEscala();
-  toast(`✓ ${totalSems} semanas geradas! Clique em cada semana para escalar.`);
+  toast(`✓ ${totalSems} semanas definidas e salvas para ${getMesAtual()}!`);
 };
 
 // ===== CARDS DE SEMANAS =====
@@ -2277,6 +2289,51 @@ async function carregarSemanasSalvas(){
   }catch(e){ console.log('Semanas não encontradas no Firebase:', e); }
 }
 
+// Carrega semanas do mês atual do localStorage (síncrono, seguro)
+function carregarSemanasLocais(){
+  try{
+    const mesKey = getMesAtual();
+    const raw = localStorage.getItem(`sogi_semanas_${mesKey}`);
+    if(!raw) return; // Nenhuma semana salva para este mês ainda
+    const dados = JSON.parse(raw);
+    if(!dados?.periodos || !Object.keys(dados.periodos).length) return;
+
+    // Reconstrói _periodoSemanaCustom e SEMANAS_MES
+    _periodoSemanaCustom = dados.periodos;
+    const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+    const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+
+    Object.entries(_periodoSemanaCustom).forEach(([s, per])=>{
+      const dIni = new Date(per.ini+'T12:00:00');
+      const dFim = new Date(per.fim+'T12:00:00');
+      const dias = [];
+      let cursor = new Date(dIni);
+      while(cursor <= dFim){
+        dias.push({ data: fmt(cursor), dia: DIAS_NOME[cursor.getDay()], mesRef: true });
+        cursor.setDate(cursor.getDate()+1);
+      }
+      SEMANAS_MES[s] = {
+        label: `${s}ª semana`,
+        periodo: `${fmt(dIni)} a ${fmt(dFim)}`,
+        dias,
+        cruzaMeses: dIni.getMonth() !== dFim.getMonth()
+      };
+    });
+
+    // Atualiza o select interno
+    const sel = document.getElementById('esc-sem');
+    if(sel){
+      sel.innerHTML = '';
+      Object.keys(_periodoSemanaCustom).sort((a,b)=>parseInt(a)-parseInt(b)).forEach(s=>{
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = `${SEMANAS_MES[s].label} — ${SEMANAS_MES[s].periodo}`;
+        sel.appendChild(opt);
+      });
+    }
+  }catch(e){ console.log('Erro ao carregar semanas locais:', e); }
+}
+
 window.atualizarCardsSemanas = function(){
   const cont = document.getElementById('painel-semanas-cards');
   if(!cont) return;
@@ -2364,16 +2421,16 @@ window.trocarMes = function(){
   if(_domingosCustom){
     _domingosCustom = null;
   }
-  // Ao trocar de mês, zera memória local — cada mês tem seus próprios dados no Firebase
+  // Ao trocar de mês, zera memória local e carrega do localStorage
   _periodoSemanaCustom = {};
   Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
   recalcularComSemanas();
-  // Se estiver na aba semanal, carrega dados do mês novo do Firebase
-  if(document.getElementById('painel-esc-sem')?.style.display !== 'none'){
-    carregarSemanasSalvas().then(()=>atualizarCardsSemanas());
-  } else {
-    if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
-  }
+  // Carrega semanas do novo mês (se já foram definidas antes)
+  carregarSemanasLocais();
+  // Reset o select para semana 1 ao trocar de mês
+  const selSem = document.getElementById('esc-sem');
+  if(selSem && selSem.options.length > 0) selSem.value = selSem.options[0].value;
+  if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
 };
 window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
 window.inicializarEscala = function(){ recalcularComSemanas(); };
