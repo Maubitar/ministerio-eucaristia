@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.3';
+const APP_VERSAO = '10.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -267,13 +267,7 @@ window.addEventListener('load', async()=>{
     // Mostra a tela de login (o app só abre após autenticar)
     mostrarLogin();
   } catch(e) {
-    console.error('Erro na inicialização:', e);
-    document.getElementById('loading-msg').textContent = 'Erro: '+e.message+' — Recarregue a página.';
-    // Garante que o app não fica travado — tenta mostrar login após 3s mesmo com erro
-    setTimeout(()=>{
-      document.getElementById('loading').style.display='none';
-      if(typeof mostrarLogin==='function') mostrarLogin();
-    }, 3000);
+    document.getElementById('loading-msg').textContent = 'Erro: '+e.message;
   }
 });
 
@@ -2066,7 +2060,7 @@ window.confirmarDomingos = function(){
 };
 
 // ===== ABAS DOMINICAL / SEMANAL =====
-window.trocarAbaEscala = async function(tipo){
+window.trocarAbaEscala = function(tipo){
   const escTipo = document.getElementById('esc-tipo');
   if(escTipo) escTipo.value = tipo;
 
@@ -2085,13 +2079,8 @@ window.trocarAbaEscala = async function(tipo){
     if(btnDom){ btnDom.style.background='#f0f0ee'; btnDom.style.color='#666'; }
     if(painelDom) painelDom.style.display='none';
     if(painelSem) painelSem.style.display='block';
-    // Carrega semanas do Firebase se ainda não estão em memória
-    carregarSemanasSalvas().then(()=>{
-      atualizarChipPeriodoSemana();
-      atualizarCardsSemanas();
-      renderEscala();
-    });
-    return; // renderEscala chamado dentro do then()
+    atualizarChipPeriodoSemana();
+    atualizarCardsSemanas();
   }
   renderEscala();
 };
@@ -2138,7 +2127,7 @@ window.abrirEditarPeriodoSemana = function(){
   atualizarPreviewSemanas(sugestao, qtd);
 };
 
-window.confirmarPeriodoSemana = async function(){
+window.confirmarPeriodoSemana = function(){
   const iniStr = document.getElementById('periodo-sem-ini').value;
   if(!iniStr){ toast('Informe a data de início da 1ª semana.','warn'); return; }
 
@@ -2198,19 +2187,7 @@ window.confirmarPeriodoSemana = async function(){
   atualizarChipPeriodoSemana();
   atualizarCardsSemanas();
   renderEscala();
-
-  // PERSISTIR no Firebase para não perder ao recarregar
-  try{
-    const mesKey = getMesAtual();
-    await setDoc(doc(db,'config',`semanas_${mesKey}`), {
-      periodos: _periodoSemanaCustom,
-      totalSems,
-      ts: Date.now()
-    });
-    toast(`✓ ${totalSems} semanas salvas para ${mesKey}! Clique em cada semana para escalar.`);
-  }catch(e){
-    toast(`✓ ${totalSems} semanas geradas! Salve a escala para confirmar.`);
-  }
+  toast(`✓ ${totalSems} semanas geradas! Clique em cada semana para escalar.`);
 };
 
 // ===== CARDS DE SEMANAS =====
