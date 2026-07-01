@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.8';
+const APP_VERSAO = '10.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2853,6 +2853,17 @@ window.setResp = async function(key, hora, mi){
 
   escalas[key][hora].responsavel = ehRemover?'':nome;
   renderEscala();
+
+  // Salva o responsável AUTOMATICAMENTE no Firebase (sem esperar "Salvar Escala")
+  try{
+    await setDoc(doc(db,'escalas',key), escalas[key]);
+    _histResponsaveis = null; // invalida cache
+    if(!ehRemover){
+      toast(`⭐ ${nome.split(' ')[0]} definido(a) como responsável e já aparece no Canal dos Responsáveis!`);
+    }
+  }catch(e){
+    toast('Responsável marcado. Salve a escala para confirmar.','warn');
+  }
 };
 
 window.salvarEscala = async function(){
@@ -5062,7 +5073,14 @@ window.renderReforco = async function(){
 
 // Coleta todos os responsáveis únicos da escala salva do mês
 async function coletarResponsaveis(){
-  const mesKey = getMesAtual();
+  // Usa o mês selecionado na própria aba Responsáveis
+  let mesKey = getMesAtual();
+  const mSel = document.getElementById('resp-mes')?.value;
+  const aSel = document.getElementById('resp-ano')?.value;
+  if(mSel !== undefined && mSel !== null && mSel !== '' && aSel){
+    const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    mesKey = MESES_KEY[parseInt(mSel)] + aSel;
+  }
   const resp = {}; // nome -> [{hora, tipo}]
 
   // Dominical
@@ -5098,6 +5116,16 @@ async function coletarResponsaveis(){
 window.renderResponsaveis = async function(){
   const cont = document.getElementById('resp-lista');
   const countEl = document.getElementById('resp-count');
+
+  // Sincroniza o seletor com o mês da escala na primeira abertura
+  const respMesSel = document.getElementById('resp-mes');
+  if(respMesSel && !respMesSel.dataset.inicializado){
+    const escMes = document.getElementById('esc-mes')?.value;
+    const escAno = document.getElementById('esc-ano')?.value;
+    if(escMes !== undefined && escMes !== null) respMesSel.value = escMes;
+    if(escAno){ const ra=document.getElementById('resp-ano'); if(ra) ra.value = escAno; }
+    respMesSel.dataset.inicializado = '1';
+  }
   if(cont) cont.innerHTML = '<p style="font-size:12px;color:#888;padding:8px 0">Carregando responsáveis...</p>';
 
   const resp = await coletarResponsaveis();
@@ -7931,7 +7959,26 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <p class="ct" style="margin:0">⭐ Responsáveis do mês</p>
       <span id="resp-count" style="font-size:11px;background:#faeeda;color:#BA7517;padding:2px 10px;border-radius:20px;font-weight:700"></span>
     </div>
-    <p style="font-size:11px;color:#888;margin:0 0 10px;line-height:1.5">Extraídos automaticamente da escala salva. Para atualizar, salve a escala primeiro.</p>
+
+    <!-- Seletor de mês -->
+    <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center">
+      <select id="resp-mes" onchange="renderResponsaveis()" style="flex:1;margin:0;font-weight:600;color:#BA7517;font-size:13px">
+        <option value="0">Janeiro</option><option value="1">Fevereiro</option>
+        <option value="2">Março</option><option value="3">Abril</option>
+        <option value="4">Maio</option><option value="5">Junho</option>
+        <option value="6">Julho</option><option value="7">Agosto</option>
+        <option value="8">Setembro</option><option value="9">Outubro</option>
+        <option value="10">Novembro</option><option value="11">Dezembro</option>
+      </select>
+      <select id="resp-ano" onchange="renderResponsaveis()" style="width:90px;margin:0;font-weight:600;color:#BA7517;font-size:13px">
+        <option value="2026">2026</option>
+        <option value="2027">2027</option>
+        <option value="2028">2028</option>
+      </select>
+      <button onclick="renderResponsaveis()" style="padding:8px 12px;border:1px solid #BA7517;border-radius:8px;background:white;color:#BA7517;font-size:12px;font-weight:700;cursor:pointer">🔄</button>
+    </div>
+
+    <p style="font-size:11px;color:#888;margin:0 0 10px;line-height:1.5">Extraídos automaticamente da escala salva. <strong>Marque o responsável (★) na escala e clique em Salvar Escala</strong> para aparecerem aqui.</p>
     <div id="resp-lista"></div>
   </div>
 </div>
