@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.6';
+const APP_VERSAO = '10.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2115,8 +2115,8 @@ window.abrirEditarPeriodoSemana = function(){
   if(custom1){
     sugestao = custom1.ini;
   } else {
-    // Sugere a primeira segunda-feira do mês selecionado no seletor
-    const d = new Date(ano, mes - 1, 1); // mes-1 pois Date usa 0-indexed
+    // esc-mes já é 0-based (Janeiro=0, Julho=6) — usa direto no Date
+    const d = new Date(ano, mes, 1);
     while(d.getDay() !== 1) d.setDate(d.getDate()+1);
     sugestao = d.toISOString().slice(0,10);
   }
@@ -2147,6 +2147,7 @@ window.confirmarPeriodoSemana = function(){
 
   // Usa a quantidade escolhida pelo coordenador no modal
   const totalSems = parseInt(document.getElementById('periodo-sem-qtd')?.value || '4');
+  // esc-mes é 0-based (Julho=6); getMonth() também é 0-based — comparação direta
   const _mesSelecionado = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
   let cursor = new Date(iniStr + 'T12:00:00');
   _periodoSemanaCustom = {}; // limpa customizações anteriores
@@ -2164,7 +2165,7 @@ window.confirmarPeriodoSemana = function(){
       dias.push({
         data: fmt(d),
         dia: DIAS_NOME[d.getDay()],
-        mesRef: d.getMonth() + 1 === _mesSelecionado // true = é do mês selecionado
+        mesRef: d.getMonth() === _mesSelecionado // 0-based ambos
       });
       d.setDate(d.getDate()+1);
     }
@@ -2328,7 +2329,7 @@ function carregarSemanasLocais(){
         dias.push({
           data: fmt(cursor),
           dia: DIAS_NOME[cursor.getDay()],
-          mesRef: cursor.getMonth() + 1 === _mesLocal
+          mesRef: cursor.getMonth() === _mesLocal
         });
         cursor.setDate(cursor.getDate()+1);
       }
