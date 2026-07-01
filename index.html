@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.5';
+const APP_VERSAO = '10.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2122,11 +2122,19 @@ window.abrirEditarPeriodoSemana = function(){
   }
 
   document.getElementById('periodo-sem-ini').value = sugestao;
-  document.getElementById('modal-periodo-semana').style.display = 'flex';
 
-  // Gera preview imediato com a sugestão
-  const qtd = parseInt(document.getElementById('periodo-sem-qtd')?.value||'4');
-  atualizarPreviewSemanas(sugestao, qtd);
+  // Resetar botões de quantidade
+  document.querySelectorAll('[onclick^="selQtdSem"]').forEach(b=>{
+    b.style.background='white'; b.style.color='#888'; b.style.borderColor='#ddd';
+    b.textContent = b.textContent.replace(' ✓','');
+  });
+  const qtdAtual = parseInt(document.getElementById('periodo-sem-qtd')?.value||'4');
+  const btnAtual = document.querySelector(`[onclick="selQtdSem(${qtdAtual},this)"]`);
+  if(btnAtual){ btnAtual.style.background='#185FA5'; btnAtual.style.color='white'; btnAtual.style.borderColor='#185FA5'; btnAtual.textContent=qtdAtual+' ✓'; }
+
+  document.getElementById('modal-periodo-semana').style.display = 'flex';
+  // Preview imediato
+  atualizarPreviewSemanas(sugestao, qtdAtual);
 };
 
 window.confirmarPeriodoSemana = function(){
@@ -2139,6 +2147,7 @@ window.confirmarPeriodoSemana = function(){
 
   // Usa a quantidade escolhida pelo coordenador no modal
   const totalSems = parseInt(document.getElementById('periodo-sem-qtd')?.value || '4');
+  const _mesSelecionado = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
   let cursor = new Date(iniStr + 'T12:00:00');
   _periodoSemanaCustom = {}; // limpa customizações anteriores
 
@@ -2150,7 +2159,13 @@ window.confirmarPeriodoSemana = function(){
     const dias = [];
     let d = new Date(dIni);
     while(d <= dFim){
-      dias.push({ data: fmt(d), dia: DIAS_NOME[d.getDay()], mesRef: true });
+      // Inclui TODOS os dias da semana (para cálculo de período),
+      // mas marca os que são do mês selecionado para filtrar na exibição
+      dias.push({
+        data: fmt(d),
+        dia: DIAS_NOME[d.getDay()],
+        mesRef: d.getMonth() + 1 === _mesSelecionado // true = é do mês selecionado
+      });
       d.setDate(d.getDate()+1);
     }
 
@@ -2207,39 +2222,39 @@ window.confirmarPeriodoSemana = function(){
 window.selQtdSem = function(n, btn){
   document.getElementById('periodo-sem-qtd').value = n;
   document.querySelectorAll('[onclick^="selQtdSem"]').forEach(b=>{
-    b.style.background='white'; b.style.color='#555'; b.style.borderColor='#ddd';
+    b.style.background='white'; b.style.color='#888'; b.style.borderColor='#ddd';
     b.textContent = b.textContent.replace(' ✓','');
   });
-  btn.style.background='#e6f1fb'; btn.style.color='#185FA5'; btn.style.borderColor='#185FA5';
+  btn.style.background='#185FA5'; btn.style.color='white'; btn.style.borderColor='#185FA5';
   btn.textContent = n + ' ✓';
-  // Atualiza preview
   const ini = document.getElementById('periodo-sem-ini')?.value;
   if(ini) atualizarPreviewSemanas(ini, n);
 };
 
-// Preview das datas geradas antes de confirmar
+// Preview instantâneo das semanas — mostra cards com datas exatas
 function atualizarPreviewSemanas(iniStr, qtd){
-  const el = document.getElementById('preview-semanas');
+  const el = document.getElementById('preview-semanas-cards');
   if(!el || !iniStr) return;
   const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   let cursor = new Date(iniStr+'T12:00:00');
-  let linhas = '';
+  let html = '';
   for(let s=1; s<=qtd; s++){
     const ini = new Date(cursor);
     const fim = new Date(cursor); fim.setDate(fim.getDate()+5);
-    linhas += `${s}ª semana: <strong>${fmt(ini)} a ${fmt(fim)}</strong><br>`;
+    html += `<div style="display:flex;align-items:center;gap:10px;background:#f0f6ff;border:1.5px solid #185FA5;border-radius:9px;padding:10px 12px">
+      <div style="width:28px;height:28px;border-radius:50%;background:#185FA5;color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0">${s}</div>
+      <div>
+        <p style="font-size:13px;font-weight:700;color:#185FA5;margin:0">${s}ª semana</p>
+        <p style="font-size:12px;color:#555;margin:2px 0 0">${DIAS[ini.getDay()]} ${fmt(ini)} → ${DIAS[fim.getDay()]} ${fmt(fim)}</p>
+      </div>
+    </div>`;
     cursor.setDate(cursor.getDate()+7);
   }
-  el.innerHTML = linhas || 'Selecione a data de início.';
+  el.innerHTML = html;
 }
 
-// Observar mudança na data de início para atualizar preview
-document.addEventListener('change', e=>{
-  if(e.target.id==='periodo-sem-ini'){
-    const qtd = parseInt(document.getElementById('periodo-sem-qtd')?.value||'4');
-    atualizarPreviewSemanas(e.target.value, qtd);
-  }
-});
+// Preview já está no onchange do input — listener redundante removido
 
 // Carrega semanas persistidas no Firebase para o mês atual
 async function carregarSemanasSalvas(){
@@ -2303,13 +2318,18 @@ function carregarSemanasLocais(){
     const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
     const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
+    const _mesLocal = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
     Object.entries(_periodoSemanaCustom).forEach(([s, per])=>{
       const dIni = new Date(per.ini+'T12:00:00');
       const dFim = new Date(per.fim+'T12:00:00');
       const dias = [];
       let cursor = new Date(dIni);
       while(cursor <= dFim){
-        dias.push({ data: fmt(cursor), dia: DIAS_NOME[cursor.getDay()], mesRef: true });
+        dias.push({
+          data: fmt(cursor),
+          dia: DIAS_NOME[cursor.getDay()],
+          mesRef: cursor.getMonth() + 1 === _mesLocal
+        });
         cursor.setDate(cursor.getDate()+1);
       }
       SEMANAS_MES[s] = {
@@ -2519,7 +2539,10 @@ window.renderEscala = async function(){
     if(tipo==='dom'){
       datasLabel = DOMINGOS_MES.map(d=>`<span style="font-size:10px;padding:1px 6px;background:rgba(255,255,255,.2);border-radius:10px">${d}</span>`).join(' ');
     } else {
-      const semDias = (SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
+      const semDias = (SEMANAS_MES[sem]?.dias||[]).filter(d=>{
+        if(!MISSAS_SEM_DIAS[d.dia]?.includes(hora)) return false;
+        return d.mesRef === true; // só dias do mês selecionado
+      });
       datasLabel = semDias.map(d=>`<span style="font-size:10px;padding:1px 6px;background:rgba(255,255,255,.2);border-radius:10px">${d.dia} ${d.data}</span>`).join(' ');
     }
 
@@ -3044,7 +3067,13 @@ window.gerarImagemEscala = async function(){
     const ord=[...g.ministros].sort((a,b)=>{ if(a===responsavel)return -1; if(b===responsavel)return 1; return a.localeCompare(b,'pt-BR'); });
     let datasLabel='';
     if(tipo==='dom'){ datasLabel=DOMINGOS_MES.join(' · '); }
-    else { const sd=(SEMANAS_MES[sem]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h)); datasLabel=sd.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · '); }
+    else {
+      const sd=(SEMANAS_MES[sem]?.dias||[]).filter(d=>{
+        if(!MISSAS_SEM_DIAS[d.dia]?.includes(h)) return false;
+        return d.mesRef === true;
+      });
+      datasLabel=sd.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
+    }
     const linhas=ord.map((m,i)=>{
       const isResp=m===responsavel;
       const telResp = isResp && respObj?.tel ? ` <span style="font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 9px;border-radius:20px;margin-left:6px">📞 ${respObj.tel}</span>` : '';
@@ -8314,30 +8343,31 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
 <!-- MODAL EDITAR PERÍODO DA SEMANA -->
 <div id="modal-periodo-semana" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-periodo-semana')">
   <div class="modal-box">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div>
-        <p style="font-size:16px;font-weight:700">📅 Definir semanas de serviço</p>
-        <p style="font-size:11px;color:#888;margin:2px 0 0">Informe o início e quantas semanas terá este mês.</p>
-      </div>
-      <button onclick="fecharModal('modal-periodo-semana')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <p style="font-size:16px;font-weight:800;color:#185FA5;margin:0">📅 Semanas de serviço</p>
+      <button onclick="fecharModal('modal-periodo-semana')" style="border:none;background:none;font-size:24px;cursor:pointer;color:#aaa;line-height:1">×</button>
     </div>
 
-    <label style="font-size:12px;color:#333;font-weight:700;display:block;margin-bottom:6px">📅 Início da 1ª semana:</label>
-    <input type="date" id="periodo-sem-ini" style="width:100%;padding:12px;border:1.5px solid #185FA5;border-radius:9px;font-size:15px;margin-bottom:12px;box-sizing:border-box;font-weight:600">
+    <label style="font-size:12px;color:#555;font-weight:700;display:block;margin-bottom:6px">Início da 1ª semana</label>
+    <input type="date" id="periodo-sem-ini"
+      onchange="atualizarPreviewSemanas(this.value, parseInt(document.getElementById('periodo-sem-qtd').value||4))"
+      style="width:100%;padding:12px;border:2px solid #185FA5;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box;font-weight:700;color:#185FA5">
 
-    <label style="font-size:12px;color:#333;font-weight:700;display:block;margin-bottom:6px">Quantas semanas neste mês?</label>
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button onclick="selQtdSem(3,this)" style="flex:1;padding:11px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:14px;font-weight:700;cursor:pointer">3</button>
-      <button onclick="selQtdSem(4,this)" id="btn-sem-qtd-4" style="flex:1;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:#e6f1fb;color:#185FA5;font-size:14px;font-weight:700;cursor:pointer">4 ✓</button>
-      <button onclick="selQtdSem(5,this)" style="flex:1;padding:11px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:14px;font-weight:700;cursor:pointer">5</button>
+    <label style="font-size:12px;color:#555;font-weight:700;display:block;margin-bottom:8px">Quantas semanas?</label>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button onclick="selQtdSem(3,this)" style="flex:1;padding:12px;border:2px solid #ddd;border-radius:10px;background:white;color:#888;font-size:16px;font-weight:800;cursor:pointer">3</button>
+      <button onclick="selQtdSem(4,this)" id="btn-sem-qtd-4" style="flex:1;padding:12px;border:2px solid #185FA5;border-radius:10px;background:#185FA5;color:white;font-size:16px;font-weight:800;cursor:pointer">4 ✓</button>
+      <button onclick="selQtdSem(5,this)" style="flex:1;padding:12px;border:2px solid #ddd;border-radius:10px;background:white;color:#888;font-size:16px;font-weight:800;cursor:pointer">5</button>
     </div>
     <input type="hidden" id="periodo-sem-qtd" value="4">
 
-    <div style="background:#e6f1fb;border-radius:8px;padding:10px 12px;margin-bottom:14px">
-      <p style="font-size:11px;color:#185FA5;margin:0;line-height:1.6" id="preview-semanas">Selecione a data de início para ver o preview das semanas.</p>
-    </div>
+    <!-- Preview instantâneo -->
+    <div id="preview-semanas-cards" style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px"></div>
 
-    <button onclick="confirmarPeriodoSemana()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Confirmar e gerar semanas</button>
+    <button onclick="confirmarPeriodoSemana()"
+      style="width:100%;padding:14px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:800;cursor:pointer">
+      ✓ Confirmar semanas
+    </button>
   </div>
 </div>
 
