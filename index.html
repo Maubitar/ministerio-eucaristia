@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '10.1';
+const APP_VERSAO = '10.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -325,7 +325,17 @@ function mostrarLogin(){
         const papel = _usuarioLogado.papel;
         if(papel==='financeira'){ nav('financeiro'); }
         else if(papel==='secretaria'){ nav('secretaria'); }
-        else { irPara('inicio'); }
+        else {
+                // Restaura onde o coordenador parou
+      const _ultimaSec = (() => { try{ return localStorage.getItem('sogi_ultima_sec'); }catch(e){ return null; } })();
+      const _secsValidas = ['escala','presenca','relatorios','reforco','responsaveis','ministros'];
+      if(_ultimaSec && _secsValidas.includes(_ultimaSec)){
+        irPara('inicio');
+        setTimeout(()=>nav(_ultimaSec), 500);
+      } else {
+        irPara('inicio');
+      }
+        }
         verificarVersao();
         setTimeout(verificarRascunhoEscala, 1200);
         return;
@@ -368,7 +378,17 @@ window.fazerLogin = function(){
     const papel = _usuarioLogado.papel;
     if(papel==='financeira'){ nav('financeiro'); }
     else if(papel==='secretaria'){ nav('secretaria'); }
-    else { irPara('inicio'); }
+    else {
+            // Restaura onde o coordenador parou
+      const _ultimaSec = (() => { try{ return localStorage.getItem('sogi_ultima_sec'); }catch(e){ return null; } })();
+      const _secsValidas = ['escala','presenca','relatorios','reforco','responsaveis','ministros'];
+      if(_ultimaSec && _secsValidas.includes(_ultimaSec)){
+        irPara('inicio');
+        setTimeout(()=>nav(_ultimaSec), 500);
+      } else {
+        irPara('inicio');
+      }
+    }
     verificarVersao();
     setTimeout(verificarRascunhoEscala, 1200);
     if(encontrado.trocarSenha && encontrado.papel==='coordenador'){
@@ -2059,8 +2079,13 @@ window.trocarAbaEscala = function(tipo){
     if(btnDom){ btnDom.style.background='#f0f0ee'; btnDom.style.color='#666'; }
     if(painelDom) painelDom.style.display='none';
     if(painelSem) painelSem.style.display='block';
-    atualizarChipPeriodoSemana();
-    atualizarCardsSemanas();
+    // Carrega semanas do Firebase se ainda não estão em memória
+    carregarSemanasSalvas().then(()=>{
+      atualizarChipPeriodoSemana();
+      atualizarCardsSemanas();
+      renderEscala();
+    });
+    return; // renderEscala chamado dentro do then()
   }
   renderEscala();
 };
@@ -2167,7 +2192,19 @@ window.confirmarPeriodoSemana = function(){
   atualizarChipPeriodoSemana();
   atualizarCardsSemanas();
   renderEscala();
-  toast(`✓ ${totalSems} semanas geradas! Clique em cada semana para escalar.`);
+
+  // PERSISTIR no Firebase para não perder ao recarregar
+  try{
+    const mesKey = getMesAtual();
+    await setDoc(doc(db,'config',`semanas_${mesKey}`), {
+      periodos: _periodoSemanaCustom,
+      totalSems,
+      ts: Date.now()
+    });
+    toast(`✓ ${totalSems} semanas salvas para ${mesKey}! Clique em cada semana para escalar.`);
+  }catch(e){
+    toast(`✓ ${totalSems} semanas geradas! Salve a escala para confirmar.`);
+  }
 };
 
 // ===== CARDS DE SEMANAS =====
@@ -2208,6 +2245,52 @@ document.addEventListener('change', e=>{
     atualizarPreviewSemanas(e.target.value, qtd);
   }
 });
+
+// Carrega semanas persistidas no Firebase para o mês atual
+async function carregarSemanasSalvas(){
+  const mesKey = getMesAtual();
+  // Só carrega se ainda não tem em memória para este mês
+  if(Object.keys(_periodoSemanaCustom||{}).length > 0) return;
+  try{
+    const d = await getDoc(doc(db,'config',`semanas_${mesKey}`));
+    if(d.exists()){
+      const dados = d.data();
+      if(dados.periodos && Object.keys(dados.periodos).length > 0){
+        _periodoSemanaCustom = dados.periodos;
+        // Reconstrói SEMANAS_MES com os dados salvos
+        const DIAS_NOME=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+        const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+        Object.entries(_periodoSemanaCustom).forEach(([s, per])=>{
+          const dIni = new Date(per.ini+'T12:00:00');
+          const dFim = new Date(per.fim+'T12:00:00');
+          const dias = [];
+          let cursor = new Date(dIni);
+          while(cursor <= dFim){
+            dias.push({ data: fmt(cursor), dia: DIAS_NOME[cursor.getDay()], mesRef: true });
+            cursor.setDate(cursor.getDate()+1);
+          }
+          SEMANAS_MES[s] = {
+            label: `${s}ª semana`,
+            periodo: `${fmt(dIni)} a ${fmt(dFim)}`,
+            dias,
+            cruzaMeses: dIni.getMonth() !== dFim.getMonth()
+          };
+          // Atualiza o select
+          const sel = document.getElementById('esc-sem');
+          if(sel){
+            let opt = Array.from(sel.options).find(o=>o.value===s);
+            if(!opt){
+              opt = document.createElement('option');
+              opt.value = s;
+              sel.appendChild(opt);
+            }
+            opt.textContent = `${SEMANAS_MES[s].label} — ${SEMANAS_MES[s].periodo}`;
+          }
+        });
+      }
+    }
+  }catch(e){ console.log('Semanas não encontradas no Firebase:', e); }
+}
 
 window.atualizarCardsSemanas = function(){
   const cont = document.getElementById('painel-semanas-cards');
@@ -2296,13 +2379,16 @@ window.trocarMes = function(){
   if(_domingosCustom){
     _domingosCustom = null;
   }
-  // Ao trocar de mês, zera as semanas customizadas — cada mês tem seu próprio período
+  // Ao trocar de mês, zera memória local — cada mês tem seus próprios dados no Firebase
   _periodoSemanaCustom = {};
-  // Limpa o SEMANAS_MES para não mostrar semanas do mês anterior
   Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
   recalcularComSemanas();
-  // Atualiza o painel de semanas (agora vazio)
-  if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
+  // Se estiver na aba semanal, carrega dados do mês novo do Firebase
+  if(document.getElementById('painel-esc-sem')?.style.display !== 'none'){
+    carregarSemanasSalvas().then(()=>atualizarCardsSemanas());
+  } else {
+    if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
+  }
 };
 window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
 window.inicializarEscala = function(){ recalcularComSemanas(); };
@@ -2338,7 +2424,7 @@ window.renderEscala = async function(){
   }
 
   const semInfo = SEMANAS_MES[sem];
-  document.getElementById('esc-sem-wrap').style.display = tipo==='dom' ? 'none' : 'block';
+  document.getElementById('esc-sem-wrap').style.display = 'none'; // sempre oculto — nav via cards
 
   const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
   const anoAtualNum = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
@@ -7419,35 +7505,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </p>
     <div id="esc-body"></div>
   </div>
-  <div class="card">
-    <p class="ct">🔔 Reforço semanal</p>
-    <select id="ref-tipo" onchange="renderReforco()" style="margin-bottom:8px">
-      <option value="sab12">Sábado 12:00h</option>
-      <option value="sab17">Sábado 17:00h</option>
-      <option value="qui18">Quinta-feira 18:00h</option>
-    </select>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <p id="ref-titulo" style="font-size:13px;font-weight:700;color:#333;margin:0">Sábado 12:00h</p>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span id="ref-count" style="font-size:11px;color:#888"></span>
-        <button onclick="verDisponiveisReforco()"
-          style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
-          👥 Ver todos
-        </button>
-      </div>
-    </div>
-    <div id="ref-body"></div>
-    <div style="position:relative;margin-top:10px">
-      <input type="text" id="inpref-main" placeholder="Buscar e adicionar ministro..."
-        oninput="acRef(this,'acref-main','reforco_'+document.getElementById('ref-tipo').value+'_jun2026')"
-        onkeydown="if(event.key==='Enter'){ event.preventDefault(); confirmarPrimeiraOpcao('acref-main'); }"
-        style="margin:0">
-      <div id="acref-main" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1);margin-top:2px"></div>
-    </div>
-    <div style="display:flex;gap:6px;margin-top:8px">
-      <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1">💾 Salvar Reforço</button>
-      <button class="btn-w" onclick="compartilharReforco()" style="margin:0;flex:1">📋 Copiar p/ WhatsApp</button>
-    </div>
+  <!-- Reforço movido para aba dedicada -->
   </div>
 </div>
 <!-- PRESENÇA -->
