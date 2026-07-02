@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '11.6';
+const APP_VERSAO = '11.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3636,8 +3636,12 @@ window.renderPresenca = async function(){
     const s = id ? (presAtual[id]?.status||'') : '';
     const j = id ? (presAtual[id]?.justificativa||'') : '';
     const seloRef = ehReforco ? ' <span style="font-size:9px;background:#e0f2f1;color:#0A5F5E;padding:1px 6px;border-radius:10px;font-weight:700">+ Reforço</span>' : '';
+    const fotoTela = m?.foto
+      ? `<img src="${m.foto}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
+      : `<div style="width:32px;height:32px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
     return `<div style="padding:7px 0;border-bottom:1px solid #eee">
       <div style="display:flex;align-items:center;gap:8px">
+        ${fotoTela}
         <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}${seloRef}</span>
         ${btnPFS(id,'P','#085041','#e1f5ee',s)}
         ${btnPFS(id,'F','#A32D2D','#fcebeb',s)}
@@ -3877,8 +3881,12 @@ window.imprimirPresenca = async function(){
       const isResp = nome===responsavel;
       const cels = datas.map(()=>`<td class="subst"></td><td class="letra"></td>`).join('');
       const minObj = ministros.find(x=>x.nome===nome);
+      const fotoHtml = minObj?.foto
+        ? `<img src="${minObj.foto}" class="foto-min">`
+        : `<div class="ini-min">${iniciais(nome)}</div>`;
       return `<tr>
         <td class="num">${i+1}</td>
+        <td class="foto">${fotoHtml}</td>
         <td class="nome${isResp?' resp-nome':''}">${nome}${isResp?' <span class="resp">★</span>':''}</td>
         ${cels}
       </tr>`;
@@ -3894,6 +3902,7 @@ window.imprimirPresenca = async function(){
         <thead>
           <tr>
             <th class="num">Nº</th>
+            <th class="foto">Foto</th>
             <th class="nome">Nomes Ministros(as)</th>
             ${thDatas}
           </tr>
@@ -3906,35 +3915,38 @@ window.imprimirPresenca = async function(){
   const w = window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${periodoSem ? 'Semana '+periodoSem : 'Domingos'}</title>
   <style>
-    @page{ size: landscape; margin: 9mm; }
+    @page{ size: landscape; margin: 7mm; }
     *{box-sizing:border-box}
-    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:18px 22px}
-    .cab{display:flex;align-items:center;gap:18px;border-bottom:3px solid #085041;padding-bottom:10px;margin-bottom:6px}
-    .cab img{width:58px;height:58px;object-fit:contain}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:10px 14px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .cab{display:flex;align-items:center;gap:12px;border-bottom:2.5px solid #085041;padding-bottom:6px;margin-bottom:4px}
+    .cab img{width:44px;height:44px;object-fit:contain}
     .cab .ct{flex:1;text-align:center}
-    .cab .basilica{font-size:11px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
-    .cab h1{margin:2px 0;color:#085041;font-size:22px}
-    .cab .sub{font-size:11px;color:#555;margin:0}
-    .info{display:flex;justify-content:space-between;align-items:center;margin:10px 0 6px;font-size:13px}
-    .info .tipo{font-size:12px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px}
-    .info .leg{font-size:11px;color:#555}
-    .missa{margin-bottom:18px;page-break-inside:avoid}
-    .missa-hora{background:#085041;color:white;padding:7px 14px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center}
-    .missa-hora .hr{font-weight:700;font-size:14px}
-    .missa-hora .resp-info{font-size:12.5px;font-weight:400}
+    .cab .basilica{font-size:9px;letter-spacing:1px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
+    .cab h1{margin:1px 0;color:#085041;font-size:17px}
+    .cab .sub{font-size:9px;color:#555;margin:0}
+    .info{display:flex;justify-content:space-between;align-items:center;margin:5px 0 4px;font-size:11px}
+    .info .tipo{font-size:10px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:20px}
+    .info .leg{font-size:10px;color:#555}
+    .missa{margin-bottom:10px;page-break-inside:avoid}
+    .missa-hora{background:#085041;color:white;padding:4px 12px;border-radius:5px 5px 0 0;display:flex;justify-content:space-between;align-items:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .missa-hora .hr{font-weight:700;font-size:12px}
+    .missa-hora .resp-info{font-size:11px;font-weight:400}
     .missa-hora .resp-info strong{font-weight:700}
-    table.tab{width:100%;border-collapse:collapse;border:1.5px solid #333}
-    table.tab th{background:#dfe7e4;font-size:11px;padding:6px 4px;border:1px solid #333;color:#1a1a1a;text-align:center;font-weight:700}
-    table.tab td{border:1px solid #888;padding:4px 6px;font-size:11.5px;height:38px;vertical-align:middle}
-    table.tab tbody tr{height:38px}
-    th.data{background:#085041;color:white;font-size:12px}
-    td.subst{min-width:120px}
-    td.letra,th.letra{width:34px;text-align:center;background:#fafafa}
-    .num{width:30px;text-align:center;color:#888}
-    .nome{text-align:left;width:230px;line-height:1.15}
+    table.tab{width:100%;border-collapse:collapse;border:1px solid #333}
+    table.tab th{background:#dfe7e4;font-size:9px;padding:3px;border:1px solid #333;color:#1a1a1a;text-align:center;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table.tab td{border:1px solid #888;padding:2px 5px;font-size:10px;height:30px;vertical-align:middle}
+    table.tab tbody tr{height:30px}
+    th.data{background:#085041;color:white;font-size:10px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    td.subst{min-width:90px}
+    td.letra,th.letra{width:26px;text-align:center;background:#fafafa}
+    .num{width:22px;text-align:center;color:#888;font-size:9px}
+    .foto{width:36px;text-align:center;padding:1px!important}
+    .foto-min{width:30px;height:30px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1px solid #cde8d8}
+    .ini-min{width:30px;height:30px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;margin:0 auto}
+    .nome{text-align:left;width:180px;line-height:1.1}
     .nome.resp-nome{font-weight:700}
     .resp{color:#BA7517;font-weight:700;margin-left:2px}
-    .rodape{text-align:center;margin-top:16px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:8px}
+    .rodape{text-align:center;margin-top:10px;font-size:8px;color:#999;border-top:1px solid #eee;padding-top:6px}
   </style></head>
   <body>
     <div class="cab">
