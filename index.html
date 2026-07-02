@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '11.9';
+const APP_VERSAO = '12.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2436,7 +2436,21 @@ window.atualizarCardsSemanas = function(){
 
 window.selecionarSemana = function(s){
   const sel = document.getElementById('esc-sem');
-  if(sel){ sel.value = s; sel.dispatchEvent(new Event('change')); }
+  if(sel){
+    // Garante que a opção existe antes de selecionar
+    let opt = Array.from(sel.options).find(o=>o.value===String(s));
+    if(!opt){
+      opt = document.createElement('option');
+      opt.value = String(s);
+      const per = _periodoSemanaCustom?.[s];
+      const fmt = iso => iso ? iso.split('-').reverse().slice(0,2).join('/') : '';
+      opt.textContent = per ? `${s}ª semana — ${fmt(per.ini)} a ${fmt(per.fim)}` : `${s}ª semana`;
+      sel.appendChild(opt);
+    }
+    sel.value = String(s);
+  }
+  // Renderiza a escala da semana selecionada e atualiza os cards
+  renderEscala();
   atualizarCardsSemanas();
 };
 
@@ -2509,14 +2523,24 @@ window.renderEscala = async function(){
     : `escala_sem_sem${sem}_${getMesAtual()}`;
 
   const sel = document.getElementById('esc-sem');
-  if(sel && sel.options.length !== TOTAL_SEMANAS){
-    sel.innerHTML = '';
-    Object.entries(SEMANAS_MES).forEach(([k,v])=>{
-      const opt = document.createElement('option');
-      opt.value = k;
-      opt.textContent = `${v.label} — ${v.periodo}${v.cruzaMeses?' 🔁':''}`;
-      sel.appendChild(opt);
-    });
+  if(sel && tipo==='sem'){
+    // Popula o select SEMPRE com as semanas configuradas (fonte: _periodoSemanaCustom)
+    const semanasCfg = Object.keys(_periodoSemanaCustom||{}).filter(k=>!isNaN(parseInt(k))).sort((a,b)=>parseInt(a)-parseInt(b));
+    const valorAtual = sel.value;
+    // Só repopula se o número de opções mudou (evita perder seleção à toa)
+    if(sel.options.length !== semanasCfg.length){
+      sel.innerHTML = '';
+      semanasCfg.forEach(k=>{
+        const per = _periodoSemanaCustom[k];
+        const fmt = iso => iso ? iso.split('-').reverse().slice(0,2).join('/') : '';
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = `${k}ª semana — ${fmt(per.ini)} a ${fmt(per.fim)}`;
+        sel.appendChild(opt);
+      });
+      // Restaura a seleção anterior se ainda existir
+      if(valorAtual && semanasCfg.includes(valorAtual)) sel.value = valorAtual;
+    }
   }
 
   const semInfo = SEMANAS_MES[sem];
