@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '11.7';
+const APP_VERSAO = '11.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6363,20 +6363,28 @@ function datasDestacadas(tipo, sem){
 // ===== IMPRIMIR TODAS AS SEMANAS JUNTAS =====
 async function imprimirTodasSemanasJuntas(){
   const mesKey = getMesAtual();
-  const sems = Object.keys(SEMANAS_MES).sort((a,b)=>parseInt(a)-parseInt(b));
-  toast('Carregando todas as semanas...','ok');
+  // BLINDAGEM: garante que as semanas estão carregadas do localStorage
+  if(typeof carregarSemanasLocais==='function' && Object.keys(_periodoSemanaCustom||{}).length===0){
+    carregarSemanasLocais();
+  }
+  // Só chaves numéricas (1,2,3,4,5) — ignora qualquer chave estranha
+  const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((a,b)=>parseInt(a)-parseInt(b));
+  if(!sems.length){ toast('Defina as semanas primeiro na aba Escala.','warn'); return; }
+  toast(`Carregando ${sems.length} semanas...`,'ok');
 
   let blocosTodos = '';
+  let semanasComDados = 0;
   for(const s of sems){
     const key = `escala_sem_sem${s}_${mesKey}`;
-    if(!escalas[key]){
-      try{ const d=await getDoc(doc(db,'escalas',key)); escalas[key]=d.exists()?d.data():{}; }
-      catch(e){ escalas[key]={}; }
-    }
+    // SEMPRE recarrega do Firebase para garantir dados atualizados
+    try{ const d=await getDoc(doc(db,'escalas',key)); escalas[key]=d.exists()?d.data():{}; }
+    catch(e){ if(!escalas[key]) escalas[key]={}; }
     const esc = escalas[key];
     const info = SEMANAS_MES[s];
+    // Considera TODOS os horários possíveis (incluindo 17h do reforço no sábado)
     const temDados = MISSAS_SEM.some(h=>(esc[h]?.ministros||[]).length>0);
     if(!temDados) continue;
+    semanasComDados++;
 
     let linhasSem = '';
     MISSAS_SEM.forEach(h=>{
@@ -6407,7 +6415,41 @@ async function imprimirTodasSemanasJuntas(){
         </table>
       </div>`;
     });
-    if(!linhasSem) continue;
+    // Adiciona blocos de REFORÇO da semana (Qui 18h, Sáb 12h, Sáb 17h)
+    let linhasReforco = '';
+    for(const rf of REFORCO_TIPOS){
+      const refKey = `reforco_${rf.id}_${mesKey}`;
+      let refData = reforcos[refKey];
+      if(!refData){
+        try{ const rd=await getDoc(doc(db,'reforcos',refKey)); refData=rd.exists()?rd.data():{ministros:[]}; reforcos[refKey]=refData; }
+        catch(e){ refData={ministros:[]}; }
+      }
+      const refLista = refData.ministros||[];
+      if(!refLista.length) continue;
+      const refResp = refData.responsavel||'';
+      const refOrd = [...refLista].sort((a,b)=>{ if(a===refResp)return -1; if(b===refResp)return 1; return a.localeCompare(b,'pt-BR'); });
+      const refLinhas = refOrd.map((m,i)=>{
+        const isR = m===refResp;
+        const mo = ministros.find(x=>x.nome===m);
+        const ft = mo?.foto ? `<img src="${mo.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #b2dfdb">` : `<div style="width:36px;height:36px;border-radius:50%;background:#e0f2f1;color:#0A5F5E;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        return `<tr>
+          <td style="width:30px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:5px;font-size:11px">${i+1}</td>
+          <td style="width:46px;text-align:center;border:1px solid #e2e2e2;padding:3px">${ft}</td>
+          <td style="border:1px solid #e2e2e2;padding:7px;font-size:12px;${isR?'font-weight:700':''}">${m} <span style="font-size:9px;background:#e0f2f1;color:#0A5F5E;padding:1px 6px;border-radius:10px;font-weight:700">+ Reforço</span>${isR?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 6px;border-radius:10px">★ Resp.</span>':''}</td>
+        </tr>`;
+      }).join('');
+      linhasReforco += `<div style="margin-bottom:12px;break-inside:avoid">
+        <div style="background:#0A5F5E;color:white;padding:7px 12px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between">
+          <span style="font-weight:700;font-size:14px">⭐ ${rf.label} <span style="font-size:9px;background:rgba(255,255,255,.3);padding:1px 7px;border-radius:10px">+ REFORÇO</span></span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none">
+          <thead><tr><th style="background:#e0f2f1;font-size:10px;padding:5px;border:1px solid #cfcfcf;width:30px">Nº</th><th style="background:#e0f2f1;font-size:10px;padding:5px;border:1px solid #cfcfcf;width:46px">Foto</th><th style="background:#e0f2f1;font-size:10px;padding:5px;border:1px solid #cfcfcf;text-align:left">Ministro(a)</th></tr></thead>
+          <tbody>${refLinhas}</tbody>
+        </table>
+      </div>`;
+    }
+
+    if(!linhasSem && !linhasReforco) continue;
 
     blocosTodos += `<div style="margin-bottom:24px;break-inside:avoid">
       <div style="background:#185FA5;color:white;padding:8px 14px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
@@ -6415,6 +6457,7 @@ async function imprimirTodasSemanasJuntas(){
         <span style="font-size:12px;opacity:.9">${info?.periodo||''}</span>
       </div>
       ${linhasSem}
+      ${linhasReforco}
     </div>`;
   }
 
