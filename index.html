@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '12.2';
+const APP_VERSAO = '12.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2709,7 +2709,9 @@ function renderReforcoNoQuadrante(hora, refInfo){
 
   const acId = `acrefq-${refInfo.id}`;
   const inpId = `inprefq-${refInfo.id}`;
+  const aviso = lista.length ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço vale para todas as semanas do mês</p>` : '';
   return `<div style="margin-top:6px">
+    ${aviso}
     ${linhas}
     <div style="position:relative">
       <input type="text" id="${inpId}" placeholder="⭐ + Adicionar reforço (${refInfo.dia} ${hora})..."
