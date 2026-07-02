@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '12.1';
+const APP_VERSAO = '12.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2587,7 +2587,21 @@ window.renderEscala = async function(){
     } catch(e){ escalas[key]={}; }
   }
 
-  document.getElementById('esc-body').innerHTML = horas.map(hora=>{
+  // Na escala semanal, inclui 17:00h (usado só pelo reforço de sábado)
+  let horasRender = horas;
+  if(tipo==='sem'){
+    horasRender = ['07:00h','09:00h','12:00h','17:00h','18:00h'];
+  }
+
+  // Mapeia qual reforço pertence a cada horário e o dia
+  // qui18 -> 18h (Quinta) | sab12 -> 12h (Sábado) | sab17 -> 17h (Sábado)
+  const reforcoDoHorario = {
+    '18:00h': {id:'qui18', dia:'Quinta'},
+    '12:00h': {id:'sab12', dia:'Sábado'},
+    '17:00h': {id:'sab17', dia:'Sábado'}
+  };
+
+  document.getElementById('esc-body').innerHTML = horasRender.map(hora=>{
     const g = escalas[key][hora] || {ministros:[], responsavel:''};
     const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
     const disponíveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
@@ -2648,6 +2662,7 @@ window.renderEscala = async function(){
           <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
         </div>`;
       }).join('')}
+      ${tipo==='sem' ? renderReforcoNoQuadrante(hora, reforcoDoHorario[hora]) : ''}
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
         <div style="position:relative;flex:1">
           <input type="text" id="inp-${key}-${hora.replace(':','')}"
@@ -2659,7 +2674,83 @@ window.renderEscala = async function(){
         </div>
       </div>
     </div>`;
-  }).join('') + (tipo==='sem' ? renderBlocosReforcoNaEscala() : '');
+  }).join('');
+};
+
+// Renderiza os ministros de REFORÇO dentro do quadrante do horário (marca-texto + selo)
+function renderReforcoNoQuadrante(hora, refInfo){
+  if(!refInfo) return '';
+  const mesKey = getMesAtual();
+  const key = `reforco_${refInfo.id}_${mesKey}`;
+  if(!reforcos[key]){
+    // carrega em background e re-renderiza
+    getDoc(doc(db,'reforcos',key)).then(d=>{
+      reforcos[key] = d.exists()?d.data():{ministros:[],responsavel:''};
+      if(document.getElementById('esc-tipo')?.value==='sem') renderEscala();
+    }).catch(()=>{ reforcos[key]={ministros:[],responsavel:''}; });
+    reforcos[key] = {ministros:[], responsavel:''};
+  }
+  const lista = reforcos[key].ministros || [];
+
+  // Campo para adicionar reforço + lista de reforços destacados
+  let linhas = lista.map((m,ri)=>{
+    const min = ministros.find(x=>x.nome===m);
+    const foto = min?.foto
+      ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #f5d97a">`
+      : `<div style="width:34px;height:34px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;margin:3px 0;border-radius:8px;background:#fff6d6;border:1px solid #f0d53a">
+      ${foto}
+      <span style="flex:1;font-size:12px;font-weight:600">${m}
+        <span style="font-size:9px;background:#f5c518;color:#5a4500;padding:1px 7px;border-radius:10px;font-weight:800;margin-left:4px">⭐ REFORÇO ${refInfo.dia}</span>
+      </span>
+      <button onclick="remMinReforcoQuad('${key}',${ri})" style="border:none;background:none;cursor:pointer;color:#c0a020;font-size:18px;line-height:1">×</button>
+    </div>`;
+  }).join('');
+
+  const acId = `acrefq-${refInfo.id}`;
+  const inpId = `inprefq-${refInfo.id}`;
+  return `<div style="margin-top:6px">
+    ${linhas}
+    <div style="position:relative">
+      <input type="text" id="${inpId}" placeholder="⭐ + Adicionar reforço (${refInfo.dia} ${hora})..."
+        autocomplete="off"
+        oninput="acReforcoQuad(this,'${acId}','${key}','${refInfo.id}')"
+        style="width:100%;padding:6px 10px;border:1px dashed #f0c000;border-radius:6px;font-size:12px;margin:0;background:#fffdf0">
+      <div id="${acId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:200px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+    </div>
+  </div>`;
+}
+
+window.acReforcoQuad = function(inp, acId, key, tipoRef){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById(acId);
+  if(v.length<2){ ac.style.display='none'; return; }
+  const jaEsc = new Set(reforcos[key]?.ministros||[]);
+  const ms = ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaEsc.has(m.nome)).slice(0,8);
+  if(!ms.length){ ac.style.display='none'; return; }
+  ac.style.display='block';
+  ac.innerHTML = ms.map(m=>`<div onmousedown="addMinReforcoQuad('${key}','${m.nome.replace(/'/g,"\'")}','${acId}')"
+    style="padding:9px 12px;cursor:pointer;font-size:13px" onmouseover="this.style.background='#fffdf0'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
+};
+
+window.addMinReforcoQuad = function(key, nome, acId){
+  if(!reforcos[key]) reforcos[key]={ministros:[],responsavel:''};
+  if(!reforcos[key].ministros) reforcos[key].ministros=[];
+  if(!reforcos[key].ministros.includes(nome)){
+    reforcos[key].ministros.push(nome);
+    reforcos[key].ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  }
+  const ac=document.getElementById(acId); if(ac) ac.style.display='none';
+  setDoc(doc(db,'reforcos',key), reforcos[key]).catch(()=>{});
+  renderEscala();
+};
+
+window.remMinReforcoQuad = function(key, idx){
+  if(reforcos[key]?.ministros){
+    reforcos[key].ministros.splice(idx,1);
+    setDoc(doc(db,'reforcos',key), reforcos[key]).catch(()=>{});
+  }
+  renderEscala();
 };
 
 // Renderiza os blocos de REFORÇO integrados na escala semanal (Qui 18h, Sáb 12h, Sáb 17h)
