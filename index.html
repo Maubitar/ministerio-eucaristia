@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '12.6';
+const APP_VERSAO = '12.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -474,6 +474,19 @@ window.forcarAtualizacao = async function(){
 // O app espia o próprio index.html no servidor (sem cache) e compara a versão.
 // Quando o GitHub publica a versão nova, o app detecta e se atualiza sozinho.
 let _checandoVersao = false;
+// Força a última versão IMEDIATAMENTE — ignora cache do navegador E do GitHub CDN
+window.forcarVersaoNova = function(){
+  const base = location.href.split('?')[0].split('#')[0];
+  const url = base + '?nocache=' + Date.now() + '&r=' + Math.random().toString(36).slice(2);
+  if('caches' in window){
+    caches.keys().then(nomes=>Promise.all(nomes.map(n=>caches.delete(n)))).finally(()=>{
+      location.replace(url);
+    });
+  } else {
+    location.replace(url);
+  }
+};
+
 async function checarVersaoServidor(automatico){
   if(_checandoVersao) return;
   _checandoVersao = true;
@@ -8341,6 +8354,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <strong>3.</strong> Pronto! Em até 1-2 minutos o app detecta e atualiza sozinho. Se quiser, toque no botão abaixo para verificar na hora.
     </p>
     <button onclick="checarVersaoServidor(false)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:14px;font-weight:700;cursor:pointer">🔍 Verificar atualização agora</button>
+    <button onclick="forcarVersaoNova()" style="width:100%;margin-top:8px;padding:14px;border:none;border-radius:9px;background:#C2185B;color:white;font-size:15px;font-weight:800;cursor:pointer">⚡ FORÇAR ÚLTIMA VERSÃO (imediato)</button>
+    <p style="font-size:10px;color:#888;margin:6px 0 0;text-align:center">Use este botão logo após subir o arquivo no GitHub. Ignora todo o cache e recarrega na hora.</p>
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
