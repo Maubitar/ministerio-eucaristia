@@ -30,8 +30,11 @@ const REFORCO_TIPOS = [
   {id:'sab17', label:'Sábado 17:00h'},
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
-const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '11.3';
+// Detecta o mês/ano ATUAL automaticamente (não fica preso em junho)
+const _hoje = new Date();
+const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
+const APP_VERSAO = '11.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -119,7 +122,7 @@ function calcularCalendario(ano, mes) {
   return { semanas, domingos, domingosDerramados, mesNome: MESES_NOME[mes], mes, ano };
 }
 
-const CONFIG_MES = { ano: 2026, mes: 5 };
+const CONFIG_MES = { ano: _hoje.getFullYear(), mes: _hoje.getMonth() };
 const CAL = calcularCalendario(CONFIG_MES.ano, CONFIG_MES.mes);
 const DOMINGOS_MES = CAL.domingos;
 const SEMANAS_MES  = CAL.semanas;
@@ -254,6 +257,22 @@ window.addEventListener('load', async()=>{
   });
 
   showSplash();
+
+  // BLINDAGEM: sincroniza TODOS os seletores de mês/ano com o mês atual real
+  // Evita o bug de abrir sempre em junho. Roda antes de qualquer render.
+  try{
+    const mesAtualNum = _hoje.getMonth();   // 0-based (julho=6)
+    const anoAtualNum = _hoje.getFullYear();
+    ['esc-mes','pres-mes','resp-mes'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.value = String(mesAtualNum);
+    });
+    ['esc-ano','pres-ano','resp-ano'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.value = String(anoAtualNum);
+    });
+  }catch(e){}
+
   try {
     const app = initializeApp(FB);
     db = getFirestore(app);
@@ -1654,18 +1673,14 @@ window.nav = function(id, btn){
     escala: ()=>{ const t=document.getElementById('esc-tipo')?.value||'dom'; trocarAbaEscala(t); },
     presenca: ()=>{
       if(!window.presModo) window.presModo='dom';
-      // Sincroniza o seletor de mês da presença com o mês da escala (primeira vez)
       const pMes = document.getElementById('pres-mes');
-      if(pMes && !pMes.dataset.inicializado){
-        const escMes = document.getElementById('esc-mes')?.value;
-        const escAno = document.getElementById('esc-ano')?.value;
-        if(escMes !== undefined && escMes !== null){ pMes.value = escMes; }
-        if(escAno){ const pa=document.getElementById('pres-ano'); if(pa) pa.value = escAno; }
-        pMes.dataset.inicializado = '1';
-        trocarMesPresenca();
-        return;
-      }
-      renderPresenca();
+      const pAno = document.getElementById('pres-ano');
+      // BLINDAGEM: sempre sincroniza com o mês da escala (ou mês atual como fallback)
+      const escMes = document.getElementById('esc-mes')?.value ?? String(CONFIG_MES.mes);
+      const escAno = document.getElementById('esc-ano')?.value ?? String(CONFIG_MES.ano);
+      if(pMes) pMes.value = escMes;
+      if(pAno) pAno.value = escAno;
+      trocarMesPresenca();
     },
     reforco: ()=>{ trocarAbaReforco(document.getElementById('ref-tipo')?.value||'sab12'); },
     plantao: ()=>renderPlantonistas(),
@@ -7708,7 +7723,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <select id="esc-mes" onchange="trocarMes()" style="flex:1;margin:0;font-weight:600;color:#085041">
         <option value="0">Janeiro</option><option value="1">Fevereiro</option>
         <option value="2">Março</option><option value="3">Abril</option>
-        <option value="4">Maio</option><option value="5" selected>Junho</option>
+        <option value="4">Maio</option><option value="5">Junho</option>
         <option value="6">Julho</option><option value="7">Agosto</option>
         <option value="8">Setembro</option><option value="9">Outubro</option>
         <option value="10">Novembro</option><option value="11">Dezembro</option>
