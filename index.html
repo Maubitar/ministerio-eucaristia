@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '13.3';
+const APP_VERSAO = '13.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6605,7 +6605,7 @@ async function imprimirTodasSemanasJuntas(){
           return `<tr style="background:#fff6d6">
             <td style="width:30px;text-align:center;color:#8a6d0c;padding:5px;font-size:11px">${idx}</td>
             <td style="width:46px;text-align:center;padding:3px">${fotoTag}</td>
-            <td style="padding:6px 10px;font-size:13px;font-weight:600">${m} <span style="font-size:10px;background:#f5c518;color:#5a4500;padding:1px 8px;border-radius:12px;font-weight:800">⭐ ${rf.label}</span></td>
+            <td style="padding:6px 10px;font-size:13px;font-weight:600">${m} <span style="font-size:10px;background:#f5c518;color:#5a4500;padding:1px 8px;border-radius:12px;font-weight:800">⭐ REFORÇO ${rf.label}</span></td>
           </tr>`;
         }).join('');
       }
