@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '13.2';
+const APP_VERSAO = '13.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2663,13 +2663,10 @@ window.renderEscala = async function(){
           👥 ${disponíveis.length} disponíveis
         </button>
       </div>
-      ${(()=>{
-        if(!g.responsavel) return '';
-        const respM = ministros.find(x=>x.nome===g.responsavel);
-        const respTel = respM?.tel ? (typeof formatarTelBR==='function' ? formatarTelBR(respM.tel) : respM.tel) : '';
-        return `<div style="font-size:11px;background:#faeeda;color:#633806;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${g.responsavel}${respTel?` · 📞 ${respTel}`:''}</div>`;
-      })()}
       ${g.ministros.map((m,mi)=>{
+        const _isResp = m===g.responsavel;
+        const _respM = _isResp ? ministros.find(x=>x.nome===m) : null;
+        const _respTel = _respM?.tel ? (typeof formatarTelBR==='function' ? formatarTelBR(_respM.tel) : _respM.tel) : '';
         const min = ministros.find(x=>x.nome===m);
         const fotoEsc = min?.foto
           ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
@@ -2678,7 +2675,7 @@ window.renderEscala = async function(){
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
           <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
           ${fotoEsc}
-          <span style="flex:1;font-size:12px;font-weight:500">${m}</span>
+          <span style="flex:1;font-size:12px;font-weight:${_isResp?'700':'500'}">${m}${_isResp?` <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>${_respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${_respTel}</span>`:''}`:''}</span>
           <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
         </div>`;
       }).join('')}
@@ -6592,8 +6589,8 @@ async function imprimirTodasSemanasJuntas(){
         const mo = ministros.find(x=>x.nome===m);
         const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">` : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
         return `<tr>
-          <td style="text-align:center;color:#888;padding:5px;font-size:11px">${idx}</td>
-          <td style="text-align:center;padding:3px">${fotoTag}</td>
+          <td style="width:30px;text-align:center;color:#888;padding:5px;font-size:11px">${idx}</td>
+          <td style="width:46px;text-align:center;padding:3px">${fotoTag}</td>
           <td style="padding:6px 10px;font-size:13px;${isResp?'font-weight:700':''}">${m}${isResp?` <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 8px;border-radius:12px;font-weight:700">★ Responsável</span>${respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${respTel}</span>`:''}`:''}</td>
         </tr>`;
       }).join('');
@@ -6606,8 +6603,8 @@ async function imprimirTodasSemanasJuntas(){
           const mo = ministros.find(x=>x.nome===m);
           const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #e0c04a">` : `<div style="width:34px;height:34px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
           return `<tr style="background:#fff6d6">
-            <td style="text-align:center;color:#8a6d0c;padding:5px;font-size:11px">${idx}</td>
-            <td style="text-align:center;padding:3px">${fotoTag}</td>
+            <td style="width:30px;text-align:center;color:#8a6d0c;padding:5px;font-size:11px">${idx}</td>
+            <td style="width:46px;text-align:center;padding:3px">${fotoTag}</td>
             <td style="padding:6px 10px;font-size:13px;font-weight:600">${m} <span style="font-size:10px;background:#f5c518;color:#5a4500;padding:1px 8px;border-radius:12px;font-weight:800">⭐ ${rf.label}</span></td>
           </tr>`;
         }).join('');
@@ -6619,11 +6616,6 @@ async function imprimirTodasSemanasJuntas(){
           <span style="font-size:12px;font-weight:600;background:rgba(255,255,255,.22);padding:2px 10px;border-radius:12px">${datasLabel}</span>
         </div>
         <table style="width:100%;border-collapse:collapse;border:1px solid #d5d5d5;border-top:none">
-          <thead><tr>
-            <th style="background:#eef1f5;font-size:10px;padding:5px;width:30px;font-weight:700">Nº</th>
-            <th style="background:#eef1f5;font-size:10px;padding:5px;width:46px;font-weight:700">Foto</th>
-            <th style="background:#eef1f5;font-size:10px;padding:5px;text-align:left;font-weight:700">Ministro(a)</th>
-          </tr></thead>
           <tbody>${linhasNormais}${linhasRef}</tbody>
         </table>
       </div>`;
