@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '11.5';
+const APP_VERSAO = '11.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3489,7 +3489,14 @@ async function autoPosicionarDataComEscala(datas){
 
 // Retorna a lista de horários de missa para um dia da semana
 function horariosDoDia(diaSemana){
-  return diaSemana==='Domingo' ? MISSAS_DOM : (MISSAS_SEM_DIAS[diaSemana]||[]);
+  if(diaSemana==='Domingo') return MISSAS_DOM;
+  let horas = [...(MISSAS_SEM_DIAS[diaSemana]||[])];
+  // Sábado tem reforço às 17h (sab17) que não é horário de missa semanal comum
+  if(diaSemana==='Sábado' && !horas.includes('17:00h')){
+    horas.push('17:00h');
+    horas.sort();
+  }
+  return horas;
 }
 
 // Retorna o rótulo do período da semana a que pertence a data (ex: "07/06 a 13/06")
@@ -3508,18 +3515,54 @@ async function buscarEscalaDoDia(info){
   let key;
   if(info.diaSemana==='Domingo'){
     key = `escala_dom_${mesAtualKey}`;
-  } else {
-    let semanaAlvo = null;
-    Object.entries(SEMANAS_MES).forEach(([k,v])=>{
-      if(v.dias.some(d=>d.data===info.data && d.dia===info.diaSemana)) semanaAlvo = k;
-    });
-    if(!semanaAlvo) return {};
-    key = `escala_sem_sem${semanaAlvo}_${mesAtualKey}`;
+    try{
+      const d = await getDoc(doc(db,'escalas',key));
+      return d.exists() ? d.data() : {};
+    }catch(e){ return {}; }
   }
+
+  // ESCALA SEMANAL
+  let semanaAlvo = null;
+  Object.entries(SEMANAS_MES).forEach(([k,v])=>{
+    if(v.dias.some(d=>d.data===info.data && d.dia===info.diaSemana)) semanaAlvo = k;
+  });
+  if(!semanaAlvo) return {};
+  key = `escala_sem_sem${semanaAlvo}_${mesAtualKey}`;
+
+  let escalaBase = {};
   try{
     const d = await getDoc(doc(db,'escalas',key));
-    return d.exists() ? d.data() : {};
-  }catch(e){ return {}; }
+    escalaBase = d.exists() ? d.data() : {};
+  }catch(e){ escalaBase = {}; }
+
+  // MESCLA OS REFORÇOS conforme o dia da semana:
+  // Quinta 18h -> reforço qui18 ; Sábado 12h -> reforço sab12 ; Sábado 17h -> reforço sab17
+  const reforcosDoDia = {};
+  if(info.diaSemana === 'Quinta'){ reforcosDoDia['18:00h'] = 'qui18'; }
+  if(info.diaSemana === 'Sábado'){ reforcosDoDia['12:00h'] = 'sab12'; reforcosDoDia['17:00h'] = 'sab17'; }
+
+  for(const [hora, tipoRef] of Object.entries(reforcosDoDia)){
+    const refKey = `reforco_${tipoRef}_${mesAtualKey}`;
+    let refData = reforcos[refKey];
+    if(!refData){
+      try{ const rd = await getDoc(doc(db,'reforcos',refKey)); refData = rd.exists()?rd.data():{ministros:[]}; reforcos[refKey]=refData; }
+      catch(e){ refData = {ministros:[]}; }
+    }
+    const refMinistros = refData.ministros || [];
+    if(refMinistros.length){
+      if(!escalaBase[hora]) escalaBase[hora] = {ministros:[], responsavel:''};
+      // Marca quais são de reforço para o selo aparecer
+      escalaBase[hora]._reforco = refMinistros.slice();
+      // Adiciona os de reforço à lista (sem duplicar)
+      refMinistros.forEach(nome=>{
+        if(!escalaBase[hora].ministros.includes(nome)){
+          escalaBase[hora].ministros.push(nome);
+        }
+      });
+    }
+  }
+
+  return escalaBase;
 }
 
 let presListaAtual = null;
@@ -3564,10 +3607,10 @@ window.renderPresenca = async function(){
   body.innerHTML = `<p style="font-size:12px;color:#888;padding:8px 0">Carregando escala do dia...</p>`;
   const escalaDia = await buscarEscalaDoDia(info);
 
-  // Monta lista de missas com escalados
+  // Monta lista de missas com escalados (incluindo reforços mesclados)
   const missas = horas.map(h=>{
     const g = escalaDia[h] || {ministros:[],responsavel:''};
-    return { hora:h, ministros:g.ministros||[], responsavel:g.responsavel||'' };
+    return { hora:h, ministros:g.ministros||[], responsavel:g.responsavel||'', reforco:g._reforco||[] };
   });
 
   const totalEscalados = missas.reduce((a,m)=>a+m.ministros.length,0);
@@ -3587,14 +3630,15 @@ window.renderPresenca = async function(){
 
   const btnPFS = (id,letra,cor,corBg,s)=>`<button onclick="setPres('${id}','${letra}')" style="width:30px;height:28px;border:1px solid ${s===letra?cor:'#ddd'};border-radius:6px;background:${s===letra?corBg:'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s===letra?cor:'#888'}">${letra}</button>`;
 
-  const linha = (nome, isResp)=>{
+  const linha = (nome, isResp, ehReforco)=>{
     const m = ministros.find(x=>x.nome===nome);
     const id = m?.id || '';
     const s = id ? (presAtual[id]?.status||'') : '';
     const j = id ? (presAtual[id]?.justificativa||'') : '';
+    const seloRef = ehReforco ? ' <span style="font-size:9px;background:#e0f2f1;color:#0A5F5E;padding:1px 6px;border-radius:10px;font-weight:700">+ Reforço</span>' : '';
     return `<div style="padding:7px 0;border-bottom:1px solid #eee">
       <div style="display:flex;align-items:center;gap:8px">
-        <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}</span>
+        <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}${seloRef}</span>
         ${btnPFS(id,'P','#085041','#e1f5ee',s)}
         ${btnPFS(id,'F','#A32D2D','#fcebeb',s)}
         ${btnPFS(id,'S','#BA7517','#faeeda',s)}
@@ -3614,13 +3658,15 @@ window.renderPresenca = async function(){
       if(b===responsavel) return 1;
       return a.localeCompare(b,'pt-BR');
     });
+    const setReforco = new Set(missa.reforco||[]);
+    const temReforco = setReforco.size > 0;
     html += `<div style="margin-bottom:14px;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden">
       <div style="background:#085041;color:white;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-weight:700;font-size:14px">⏰ ${missa.hora}</span>
+        <span style="font-weight:700;font-size:14px">⏰ ${missa.hora}${temReforco?' <span style="font-size:9px;background:rgba(255,255,255,.25);padding:1px 7px;border-radius:10px;font-weight:700">inclui reforço</span>':''}</span>
         <span style="font-size:11px;opacity:.85">${missa.ministros.length} ministro(s)</span>
       </div>
       <div style="padding:4px 12px">
-        ${ordenados.map(n=>linha(n, n===responsavel)).join('')}
+        ${ordenados.map(n=>linha(n, n===responsavel, setReforco.has(n))).join('')}
       </div>
     </div>`;
   });
