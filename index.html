@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '11.0';
+const APP_VERSAO = '11.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -1652,7 +1652,21 @@ window.nav = function(id, btn){
   const fns = {
     ministros: ()=>renderMinistros(''),
     escala: ()=>{ const t=document.getElementById('esc-tipo')?.value||'dom'; trocarAbaEscala(t); },
-    presenca: ()=>{ if(!window.presModo) window.presModo='dom'; renderPresenca(); },
+    presenca: ()=>{
+      if(!window.presModo) window.presModo='dom';
+      // Sincroniza o seletor de mês da presença com o mês da escala (primeira vez)
+      const pMes = document.getElementById('pres-mes');
+      if(pMes && !pMes.dataset.inicializado){
+        const escMes = document.getElementById('esc-mes')?.value;
+        const escAno = document.getElementById('esc-ano')?.value;
+        if(escMes !== undefined && escMes !== null){ pMes.value = escMes; }
+        if(escAno){ const pa=document.getElementById('pres-ano'); if(pa) pa.value = escAno; }
+        pMes.dataset.inicializado = '1';
+        trocarMesPresenca();
+        return;
+      }
+      renderPresenca();
+    },
     reforco: ()=>{ trocarAbaReforco(document.getElementById('ref-tipo')?.value||'sab12'); },
     plantao: ()=>renderPlantonistas(),
     ausencias: ()=>renderAusencias(),
@@ -3381,6 +3395,29 @@ async function buscarEscalaDoDia(info){
 }
 
 let presListaAtual = null;
+
+// Troca o mês da presença — sincroniza CAL e repopula datas
+window.trocarMesPresenca = function(){
+  const m = parseInt(document.getElementById('pres-mes')?.value ?? CAL.mes);
+  const a = parseInt(document.getElementById('pres-ano')?.value ?? CAL.ano);
+  // Atualiza CAL e SEMANAS_MES para o mês escolhido
+  if(typeof calcularCalendario==='function'){
+    const cal = calcularCalendario(a, m);
+    Object.assign(CAL, cal);
+  }
+  const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  window.MES_ATUAL_DIN = `${MESES_KEY[m]}${a}`;
+  // Carrega as semanas salvas desse mês (para presença semanal)
+  if(typeof carregarSemanasLocais==='function'){
+    _periodoSemanaCustom = {};
+    Object.keys(SEMANAS_MES).forEach(k=>{ if(!isNaN(k)) delete SEMANAS_MES[k]; });
+    carregarSemanasLocais();
+  }
+  // Limpa e repopula o seletor de datas
+  const sel = document.getElementById('pres-data');
+  if(sel) sel.innerHTML = '';
+  popularSeletorDatasPresenca();
+};
 
 window.renderPresenca = async function(){
   const sel = document.getElementById('pres-data');
@@ -7659,6 +7696,22 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button class="tab" onclick="tabPres('adoracao',this)">Adoração</button>
     </div>
     <div id="tp-missa">
+      <!-- Seletor de mês/ano da presença -->
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <select id="pres-mes" onchange="trocarMesPresenca()" style="flex:1;margin:0;font-weight:600;color:#085041;font-size:13px">
+          <option value="0">Janeiro</option><option value="1">Fevereiro</option>
+          <option value="2">Março</option><option value="3">Abril</option>
+          <option value="4">Maio</option><option value="5">Junho</option>
+          <option value="6">Julho</option><option value="7">Agosto</option>
+          <option value="8">Setembro</option><option value="9">Outubro</option>
+          <option value="10">Novembro</option><option value="11">Dezembro</option>
+        </select>
+        <select id="pres-ano" onchange="trocarMesPresenca()" style="width:90px;margin:0;font-weight:600;color:#085041;font-size:13px">
+          <option value="2026">2026</option>
+          <option value="2027">2027</option>
+          <option value="2028">2028</option>
+        </select>
+      </div>
       <div style="background:#f0faf5;border:1.5px solid #1D9E75;border-radius:8px;padding:10px 12px;margin-bottom:10px">
         <label id="pres-data-label" style="font-size:11px;font-weight:700;color:#085041;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">📅 Data da missa</label>
         <select id="pres-data" onchange="renderPresenca()" style="margin:0;font-weight:600;color:#085041;width:100%"></select>
