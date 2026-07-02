@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '13.1';
+const APP_VERSAO = '13.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -2646,7 +2646,7 @@ window.renderEscala = async function(){
     }
 
     // Cor do cabeçalho por semana (só no semanal) — diferencia visualmente
-    const coresSemTela = ['#2E7BC4','#1D9E75','#C77DBB','#E09B3D','#5B6FC9'];
+    const coresSemTela = ['#2E7BC4','#1D9E75','#0E7C7B','#D99A2B','#546E9B'];
     const corCab = tipo==='dom' ? '#085041' : (coresSemTela[(parseInt(sem)-1) % coresSemTela.length] || '#185FA5');
     return `<div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="background:${corCab};color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
@@ -6549,7 +6549,7 @@ async function imprimirTodasSemanasJuntas(){
     };
 
     // Cor da semana (para cabeçalhos de horário harmonizarem)
-    const coresSemanaLoop = ['#2E7BC4','#1D9E75','#C77DBB','#E09B3D','#5B6FC9'];
+    const coresSemanaLoop = ['#2E7BC4','#1D9E75','#0E7C7B','#D99A2B','#546E9B'];
     const corHora = coresSemanaLoop[(parseInt(s)-1) % coresSemanaLoop.length];
 
     let linhasSem = '';
@@ -6580,10 +6580,9 @@ async function imprimirTodasSemanasJuntas(){
       const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
       const datasLabel = dias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
 
-      // Telefone do responsável (para exibir no cabeçalho do horário)
+      // Telefone do responsável (exibido ao lado do nome na lista, não no cabeçalho)
       const respObj = ministros.find(x=>x.nome===resp);
       const respTel = respObj?.tel ? (typeof formatarTelBR==='function' ? formatarTelBR(respObj.tel) : respObj.tel) : '';
-      const respHtml = resp ? `<div style="font-size:12px;margin-top:3px;font-weight:600">★ Responsável: ${resp}${respTel?` — 📞 ${respTel}`:''}</div>` : '';
 
       // Linhas dos ministros normais
       let idx = 0;
@@ -6595,7 +6594,7 @@ async function imprimirTodasSemanasJuntas(){
         return `<tr>
           <td style="text-align:center;color:#888;padding:5px;font-size:11px">${idx}</td>
           <td style="text-align:center;padding:3px">${fotoTag}</td>
-          <td style="padding:6px 10px;font-size:13px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 8px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</td>
+          <td style="padding:6px 10px;font-size:13px;${isResp?'font-weight:700':''}">${m}${isResp?` <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 8px;border-radius:12px;font-weight:700">★ Responsável</span>${respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${respTel}</span>`:''}`:''}</td>
         </tr>`;
       }).join('');
 
@@ -6615,12 +6614,9 @@ async function imprimirTodasSemanasJuntas(){
       }
 
       linhasSem += `<div style="margin-bottom:14px;break-inside:avoid">
-        <div style="background:${corHora};color:white;padding:8px 14px;border-radius:7px 7px 0 0">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span style="font-weight:800;font-size:15px">⏰ ${h}</span>
-            <span style="font-size:12px;font-weight:600;background:rgba(255,255,255,.22);padding:2px 10px;border-radius:12px">${datasLabel}</span>
-          </div>
-          ${respHtml}
+        <div style="background:${corHora};color:white;padding:8px 14px;border-radius:7px 7px 0 0;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight:800;font-size:15px">⏰ ${h}</span>
+          <span style="font-size:12px;font-weight:600;background:rgba(255,255,255,.22);padding:2px 10px;border-radius:12px">${datasLabel}</span>
         </div>
         <table style="width:100%;border-collapse:collapse;border:1px solid #d5d5d5;border-top:none">
           <thead><tr>
@@ -6635,7 +6631,7 @@ async function imprimirTodasSemanasJuntas(){
     if(!linhasSem) continue;
 
     // Cada semana tem uma COR própria no cabeçalho (para diferenciar visualmente)
-    const coresSemana = ['#2E7BC4','#1D9E75','#C77DBB','#E09B3D','#5B6FC9'];
+    const coresSemana = ['#2E7BC4','#1D9E75','#0E7C7B','#D99A2B','#546E9B'];
     const corSemana = coresSemana[(parseInt(s)-1) % coresSemana.length];
 
     blocosTodos += `<div style="margin-bottom:22px">
