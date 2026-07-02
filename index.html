@@ -31,7 +31,7 @@ const REFORCO_TIPOS = [
   {id:'qui18', label:'Quinta-feira 18:00h'},
 ];
 const MES_ATUAL = 'jun2026';
-const APP_VERSAO = '11.1';
+const APP_VERSAO = '11.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3539,13 +3539,135 @@ window.salvarPres = async function(){
   }
 };
 
-window.imprimirPresenca = function(){
+// Imprime a lista de presença de TODAS as semanas do mês juntas
+async function imprimirPresencaTodasSemanas(){
+  const mesKey = getMesAtual();
+  const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(k)).sort((a,b)=>parseInt(a)-parseInt(b));
+  if(!sems.length){ toast('Nenhuma semana definida.','warn'); return; }
+
+  toast('Carregando todas as semanas...','ok');
+
+  // Carrega escala de cada semana do Firebase
+  const escalasPorSem = {};
+  for(const s of sems){
+    const key = `escala_sem_sem${s}_${mesKey}`;
+    if(escalas[key]){ escalasPorSem[s] = escalas[key]; }
+    else{
+      try{ const d = await getDoc(doc(db,'escalas',key)); escalasPorSem[s] = d.exists()?d.data():{}; escalas[key]=escalasPorSem[s]; }
+      catch(e){ escalasPorSem[s] = {}; }
+    }
+  }
+
+  // Gera um bloco de semana (com todos os horários que têm ministros)
+  function blocoDaSemana(s){
+    const info = SEMANAS_MES[s];
+    const esc = escalasPorSem[s] || {};
+    const horasComMin = MISSAS_SEM.filter(h => (esc[h]?.ministros||[]).length);
+    if(!horasComMin.length) return '';
+
+    const missasHtml = horasComMin.map(hora=>{
+      const g = esc[hora] || {ministros:[],responsavel:''};
+      const responsavel = g.responsavel||'';
+      const respObj = ministros.find(x=>x.nome===responsavel);
+      const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
+      const ordenados = [...(g.ministros||[])].sort((a,b)=>{
+        if(a===responsavel) return -1;
+        if(b===responsavel) return 1;
+        return a.localeCompare(b,'pt-BR');
+      });
+      // Datas (colunas) — só dias do mês selecionado
+      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora) && d.mesRef===true);
+      const thDatas = dias.map(d=>`<th class="data" colspan="2">${d.dia.slice(0,3).toLowerCase()} ${d.data}</th>`).join('');
+      const linhas = ordenados.map((nome,i)=>{
+        const isResp = nome===responsavel;
+        const cels = dias.map(()=>`<td class="subst"></td><td class="letra"></td>`).join('');
+        return `<tr><td class="num">${i+1}</td><td class="nome${isResp?' resp-nome':''}">${nome}${isResp?' <span class="resp">★</span>':''}</td>${cels}</tr>`;
+      }).join('');
+      return `<div class="missa">
+        <div class="missa-hora"><span class="hr">⏰ ${hora}</span><span class="resp-info">Responsável: <strong>${responsavel||'—'}</strong>${respTel}</span></div>
+        <table class="tab"><thead><tr><th class="num">Nº</th><th class="nome">Nomes Ministros(as)</th>${thDatas}</tr></thead><tbody>${linhas}</tbody></table>
+      </div>`;
+    }).join('');
+
+    return `<div class="semana-bloco">
+      <div class="semana-titulo">📅 ${info.label||s+'ª semana'} — ${info.periodo||''}</div>
+      ${missasHtml}
+    </div>`;
+  }
+
+  const blocos = sems.map(blocoDaSemana).filter(Boolean).join('');
+  if(!blocos){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
+
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — Semanas de ${mesKey}</title>
+  <style>
+    @page{ size: landscape; margin: 9mm; }
+    *{box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:18px 22px}
+    .cab{display:flex;align-items:center;gap:18px;border-bottom:3px solid #085041;padding-bottom:10px;margin-bottom:6px}
+    .cab img{width:58px;height:58px;object-fit:contain}
+    .cab .ct{flex:1;text-align:center}
+    .cab .basilica{font-size:11px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
+    .cab h1{margin:2px 0;color:#085041;font-size:22px}
+    .cab .sub{font-size:11px;color:#555;margin:0}
+    .info{display:flex;justify-content:space-between;align-items:center;margin:10px 0 6px;font-size:13px}
+    .info .tipo{font-size:12px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 12px;border-radius:20px}
+    .info .leg{font-size:11px;color:#555}
+    .semana-bloco{margin-bottom:22px;page-break-inside:avoid}
+    .semana-titulo{background:#134E8E;color:white;font-size:15px;font-weight:800;padding:8px 14px;border-radius:8px;margin-bottom:8px}
+    .missa{margin-bottom:14px;page-break-inside:avoid}
+    .missa-hora{background:#085041;color:white;padding:7px 14px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center}
+    .missa-hora .hr{font-weight:700;font-size:14px}
+    .missa-hora .resp-info{font-size:12.5px;font-weight:400}
+    table.tab{width:100%;border-collapse:collapse;border:1.5px solid #333}
+    table.tab th{background:#dfe7e4;font-size:11px;padding:6px 4px;border:1px solid #333;color:#1a1a1a;text-align:center;font-weight:700}
+    table.tab td{border:1px solid #888;padding:4px 6px;font-size:11.5px;height:38px;vertical-align:middle}
+    th.data{background:#085041;color:white;font-size:12px}
+    td.subst{min-width:120px}
+    td.letra,th.letra{width:34px;text-align:center;background:#fafafa}
+    .num{width:30px;text-align:center;color:#888}
+    .nome{text-align:left;width:230px;line-height:1.15}
+    .nome.resp-nome{font-weight:700}
+    .resp{color:#BA7517;font-weight:700;margin-left:2px}
+    .rodape{text-align:center;margin-top:16px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:8px}
+  </style></head>
+  <body>
+    <div class="cab">
+      <img src="${APP_URL}/${LOGO_BASILICA}">
+      <div class="ct">
+        <p class="basilica">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1>Lista de Presença — Escala Semanal</h1>
+        <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}">
+    </div>
+    <div class="info">
+      <div><strong>Todas as semanas do mês</strong></div>
+      <div class="leg"><strong>Legendas:</strong> P – presente / F – faltou / S – substituição</div>
+      <div class="tipo">Escala Semanal</div>
+    </div>
+    ${blocos}
+    <p class="rodape">Em caso de substituição (S), o responsável anota o nome do substituto na coluna da data &nbsp;·&nbsp; S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
+    <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+}
+
+window.imprimirPresenca = async function(){
   if(!presListaAtual){ toast('Selecione uma data com escala.','warn'); return; }
-  const { info, missas } = presListaAtual;
+  const { info } = presListaAtual;
+  const ehDom = info.diaSemana==='Domingo';
+
+  // SE SEMANAL: imprime TODAS as semanas juntas
+  if(!ehDom){
+    await imprimirPresencaTodasSemanas();
+    return;
+  }
+
+  const { missas } = presListaAtual;
   const missasComMin = missas.filter(m=>m.ministros.length);
   if(!missasComMin.length){ toast('Nenhuma escala para imprimir nesta data.','warn'); return; }
 
-  const ehDom = info.diaSemana==='Domingo';
   const tipoEscala = ehDom ? 'Dominical' : 'Semanal';
   const periodoSem = ehDom ? '' : periodoDaSemana(info.data, info.diaSemana);
   const dataLabel = periodoSem ? `Semana de ${periodoSem}` : `Domingos: ${DOMINGOS_MES.join(' · ')}`;
