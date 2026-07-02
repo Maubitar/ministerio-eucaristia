@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '12.3';
+const APP_VERSAO = '12.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -1682,7 +1682,6 @@ window.nav = function(id, btn){
       if(pAno) pAno.value = escAno;
       trocarMesPresenca();
     },
-    reforco: ()=>{ trocarAbaReforco(document.getElementById('ref-tipo')?.value||'sab12'); },
     plantao: ()=>renderPlantonistas(),
     ausencias: ()=>renderAusencias(),
     responsaveis: ()=>renderResponsaveis(),
@@ -1701,7 +1700,7 @@ window.nav = function(id, btn){
 window.voltar = function(){
   if(!_navHistorico.length){ irPara('inicio'); return; }
   const anterior = _navHistorico.pop();
-  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5, reforco:null, responsaveis:null, financeiro:null, secretaria:null, eventos:null, plantao:null, ausencias:null};
+  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5, responsaveis:null, financeiro:null, secretaria:null, eventos:null, plantao:null, ausencias:null};
   const botoes = document.querySelectorAll('.nb');
   const btn = botoes[mapa[anterior]] || null;
   _navVoltando = true;
@@ -1720,7 +1719,7 @@ function atualizarBotaoVoltar(){
 
 // Navega para uma seção a partir de atalhos do dashboard, ativando o botão correto da barra inferior
 window.irPara = function(id){
-  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5, reforco:null, responsaveis:null, financeiro:null, secretaria:null, eventos:null, plantao:null, ausencias:null};
+  const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5, responsaveis:null, financeiro:null, secretaria:null, eventos:null, plantao:null, ausencias:null};
   const botoes = document.querySelectorAll('.nb');
   const btn = botoes[mapa[id]] || null;
   nav(id, btn);
@@ -7951,7 +7950,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <button class="nb" data-sec="escala" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
   <button class="nb" data-sec="presenca" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
   <button class="nb" data-sec="relatorios" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
-  <button class="nb" data-sec="reforco" onclick="nav('reforco',this)"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>Reforço</button>
   <button class="nb" data-sec="responsaveis" onclick="nav('responsaveis',this)"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.64A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>Responsáveis</button>
   <button class="nb" data-sec="ministros" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
   <button class="nb" data-sec="mais" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
@@ -7992,11 +7990,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <div class="ac-sub">Missas e reuniões</div>
       </div>
     </button>
-    <button class="acao-card ac-teal" onclick="irPara('reforco')">
-      <span class="ac-ic">⭐</span>
+    <button class="acao-card ac-teal" onclick="irPara('responsaveis')">
+      <span class="ac-ic">📞</span>
       <div>
-        <div class="ac-tx">Reforço</div>
-        <div class="ac-sub">Escala de apoio</div>
+        <div class="ac-tx">Responsáveis</div>
+        <div class="ac-sub">Contatos por horário</div>
       </div>
     </button>
     <button class="acao-card ac-dourado" onclick="irPara('ministros')">
@@ -8411,57 +8409,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Ministros que avisaram que não poderão servir em certas datas.</p>
   </div>
   <div id="ausencias-body"></div>
-</div>
-
-<!-- SEÇÃO: REFORÇO -->
-<div id="s-reforco" class="sec">
-  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
-
-  <!-- Header do reforço — diferencia do verde da escala -->
-  <div class="card" style="background:linear-gradient(135deg,#0A5F5E,#0E7C7B);border:none;margin-bottom:0">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <p style="font-size:17px;font-weight:800;color:white;margin:0">⭐ Escala de Reforço</p>
-        <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Ministros escalados nos horários de reforço semanal</p>
-      </div>
-      <div style="text-align:right">
-        <p id="ref-mes-label" style="font-size:11px;color:rgba(255,255,255,.7);margin:0">Mês atual</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Seletor do tipo de reforço — abas visuais -->
-  <div style="display:flex;gap:0;margin-bottom:14px;border:1.5px solid #b2dfdb;border-radius:10px;overflow:hidden">
-    <button id="ref-aba-sab12" onclick="trocarAbaReforco('sab12',this)"
-      style="flex:1;padding:11px 6px;border:none;background:#0A5F5E;color:white;font-size:12px;font-weight:700;cursor:pointer;line-height:1.3">
-      ⭐ Sáb<br>12:00h
-    </button>
-    <button id="ref-aba-sab17" onclick="trocarAbaReforco('sab17',this)"
-      style="flex:1;padding:11px 6px;border:none;background:#e0f2f1;color:#0A5F5E;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #b2dfdb;line-height:1.3">
-      ⭐ Sáb<br>17:00h
-    </button>
-    <button id="ref-aba-qui18" onclick="trocarAbaReforco('qui18',this)"
-      style="flex:1;padding:11px 6px;border:none;background:#e0f2f1;color:#0A5F5E;font-size:12px;font-weight:700;cursor:pointer;border-left:1px solid #b2dfdb;line-height:1.3">
-      ⭐ Qui<br>18:00h
-    </button>
-  </div>
-
-  <!-- Select oculto (compatibilidade) -->
-  <select id="ref-tipo" style="display:none" onchange="renderReforco()">
-    <option value="sab12">Sábado 12:00h</option>
-    <option value="sab17">Sábado 17:00h</option>
-    <option value="qui18">Quinta-feira 18:00h</option>
-  </select>
-
-  <!-- Corpo do reforço — renderizado pelo renderReforco() -->
-  <div id="ref-body-nova"></div>
-
-  <!-- Botões de ação -->
-  <div style="display:flex;gap:8px;margin-top:10px">
-    <button class="btn-g" onclick="salvarReforco()" style="margin:0;flex:1;background:#0A5F5E;border-color:#0A5F5E">💾 Salvar Reforço</button>
-    <button onclick="imprimirReforco()" style="flex:1;padding:12px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>
-  </div>
-  <button onclick="compartilharReforco()" style="width:100%;margin-top:8px;padding:12px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer">📲 Enviar via WhatsApp</button>
 </div>
 
 <!-- SEÇÃO: RESPONSÁVEIS DO MÊS -->
