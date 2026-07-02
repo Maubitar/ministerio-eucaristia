@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '12.5';
+const APP_VERSAO = '12.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6521,35 +6521,78 @@ async function imprimirTodasSemanasJuntas(){
     if(!temDados) continue;
     semanasComDados++;
 
+    // Horários da semana incluindo 17h (reforço de sábado)
+    const HORAS_PRINT = ['07:00h','09:00h','12:00h','17:00h','18:00h'];
+    // Mapa: qual reforço pertence a cada horário e o dia
+    const refMap = {
+      '18:00h': {id:'qui18', dia:'Quinta'},
+      '12:00h': {id:'sab12', dia:'Sábado'},
+      '17:00h': {id:'sab17', dia:'Sábado'}
+    };
+
     let linhasSem = '';
-    MISSAS_SEM.forEach(h=>{
+    for(const h of HORAS_PRINT){
       const g = esc[h]||{ministros:[],responsavel:''};
-      if(!g.ministros.length) return;
       const resp = g.responsavel;
-      const ord = [...g.ministros].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+      const ord = [...(g.ministros||[])].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+
+      // Ministros de reforço deste horário (vale para o mês todo)
+      let refLista = [];
+      let refDia = '';
+      if(refMap[h]){
+        const refKey = `reforco_${refMap[h].id}_${mesKey}`;
+        let refData = reforcos[refKey];
+        if(!refData){
+          try{ const rd=await getDoc(doc(db,'reforcos',refKey)); refData=rd.exists()?rd.data():{ministros:[]}; reforcos[refKey]=refData; }
+          catch(e){ refData={ministros:[]}; }
+        }
+        refLista = (refData.ministros||[]).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+        refDia = refMap[h].dia;
+      }
+
+      // Se não tem nem escala normal nem reforço, pula o horário
+      if(!ord.length && !refLista.length) continue;
+
       const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
       const datasLabel = dias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
-      const linhas = ord.map((m,i)=>{
+
+      // Linhas dos ministros normais
+      let idx = 0;
+      const linhasNormais = ord.map((m)=>{
+        idx++;
         const isResp = m===resp;
         const mo = ministros.find(x=>x.nome===m);
-        const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">` : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">` : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
         return `<tr>
-          <td style="width:30px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:5px;font-size:11px">${i+1}</td>
-          <td style="width:46px;text-align:center;border:1px solid #e2e2e2;padding:3px">${fotoTag}</td>
-          <td style="border:1px solid #e2e2e2;padding:7px;font-size:12px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 6px;border-radius:10px">★ Resp.</span>':''}</td>
+          <td style="width:28px;text-align:center;color:#888;border:1px solid #dcdcdc;padding:4px;font-size:11px">${idx}</td>
+          <td style="width:44px;text-align:center;border:1px solid #dcdcdc;padding:3px">${fotoTag}</td>
+          <td style="border:1px solid #dcdcdc;padding:6px 8px;font-size:12px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 6px;border-radius:10px">★ Resp.</span>':''}</td>
         </tr>`;
       }).join('');
+
+      // Linhas dos ministros de reforço (destacados amarelo, igual à tela)
+      const linhasRef = refLista.map((m)=>{
+        idx++;
+        const mo = ministros.find(x=>x.nome===m);
+        const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #e0c04a">` : `<div style="width:34px;height:34px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        return `<tr style="background:#fff6d6">
+          <td style="width:28px;text-align:center;color:#8a6d0c;border:1px solid #ecdca0;padding:4px;font-size:11px">${idx}</td>
+          <td style="width:44px;text-align:center;border:1px solid #ecdca0;padding:3px">${fotoTag}</td>
+          <td style="border:1px solid #ecdca0;padding:6px 8px;font-size:12px;font-weight:600">${m} <span style="font-size:9px;background:#f5c518;color:#5a4500;padding:1px 6px;border-radius:10px;font-weight:800">⭐ REFORÇO ${refDia}</span></td>
+        </tr>`;
+      }).join('');
+
       linhasSem += `<div style="margin-bottom:12px;break-inside:avoid">
         <div style="background:#185FA5;color:white;padding:7px 12px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between">
           <span style="font-weight:700;font-size:14px">⏰ ${h}</span>
           <span style="font-size:11px;opacity:.85">${datasLabel}</span>
         </div>
-        <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none">
-          <thead><tr><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #cfcfcf;width:30px">Nº</th><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #cfcfcf;width:46px">Foto</th><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #cfcfcf;text-align:left">Ministro(a)</th></tr></thead>
-          <tbody>${linhas}</tbody>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #dcdcdc;border-top:none">
+          <thead><tr><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #dcdcdc;width:28px">Nº</th><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #dcdcdc;width:44px">Foto</th><th style="background:#f0f4fb;font-size:10px;padding:5px;border:1px solid #dcdcdc;text-align:left">Ministro(a)</th></tr></thead>
+          <tbody>${linhasNormais}${linhasRef}</tbody>
         </table>
       </div>`;
-    });
+    }
     if(!linhasSem) continue;
 
     blocosTodos += `<div style="margin-bottom:20px">
@@ -6561,52 +6604,7 @@ async function imprimirTodasSemanasJuntas(){
     </div>`;
   }
 
-  // ===== SEÇÃO ÚNICA DE REFORÇO (página separada no final) =====
-  // Padrão amarelo consistente com a tela. Vale para o mês todo.
-  let secaoReforco = '';
-  const blocosRef = [];
-  for(const rf of REFORCO_TIPOS){
-    const refKey = `reforco_${rf.id}_${mesKey}`;
-    let refData = reforcos[refKey];
-    if(!refData){
-      try{ const rd=await getDoc(doc(db,'reforcos',refKey)); refData=rd.exists()?rd.data():{ministros:[]}; reforcos[refKey]=refData; }
-      catch(e){ refData={ministros:[]}; }
-    }
-    const refLista = refData.ministros||[];
-    if(!refLista.length) continue;
-    const refResp = refData.responsavel||'';
-    const refOrd = [...refLista].sort((a,b)=>{ if(a===refResp)return -1; if(b===refResp)return 1; return a.localeCompare(b,'pt-BR'); });
-    const refLinhas = refOrd.map((m,i)=>{
-      const isR = m===refResp;
-      const mo = ministros.find(x=>x.nome===m);
-      const ft = mo?.foto ? `<img src="${mo.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #e0c04a">` : `<div style="width:34px;height:34px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-      return `<tr>
-        <td style="width:28px;text-align:center;color:#888;border:1px solid #ecdca0;padding:4px;font-size:11px">${i+1}</td>
-        <td style="width:44px;text-align:center;border:1px solid #ecdca0;padding:3px">${ft}</td>
-        <td style="border:1px solid #ecdca0;padding:6px 8px;font-size:12px;${isR?'font-weight:700':''}">${m} <span style="font-size:9px;background:#f5c518;color:#5a4500;padding:1px 6px;border-radius:10px;font-weight:800">⭐ REFORÇO</span>${isR?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 6px;border-radius:10px">★ Resp.</span>':''}</td>
-      </tr>`;
-    }).join('');
-    blocosRef.push(`<div style="margin-bottom:14px;break-inside:avoid">
-      <div style="background:#e0a800;color:#3a2c00;padding:7px 12px;border-radius:6px 6px 0 0">
-        <span style="font-weight:800;font-size:14px">⭐ ${rf.label}</span>
-      </div>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #ecdca0;border-top:none">
-        <thead><tr><th style="background:#fdf3d3;font-size:10px;padding:5px;border:1px solid #ecdca0;width:28px">Nº</th><th style="background:#fdf3d3;font-size:10px;padding:5px;border:1px solid #ecdca0;width:44px">Foto</th><th style="background:#fdf3d3;font-size:10px;padding:5px;border:1px solid #ecdca0;text-align:left">Ministro(a)</th></tr></thead>
-        <tbody>${refLinhas}</tbody>
-      </table>
-    </div>`);
-  }
-  if(blocosRef.length){
-    secaoReforco = `<div style="page-break-before:always;padding-top:6px">
-      <div style="background:#f5c518;color:#3a2c00;padding:10px 16px;border-radius:8px;margin-bottom:12px;text-align:center">
-        <span style="font-weight:900;font-size:17px">⭐ ESCALA DE REFORÇO</span>
-        <p style="font-size:11px;margin:3px 0 0;font-weight:600">Válida para todas as semanas do mês</p>
-      </div>
-      ${blocosRef.join('')}
-    </div>`;
-  }
-
-  if(!blocosTodos && !secaoReforco){ toast('Nenhuma semana escalada ainda.','warn'); return; }
+  if(!blocosTodos){ toast('Nenhuma semana escalada ainda.','warn'); return; }
 
   const w = window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Escalas Semanais — ${getMesAtual()}</title>
@@ -6638,7 +6636,6 @@ async function imprimirTodasSemanasJuntas(){
     <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
   </div>
   ${blocosTodos}
-  ${secaoReforco}
   <p style="text-align:center;margin-top:16px;font-size:9px;color:#999;border-top:1px solid #eee;padding-top:8px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
   <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
