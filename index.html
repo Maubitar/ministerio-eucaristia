@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '14.3';
+const APP_VERSAO = '14.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6610,14 +6610,16 @@ async function imprimirTodasSemanasJuntas(){
         }).join('');
       }
 
-      linhasSem += `<div style="margin-bottom:14px;break-inside:avoid;border:1px solid #d5d5d5">
-        <div style="background:${corHora};background-image:linear-gradient(${corHora},${corHora});padding:8px 14px">
+      linhasSem += `<div style="margin-bottom:14px;break-inside:avoid">
+        <div style="background:${corHora};background-image:linear-gradient(${corHora},${corHora});padding:9px 14px">
           <span style="font-weight:800;font-size:15px;color:#ffffff">⏰ ${h}</span>
           <span style="font-size:12px;font-weight:600;margin-left:14px;color:#ffffff">${datasLabel}</span>
         </div>
-        <table>
-          <tbody>${linhasNormais}${linhasRef}</tbody>
-        </table>
+        <div style="border-left:1px solid #d5d5d5;border-right:1px solid #d5d5d5;border-bottom:1px solid #d5d5d5">
+          <table style="width:100%;border-collapse:separate;border-spacing:0">
+            <tbody>${linhasNormais}${linhasRef}</tbody>
+          </table>
+        </div>
       </div>`;
     }
     if(!linhasSem) continue;
@@ -6651,28 +6653,18 @@ async function imprimirTodasSemanasJuntas(){
     .cab .ct{flex:1;text-align:center}
     .cab h1{margin:1px 0;color:#185FA5;font-size:16px;font-weight:900}
     .cab .sub{font-size:10px;color:#555;margin:0}
-    /* PADRÃO ÚNICO das tabelas — SEM bordas verticais, só linha horizontal fina */
-    table{
-      page-break-inside:auto;
-      border-collapse:collapse;
-      border-spacing:0;
-      width:100%;
-      table-layout:fixed;
-      border:0!important;
-    }
-    tr{page-break-inside:avoid;border:0!important}
-    thead,tbody{border:0!important}
+    /* Tabela limpa — border-collapse:separate evita vazamento de bordas nos cabeçalhos */
+    table{page-break-inside:auto;border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;border:0}
+    tr{page-break-inside:avoid;border:0}
+    thead,tbody{border:0}
     table td{
-      border:0!important;
-      border-top:0!important;
-      border-left:0!important;
-      border-right:0!important;
-      border-bottom:1px solid #e5e5e5!important;
+      border:0;
+      border-bottom:1px solid #e8e8e8;
       vertical-align:middle;
       overflow:hidden;
       text-overflow:ellipsis;
     }
-    table tr:last-child td{border-bottom:0!important}
+    table tr:last-child td{border-bottom:0}
     table td:nth-child(1){width:34px;text-align:center}
     table td:nth-child(2){width:42px;text-align:center}
     table td:nth-child(3){width:auto;text-align:left}
