@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '16.2';
+const APP_VERSAO = '16.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3488,7 +3488,7 @@ window.gerarImagemEscala = async function(){
   toast('Gerando imagem...','ok');
 
   // Container offscreen com o layout — largura base maior = mais nitidez
-  const BASE_W = 1600;
+  const BASE_W = 2400;
   const wrap=document.createElement('div');
   wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:28px 24px;font-family:Arial,sans-serif;color:#1a1a1a`;
   wrap.innerHTML=`
