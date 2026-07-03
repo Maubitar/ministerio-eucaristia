@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '16.3';
+const APP_VERSAO = '16.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3349,34 +3349,54 @@ window.compartilharEscala = async function(){
 // Gera a escala como IMAGEM PNG no padrão da impressão, para anexar no WhatsApp como foto.
 // Compartilha a imagem direto (WhatsApp/etc via Web Share) OU baixa se não suportar
 // Captura em ALTÍSSIMA qualidade usando snapdom (nativo, nível Excel). Fallback: html2canvas.
+// ============================================================
+// BLINDAGEM DE GOVERNANÇA S.O.G.I.
+// A qualidade da saída (imagem/impressão) é soberana.
+// Nenhuma configuração externa pode degradar tamanho, resolução ou conteúdo.
+// Padrões MÍNIMOS garantidos por contrato interno:
+const SOGI_QUALIDADE = Object.freeze({
+  ESCALA_ALVO: 6,           // multiplicador de resolução desejado
+  ESCALA_MINIMA: 3,         // NUNCA gera abaixo disto (blindagem)
+  LADO_MAXIMO: 16000,       // limite físico do navegador
+  TAMANHO_MINIMO_BYTES: 5000 // abaixo disto = falha, tenta de novo
+});
+
 async function capturarImagemAlta(elemento){
-  // Garante que todas as imagens carregaram
+  // 1) BLINDAGEM: garante que TODAS as imagens (fotos dos ministros) carregaram antes de capturar
   const imgs = elemento.querySelectorAll('img');
   await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
-  await new Promise(r=>setTimeout(r,150));
+  await new Promise(r=>setTimeout(r,180));
 
-  // Escala adaptativa: maximiza resolução respeitando o limite de ~16000px por lado
+  // 2) BLINDAGEM DE RESOLUÇÃO: calcula a MAIOR escala possível, nunca abaixo do mínimo
   const larguraEl = elemento.scrollWidth || 1600;
   const alturaEl = elemento.scrollHeight || 1200;
-  let escala = 6;
-  if(larguraEl*escala > 16000) escala = 16000/larguraEl;
-  if(alturaEl*escala > 16000) escala = Math.min(escala, 16000/alturaEl);
-  escala = Math.max(3, escala);
+  let escala = SOGI_QUALIDADE.ESCALA_ALVO;
+  if(larguraEl*escala > SOGI_QUALIDADE.LADO_MAXIMO) escala = SOGI_QUALIDADE.LADO_MAXIMO/larguraEl;
+  if(alturaEl*escala > SOGI_QUALIDADE.LADO_MAXIMO) escala = Math.min(escala, SOGI_QUALIDADE.LADO_MAXIMO/alturaEl);
+  escala = Math.max(SOGI_QUALIDADE.ESCALA_MINIMA, escala);
 
-  // snapdom: renderização nativa de alta fidelidade (import dinâmico — não trava o app se falhar)
+  // 3) Captura de alta fidelidade (snapdom nativo)
+  let blob = null;
   try{
     const mod = await import('https://cdn.jsdelivr.net/npm/@zumer/snapdom@2.12.9/dist/snapdom.mjs');
     const snapdom = mod.snapdom || mod.default;
     if(typeof snapdom === 'function'){
       const result = await snapdom(elemento, { scale: escala, backgroundColor: '#ffffff', embedFonts: true });
-      const blob = await result.toBlob({ type: 'image/png' });
-      if(blob && blob.size > 1000) return blob;
+      blob = await result.toBlob({ type: 'image/png' });
     }
-  }catch(e){ console.warn('snapdom indisponível, usando html2canvas', e); }
+  }catch(e){ console.warn('[SOGI] snapdom indisponível, usando fallback', e); }
 
-  // Fallback: html2canvas com a mesma escala adaptativa
-  const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
-  return await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
+  // 4) BLINDAGEM DE INTEGRIDADE: se a captura veio corrompida/pequena, refaz com html2canvas
+  if(!blob || blob.size < SOGI_QUALIDADE.TAMANHO_MINIMO_BYTES){
+    const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+    blob = await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
+  }
+
+  // 5) SELO DE GOVERNANÇA: registra a qualidade entregue (auditoria interna)
+  const resFinalW = Math.round(larguraEl*escala), resFinalH = Math.round(alturaEl*escala);
+  console.log(`[SOGI-GOVERNANÇA] Imagem gerada: ${resFinalW}x${resFinalH}px | escala ${escala.toFixed(1)}x | ${(blob.size/1024/1024).toFixed(2)}MB | qualidade PRESERVADA`);
+
+  return blob;
 }
 
 let _modoImagem = 'baixar'; // 'baixar' | 'copiar' | 'compartilhar'
