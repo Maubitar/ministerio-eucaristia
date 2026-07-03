@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '14.2';
+const APP_VERSAO = '14.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6587,7 +6587,7 @@ async function imprimirTodasSemanasJuntas(){
         idx++;
         const isResp = m===resp;
         const mo = ministros.find(x=>x.nome===m);
-        const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">` : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1px solid #cde8d8">` : `<div style="width:30px;height:30px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
         return `<tr>
           <td style="color:#888;padding:6px 4px;font-size:11px">${idx}</td>
           <td style="padding:3px">${fotoTag}</td>
@@ -6601,7 +6601,7 @@ async function imprimirTodasSemanasJuntas(){
         linhasRef += rf.ministros.map((m)=>{
           idx++;
           const mo = ministros.find(x=>x.nome===m);
-          const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #e0c04a">` : `<div style="width:34px;height:34px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+          const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1px solid #e0c04a">` : `<div style="width:30px;height:30px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
           return `<tr style="background:#fff6d6">
             <td style="color:#8a6d0c;padding:6px 4px;font-size:11px">${idx}</td>
             <td style="padding:3px">${fotoTag}</td>
@@ -6611,7 +6611,7 @@ async function imprimirTodasSemanasJuntas(){
       }
 
       linhasSem += `<div style="margin-bottom:14px;break-inside:avoid;border:1px solid #d5d5d5">
-        <div style="background:${corHora};padding:8px 14px">
+        <div style="background:${corHora};background-image:linear-gradient(${corHora},${corHora});padding:8px 14px">
           <span style="font-weight:800;font-size:15px;color:#ffffff">⏰ ${h}</span>
           <span style="font-size:12px;font-weight:600;margin-left:14px;color:#ffffff">${datasLabel}</span>
         </div>
@@ -6627,7 +6627,7 @@ async function imprimirTodasSemanasJuntas(){
     const corSemana = coresSemana[(parseInt(s)-1) % coresSemana.length];
 
     blocosTodos += `<div style="margin-bottom:22px">
-      <div style="background:${corSemana};padding:12px 18px;margin-bottom:10px;text-align:center">
+      <div style="background:${corSemana};background-image:linear-gradient(${corSemana},${corSemana});padding:12px 18px;margin-bottom:10px;text-align:center">
         <div style="font-weight:900;font-size:19px;letter-spacing:.5px;color:#ffffff">${s}ª SEMANA</div>
         <div style="font-size:15px;font-weight:700;margin-top:2px;color:#ffffff">${info?.periodo||''}</div>
       </div>
@@ -6674,7 +6674,7 @@ async function imprimirTodasSemanasJuntas(){
     }
     table tr:last-child td{border-bottom:0!important}
     table td:nth-child(1){width:34px;text-align:center}
-    table td:nth-child(2){width:48px;text-align:center}
+    table td:nth-child(2){width:42px;text-align:center}
     table td:nth-child(3){width:auto;text-align:left}
     /* Remove QUALQUER sombra ou outline que vire linha na impressão */
     *{box-shadow:none!important;-webkit-box-shadow:none!important;outline:0!important}
@@ -7951,8 +7951,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   #print-area .tel{font-size:8.5px;color:#085041;font-weight:700;margin-left:3px;background:#e1f5ee;padding:0 5px;border-radius:20px;white-space:nowrap}
   #print-area .rodape{text-align:center;margin-top:10px;font-size:8px;color:#999;border-top:1px solid #eee;padding-top:6px}
   #print-area .no-print{display:none!important}
-  #print-area img.foto-min{width:26px!important;height:26px!important;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1px solid #cde8d8}
-  #print-area .ini-circle{width:26px;height:26px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;margin:0 auto}
+  #print-area img.foto-min{width:30px!important;height:30px!important;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1px solid #cde8d8}
+  #print-area .ini-circle{width:30px;height:30px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin:0 auto}
   @page{size:portrait;margin:8mm}
 }
 </style>
