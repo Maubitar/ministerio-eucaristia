@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '14.5';
+const APP_VERSAO = '14.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6611,7 +6611,7 @@ async function imprimirTodasSemanasJuntas(){
       }
 
       linhasSem += `<div style="margin-bottom:14px;break-inside:avoid">
-        <div style="background:${corHora};padding:9px 14px">
+        <div style="background:${corHora};padding:9px 14px;border-radius:6px 6px 0 0">
           <span style="font-weight:800;font-size:15px;color:#ffffff">⏰ ${h}</span>
           <span style="font-size:12px;font-weight:600;margin-left:14px;color:#ffffff">${datasLabel}</span>
         </div>
@@ -6629,7 +6629,7 @@ async function imprimirTodasSemanasJuntas(){
     const corSemana = coresSemana[(parseInt(s)-1) % coresSemana.length];
 
     blocosTodos += `<div style="margin-bottom:22px">
-      <div style="background:${corSemana};padding:12px 18px;margin-bottom:10px;text-align:center">
+      <div style="background:${corSemana};padding:12px 18px;margin-bottom:10px;text-align:center;border-radius:8px">
         <div style="font-weight:900;font-size:19px;letter-spacing:.5px;color:#ffffff">${s}ª SEMANA</div>
         <div style="font-size:15px;font-weight:700;margin-top:2px;color:#ffffff">${info?.periodo||''}</div>
       </div>
@@ -6705,34 +6705,70 @@ async function gerarImagemTodasSemanas(){
   }
 
   const wrap = document.createElement('div');
-  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:900px;background:white;padding:30px;font-family:Arial,sans-serif';
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1000px;background:white;padding:30px;font-family:Arial,sans-serif';
 
   let blocos = '';
   for(const s of sems){
     const key = `escala_sem_sem${s}_${mesKey}`;
     const esc = escalas[key]||{};
     const info = SEMANAS_MES[s];
-    const temDados = MISSAS_SEM.some(h=>(esc[h]?.ministros||[]).length>0);
-    if(!temDados) continue;
+    // Cor da semana (mesma paleta da impressão)
+    const coresImg = ['#2E7BC4','#1D9E75','#0E7C7B','#D99A2B','#546E9B'];
+    const corImgSemana = coresImg[(parseInt(s)-1) % coresImg.length];
+
+    // Reforços do mês (para mesclar nos horários certos)
+    const refDoHorario = {
+      '12:00h':[{id:'sab12',label:'Missa Sábado 12h'}],
+      '18:00h':[{id:'qui18',label:'Missa Quinta 18h'},{id:'sab17',label:'Missa Sábado 17h'}]
+    };
 
     let horasBlocos = '';
-    MISSAS_SEM.forEach(h=>{
+    for(const h of MISSAS_SEM){
       const g = esc[h]||{ministros:[],responsavel:''};
-      if(!g.ministros.length) return;
       const resp = g.responsavel;
-      const ord = [...g.ministros].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+      const ord = [...(g.ministros||[])].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+      // Reforços deste horário
+      const refsHora = [];
+      if(refDoHorario[h]){
+        for(const rm of refDoHorario[h]){
+          const rk = `reforco_${rm.id}_${mesKey}`;
+          let rd = reforcos[rk];
+          if(!rd){ try{ const dd=await getDoc(doc(db,'reforcos',rk)); rd=dd.exists()?dd.data():{ministros:[]}; reforcos[rk]=rd; }catch(e){ rd={ministros:[]}; } }
+          const ml=(rd.ministros||[]).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+          if(ml.length) refsHora.push({label:rm.label,ministros:ml});
+        }
+      }
+      const totalRef = refsHora.reduce((a,r)=>a+r.ministros.length,0);
+      if(!ord.length && !totalRef) continue;
+
       const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
       const datasLabel = dias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
-      const linhas = ord.map((m,i)=>{
+      const respObj = ministros.find(x=>x.nome===resp);
+
+      let idx=0;
+      const linhasN = ord.map((m)=>{
+        idx++;
         const isResp = m===resp;
         const mo = ministros.find(x=>x.nome===m);
-        const fotoTag = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:38px;height:38px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1.5px solid #cde8d8">` : `<div style="width:38px;height:38px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-        return `<tr><td style="width:30px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:5px">${i+1}</td><td style="width:52px;text-align:center;border:1px solid #e2e2e2;padding:4px">${fotoTag}</td><td style="border:1px solid #e2e2e2;padding:8px;font-size:14px;${isResp?'font-weight:700':''}">${m}${isResp?' ★':''}</td></tr>`;
+        const telResp = isResp && respObj?.tel ? ` <span style="font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 9px;border-radius:20px;margin-left:6px">📞 ${respObj.tel}</span>` : '';
+        const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e1f5ee">` : `<div style="width:48px;height:48px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        return `<tr><td style="width:54px;text-align:center;color:#888;padding:6px 8px;font-size:16px;border-bottom:1px solid #eee">${idx}</td><td style="width:66px;text-align:center;padding:4px 6px;border-bottom:1px solid #eee">${fotoHtml}</td><td style="padding:9px 10px;font-size:16px;border-bottom:1px solid #eee;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:12px;background:#faeeda;color:#7a4a06;padding:2px 9px;border-radius:20px;font-weight:700;margin-left:6px">★ Responsável</span>':''}${telResp}</td></tr>`;
       }).join('');
-      horasBlocos += `<div style="margin-bottom:10px"><div style="background:#185FA5;color:white;padding:7px 12px;border-radius:6px 6px 0 0;display:flex;justify-content:space-between"><span style="font-weight:700;font-size:15px">⏰ ${h}</span><span style="font-size:12px;opacity:.85">${datasLabel}</span></div><table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="background:#f0f4fb;font-size:11px;padding:6px;border:1px solid #cfcfcf;width:30px">Nº</th><th style="background:#f0f4fb;font-size:11px;padding:6px;border:1px solid #cfcfcf;width:52px">Foto</th><th style="background:#f0f4fb;font-size:11px;padding:6px;border:1px solid #cfcfcf;text-align:left">Ministro(a)</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
-    });
+
+      let linhasR='';
+      for(const rf of refsHora){
+        linhasR += rf.ministros.map((m)=>{
+          idx++;
+          const mo = ministros.find(x=>x.nome===m);
+          const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e0c04a">` : `<div style="width:48px;height:48px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+          return `<tr style="background:#fff6d6"><td style="width:54px;text-align:center;color:#8a6d0c;padding:6px 8px;font-size:16px;border-bottom:1px solid #f0e2b0">${idx}</td><td style="width:66px;text-align:center;padding:4px 6px;border-bottom:1px solid #f0e2b0">${fotoHtml}</td><td style="padding:9px 10px;font-size:16px;font-weight:600;border-bottom:1px solid #f0e2b0">${m} <span style="font-size:12px;background:#f5c518;color:#5a4500;padding:2px 9px;border-radius:20px;font-weight:800">⭐ REFORÇO ${rf.label}</span></td></tr>`;
+        }).join('');
+      }
+
+      horasBlocos += `<div style="margin-bottom:16px"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:19px;padding:9px 16px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:14px;opacity:.9">${datasLabel}</span></div><table style="width:100%;border-collapse:separate;border-spacing:0;border-left:1px solid #ddd;border-right:1px solid #ddd;border-bottom:1px solid #ddd"><tbody>${linhasN}${linhasR}</tbody></table></div>`;
+    }
     if(!horasBlocos) continue;
-    blocos += `<div style="margin-bottom:20px;border:2px solid #185FA5;border-radius:10px;overflow:hidden"><div style="background:#185FA5;color:white;padding:10px 16px;display:flex;justify-content:space-between"><span style="font-weight:800;font-size:16px">${info?.label||s+'ª semana'}</span><span style="font-size:13px;opacity:.9">${info?.periodo||''}</span></div><div style="padding:10px">${horasBlocos}</div></div>`;
+    blocos += `<div style="margin-bottom:24px"><div style="background:${corImgSemana};color:white;padding:14px 18px;text-align:center;border-radius:8px;margin-bottom:12px"><div style="font-weight:900;font-size:22px">${s}ª SEMANA</div><div style="font-size:16px;font-weight:700;margin-top:2px">${info?.periodo||''}</div></div>${horasBlocos}</div>`;
   }
 
   if(!blocos){ toast('Nenhuma semana escalada.','warn'); return; }
@@ -6756,7 +6792,11 @@ async function gerarImagemTodasSemanas(){
   await new Promise(r=>setTimeout(r,200));
 
   try{
-    const canvas = await html2canvas(wrap,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
+    // Alta qualidade adaptativa (igual à dominical)
+    const maxLado = 32000;
+    let escalaQual = 4;
+    if(1000*escalaQual > maxLado) escalaQual = Math.floor(maxLado/1000);
+    const canvas = await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
     canvas.toBlob(blob=>{
       const a=document.createElement('a');
       a.href=URL.createObjectURL(blob);
