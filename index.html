@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '16.4';
+const APP_VERSAO = '16.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3497,13 +3497,13 @@ window.gerarImagemEscala = async function(){
     </div>`;
   }
 
-  // Monta os cards e distribui em 2 COLUNAS (formato Excel — imagem larga, não vira palito)
+  // Monta os cards e distribui em 3 COLUNAS (imagem PAISAGEM — larga e baixa, ideal p/ WhatsApp)
   const cards = horas.map(h=>cardHorario(h)).filter(c=>c);
   if(!cards.length){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
-  // Distribui alternadamente: pares na coluna esquerda, ímpares na direita
-  let colEsq='', colDir='';
-  cards.forEach((c,i)=>{ if(i%2===0) colEsq+=c; else colDir+=c; });
-  let blocos = `<div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${colEsq}</div><div style="flex:1">${colDir}</div></div>`;
+  // Distribui em 3 colunas equilibradas
+  const cols3 = ['','',''];
+  cards.forEach((c,i)=>{ cols3[i%3]+=c; });
+  let blocos = `<div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${cols3[0]}</div><div style="flex:1">${cols3[1]}</div><div style="flex:1">${cols3[2]}</div></div>`;
 
   toast('Gerando imagem...','ok');
 
