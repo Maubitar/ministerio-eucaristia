@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '13.8';
+const APP_VERSAO = '13.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6611,9 +6611,9 @@ async function imprimirTodasSemanasJuntas(){
       }
 
       linhasSem += `<div style="margin-bottom:14px;break-inside:avoid;border:1px solid #d5d5d5">
-        <div style="background:${corHora};color:white;padding:8px 14px">
-          <span style="font-weight:800;font-size:15px">⏰ ${h}</span>
-          <span style="font-size:12px;font-weight:600;margin-left:14px">${datasLabel}</span>
+        <div style="background:#f4f7fb;border-left:6px solid ${corHora};padding:8px 14px">
+          <span style="font-weight:800;font-size:15px;color:${corHora}">⏰ ${h}</span>
+          <span style="font-size:12px;font-weight:600;margin-left:14px;color:#444">${datasLabel}</span>
         </div>
         <table>
           <tbody>${linhasNormais}${linhasRef}</tbody>
@@ -6627,9 +6627,9 @@ async function imprimirTodasSemanasJuntas(){
     const corSemana = coresSemana[(parseInt(s)-1) % coresSemana.length];
 
     blocosTodos += `<div style="margin-bottom:22px">
-      <div style="background:${corSemana};color:white;padding:12px 18px;margin-bottom:10px;text-align:center">
-        <div style="font-weight:900;font-size:19px;letter-spacing:.5px">${s}ª SEMANA</div>
-        <div style="font-size:15px;font-weight:700;margin-top:2px">${info?.periodo||''}</div>
+      <div style="background:#fff;border:2px solid ${corSemana};border-left:10px solid ${corSemana};padding:10px 18px;margin-bottom:10px;text-align:center">
+        <div style="font-weight:900;font-size:19px;letter-spacing:.5px;color:${corSemana}">${s}ª SEMANA</div>
+        <div style="font-size:15px;font-weight:700;margin-top:2px;color:#333">${info?.periodo||''}</div>
       </div>
       ${linhasSem}
     </div>`;
