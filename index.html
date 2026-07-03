@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '14.7';
+const APP_VERSAO = '14.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3347,6 +3347,28 @@ window.compartilharEscala = async function(){
 };
 
 // Gera a escala como IMAGEM PNG no padrão da impressão, para anexar no WhatsApp como foto.
+// Compartilha a imagem direto (WhatsApp/etc via Web Share) OU baixa se não suportar
+async function compartilharOuBaixarImagem(blob, nomeArq){
+  const file = new File([blob], nomeArq, {type:'image/png'});
+  // Tenta compartilhar como arquivo (abre WhatsApp com a foto pronta)
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({ files:[file], title:'Escala MESCE', text:'Escala do Ministério da Eucaristia — Basílica de Nazaré' });
+      return;
+    }catch(e){
+      if(e.name==='AbortError') return; // usuário cancelou
+      // se falhar, cai para o download abaixo
+    }
+  }
+  // Fallback: baixa a imagem
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=nomeArq;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  document.getElementById('modal-imagem').style.display='flex';
+}
+
 window.gerarImagemEscala = async function(){
   const tipo=document.getElementById('esc-tipo').value;
   // SE SEMANAL: gera imagem de TODAS as semanas juntas
@@ -3407,7 +3429,7 @@ window.gerarImagemEscala = async function(){
   toast('Gerando imagem...','ok');
 
   // Container offscreen com o layout — largura base maior = mais nitidez
-  const BASE_W = 900;
+  const BASE_W = 1080;
   const wrap=document.createElement('div');
   wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:34px 40px;font-family:Arial,sans-serif;color:#1a1a1a`;
   wrap.innerHTML=`
@@ -3433,29 +3455,19 @@ window.gerarImagemEscala = async function(){
     await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
       img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
     ));
-    // escala dinâmica para ALTÍSSIMA resolução, respeitando limites de canvas do navegador
+    // Escala para boa nitidez respeitando o limite de canvas do navegador (~16384px/lado)
     const alturaEstim = wrap.scrollHeight || 1200;
-    // Navegadores suportam até ~16384px por lado. Buscamos a maior escala possível.
     const maxLado = 16000;
-    const maxArea = 250000000; // ~250 MP de segurança
-    let escalaQual = 6; // alvo de altíssima qualidade
-    // respeita limite de largura
-    if(BASE_W*escalaQual > maxLado) escalaQual = Math.floor(maxLado/BASE_W);
-    // respeita limite de altura
-    if(alturaEstim*escalaQual > maxLado) escalaQual = Math.floor(maxLado/alturaEstim);
-    // respeita limite de área total
-    if(BASE_W*alturaEstim*escalaQual*escalaQual > maxArea) escalaQual = Math.floor(Math.sqrt(maxArea/(BASE_W*alturaEstim)));
-    escalaQual = Math.max(3, escalaQual); // nunca abaixo de 3x
+    let escalaQual = 2.5; // nitidez alta sem estourar memória
+    // Não deixa a altura estourar o limite do canvas
+    if(alturaEstim*escalaQual > maxLado) escalaQual = maxLado/alturaEstim;
+    if(BASE_W*escalaQual > maxLado) escalaQual = maxLado/BASE_W;
+    escalaQual = Math.max(2, Math.min(escalaQual, 3));
     const canvas=await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
     const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.png`;
-    canvas.toBlob(blob=>{
-      const a=document.createElement('a');
-      a.href=URL.createObjectURL(blob);
-      a.download=nomeArq;
-      a.click();
-      setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-      document.getElementById('modal-imagem').style.display='flex';
-    },'image/png',1.0);
+    canvas.toBlob(async blob=>{
+      await compartilharOuBaixarImagem(blob, nomeArq);
+    },'image/png',0.95);
   }catch(e){
     toast('Erro ao gerar imagem: '+e.message,'err');
   }finally{
@@ -6705,7 +6717,7 @@ async function gerarImagemTodasSemanas(){
   }
 
   const wrap = document.createElement('div');
-  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1000px;background:white;padding:30px;font-family:Arial,sans-serif';
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1080px;background:white;padding:30px;font-family:Arial,sans-serif';
 
   let blocos = '';
   for(const s of sems){
@@ -6792,19 +6804,17 @@ async function gerarImagemTodasSemanas(){
   await new Promise(r=>setTimeout(r,200));
 
   try{
-    // Alta qualidade adaptativa (igual à dominical)
-    const maxLado = 32000;
-    let escalaQual = 4;
-    if(1000*escalaQual > maxLado) escalaQual = Math.floor(maxLado/1000);
+    // Nitidez alta respeitando limite de canvas
+    const alturaEstim = wrap.scrollHeight || 1200;
+    const maxLado = 16000;
+    let escalaQual = 2.5;
+    if(alturaEstim*escalaQual > maxLado) escalaQual = maxLado/alturaEstim;
+    if(1080*escalaQual > maxLado) escalaQual = maxLado/1080;
+    escalaQual = Math.max(2, Math.min(escalaQual, 3));
     const canvas = await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
-    canvas.toBlob(blob=>{
-      const a=document.createElement('a');
-      a.href=URL.createObjectURL(blob);
-      a.download=`escalas_semanais_${getMesAtual()}.png`;
-      a.click();
-      setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-      document.getElementById('modal-imagem').style.display='flex';
-    },'image/png',1.0);
+    canvas.toBlob(async blob=>{
+      await compartilharOuBaixarImagem(blob, `escalas_semanais_${getMesAtual()}.png`);
+    },'image/png',0.95);
   }catch(e){ toast('Erro ao gerar imagem: '+e.message,'err'); }
   finally{ document.body.removeChild(wrap); }
 }
