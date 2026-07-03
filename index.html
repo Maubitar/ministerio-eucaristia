@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '15.2';
+const APP_VERSAO = '15.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3348,6 +3348,34 @@ window.compartilharEscala = async function(){
 
 // Gera a escala como IMAGEM PNG no padrão da impressão, para anexar no WhatsApp como foto.
 // Compartilha a imagem direto (WhatsApp/etc via Web Share) OU baixa se não suportar
+// Captura em ALTÍSSIMA qualidade usando snapdom (nativo, nível Excel). Fallback: html2canvas.
+async function capturarImagemAlta(elemento){
+  // Garante que todas as imagens carregaram
+  const imgs = elemento.querySelectorAll('img');
+  await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
+  await new Promise(r=>setTimeout(r,150));
+
+  // snapdom: renderização nativa de alta fidelidade (import dinâmico — não trava o app se falhar)
+  try{
+    const mod = await import('https://cdn.jsdelivr.net/npm/@zumer/snapdom@2.12.9/dist/snapdom.mjs');
+    const snapdom = mod.snapdom || mod.default;
+    if(typeof snapdom === 'function'){
+      const result = await snapdom(elemento, { scale: 3, backgroundColor: '#ffffff', embedFonts: true });
+      const blob = await result.toBlob({ type: 'image/png' });
+      if(blob && blob.size > 1000) return blob;
+    }
+  }catch(e){ console.warn('snapdom indisponível, usando html2canvas', e); }
+
+  // Fallback: html2canvas em alta escala
+  const larg = elemento.scrollWidth || 1200;
+  const alt = elemento.scrollHeight || 1200;
+  let sc = 4;
+  if(larg*sc > 16000) sc = 16000/larg;
+  if(alt*sc > 16000) sc = Math.min(sc, 16000/alt);
+  const canvas = await html2canvas(elemento,{scale:Math.max(2.5,sc),backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+  return await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
+}
+
 let _modoImagem = 'baixar'; // 'baixar' | 'copiar' | 'compartilhar'
 
 async function compartilharOuBaixarImagem(blob, nomeArq){
@@ -3480,28 +3508,10 @@ window.gerarImagemEscala = async function(){
     await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
       img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
     ));
-    // ALTA RESOLUÇÃO: escala máxima possível respeitando o limite de canvas (~16000px/lado)
-    const alturaEstim = wrap.scrollHeight || 1200;
-    const larguraReal = wrap.scrollWidth || BASE_W;
-    const maxLado = 16000;
-    // Começa querendo 5x e reduz só o necessário para caber
-    let escalaQual = 5;
-    if(alturaEstim*escalaQual > maxLado) escalaQual = maxLado/alturaEstim;
-    if(larguraReal*escalaQual > maxLado) escalaQual = maxLado/larguraReal;
-    escalaQual = Math.max(2.5, escalaQual); // nunca abaixo de 2.5x
-    const canvas=await html2canvas(wrap,{
-      scale:escalaQual,
-      backgroundColor:'#ffffff',
-      useCORS:true,
-      logging:false,
-      imageTimeout:0,
-      width:larguraReal,
-      windowWidth:larguraReal
-    });
+    // ALTA QUALIDADE NATIVA via snapdom (muito superior ao html2canvas)
     const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.png`;
-    canvas.toBlob(async blob=>{
-      await compartilharOuBaixarImagem(blob, nomeArq);
-    },'image/png',1.0);
+    const blob = await capturarImagemAlta(wrap);
+    await compartilharOuBaixarImagem(blob, nomeArq);
   }catch(e){
     toast('Erro ao gerar imagem: '+e.message,'err');
   }finally{
@@ -6838,18 +6848,9 @@ async function gerarImagemTodasSemanas(){
   await new Promise(r=>setTimeout(r,200));
 
   try{
-    // ALTA RESOLUÇÃO
-    const alturaEstim = wrap.scrollHeight || 1200;
-    const larguraReal = wrap.scrollWidth || 1080;
-    const maxLado = 16000;
-    let escalaQual = 5;
-    if(alturaEstim*escalaQual > maxLado) escalaQual = maxLado/alturaEstim;
-    if(larguraReal*escalaQual > maxLado) escalaQual = maxLado/larguraReal;
-    escalaQual = Math.max(2.5, escalaQual);
-    const canvas = await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0,width:larguraReal,windowWidth:larguraReal});
-    canvas.toBlob(async blob=>{
-      await compartilharOuBaixarImagem(blob, `escalas_semanais_${getMesAtual()}.png`);
-    },'image/png',1.0);
+    // ALTA QUALIDADE NATIVA via snapdom
+    const blob = await capturarImagemAlta(wrap);
+    await compartilharOuBaixarImagem(blob, `escalas_semanais_${getMesAtual()}.png`);
   }catch(e){ toast('Erro ao gerar imagem: '+e.message,'err'); }
   finally{ document.body.removeChild(wrap); }
 }
