@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.5';
+const APP_VERSAO = '17.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3443,28 +3443,38 @@ let _gerarBlobParaCopiar = null;
 window.copiarImagemEscala = async function(){
   _modoImagem = 'copiar';
   toast('Gerando imagem para copiar...','ok');
+  let _blobCopiar = null;
   try{
-    // Técnica robusta: ClipboardItem recebe uma PROMISE do blob.
-    // Isso mantém a permissão do clique ativa mesmo enquanto a imagem demora a gerar,
-    // resolvendo o problema de páginas em branco em semanas maiores (2ª, 4ª, etc).
+    // 1) GERA o blob primeiro (captura a imagem completa). _gerarBlobParaCopiar guarda o blob.
+    _gerarBlobParaCopiar = (b)=>{ _blobCopiar = b; };
+    await gerarImagemEscala();
+
+    // 2) Valida que o blob veio completo (não branco)
+    if(!_blobCopiar || _blobCopiar.size < 5000){
+      throw new Error('Imagem vazia — baixando em vez de copiar');
+    }
+
+    // 3) COPIA para a área de transferência
     if(typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write){
-      let _resolvido = false;
-      const blobPromise = new Promise((resolve, reject)=>{
-        _gerarBlobParaCopiar = (b)=>{ _resolvido = true; resolve(b); };
-        gerarImagemEscala().then(()=>{
-          if(!_resolvido) reject(new Error('Nenhuma imagem gerada para esta semana'));
-        }).catch(reject);
-      });
-      await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blobPromise }) ]);
+      // Alguns navegadores exigem a Promise; passamos o blob já pronto (resolve na hora)
+      await navigator.clipboard.write([ new ClipboardItem({ 'image/png': Promise.resolve(_blobCopiar) }) ]);
       toast('✓ Imagem copiada! Agora é só colar no WhatsApp (Ctrl+V)','ok');
     } else {
-      // Navegador sem suporte: gera e copia do jeito antigo
-      await gerarImagemEscala();
+      throw new Error('Navegador não suporta copiar imagem');
     }
   }catch(e){
-    console.warn('[SOGI] copiar falhou, tentando baixar', e);
-    _modoImagem = 'baixar';
-    await gerarImagemEscala();
+    console.warn('[SOGI] copiar falhou, baixando a imagem', e);
+    // Fallback: baixa a imagem já gerada (não gera de novo)
+    if(_blobCopiar && _blobCopiar.size > 5000){
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(_blobCopiar);
+      a.download=`escala_semanal_${getMesAtual()}.png`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+      toast('Imagem baixada (não deu para copiar). Anexe no WhatsApp.','warn');
+    } else {
+      toast('Não foi possível gerar a imagem. Tente novamente.','err');
+    }
   }finally{
     _gerarBlobParaCopiar = null;
     _modoImagem = 'baixar';
