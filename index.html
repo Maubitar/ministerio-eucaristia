@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '15.1';
+const APP_VERSAO = '15.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3480,18 +3480,28 @@ window.gerarImagemEscala = async function(){
     await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
       img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
     ));
-    // Escala para boa nitidez respeitando o limite de canvas do navegador (~16384px/lado)
+    // ALTA RESOLUÇÃO: escala máxima possível respeitando o limite de canvas (~16000px/lado)
     const alturaEstim = wrap.scrollHeight || 1200;
+    const larguraReal = wrap.scrollWidth || BASE_W;
     const maxLado = 16000;
-    let escalaQual = 3.5; // nitidez alta para dar zoom sem borrar
+    // Começa querendo 5x e reduz só o necessário para caber
+    let escalaQual = 5;
     if(alturaEstim*escalaQual > maxLado) escalaQual = maxLado/alturaEstim;
-    if(BASE_W*escalaQual > maxLado) escalaQual = maxLado/BASE_W;
-    escalaQual = Math.max(2.5, Math.min(escalaQual, 4));
-    const canvas=await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+    if(larguraReal*escalaQual > maxLado) escalaQual = maxLado/larguraReal;
+    escalaQual = Math.max(2.5, escalaQual); // nunca abaixo de 2.5x
+    const canvas=await html2canvas(wrap,{
+      scale:escalaQual,
+      backgroundColor:'#ffffff',
+      useCORS:true,
+      logging:false,
+      imageTimeout:0,
+      width:larguraReal,
+      windowWidth:larguraReal
+    });
     const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.png`;
     canvas.toBlob(async blob=>{
       await compartilharOuBaixarImagem(blob, nomeArq);
-    },'image/png',0.95);
+    },'image/png',1.0);
   }catch(e){
     toast('Erro ao gerar imagem: '+e.message,'err');
   }finally{
@@ -6828,17 +6838,18 @@ async function gerarImagemTodasSemanas(){
   await new Promise(r=>setTimeout(r,200));
 
   try{
-    // Nitidez alta respeitando limite de canvas
+    // ALTA RESOLUÇÃO
     const alturaEstim = wrap.scrollHeight || 1200;
+    const larguraReal = wrap.scrollWidth || 1080;
     const maxLado = 16000;
-    let escalaQual = 2.5;
+    let escalaQual = 5;
     if(alturaEstim*escalaQual > maxLado) escalaQual = maxLado/alturaEstim;
-    if(1080*escalaQual > maxLado) escalaQual = maxLado/1080;
-    escalaQual = Math.max(2, Math.min(escalaQual, 3));
-    const canvas = await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+    if(larguraReal*escalaQual > maxLado) escalaQual = maxLado/larguraReal;
+    escalaQual = Math.max(2.5, escalaQual);
+    const canvas = await html2canvas(wrap,{scale:escalaQual,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0,width:larguraReal,windowWidth:larguraReal});
     canvas.toBlob(async blob=>{
       await compartilharOuBaixarImagem(blob, `escalas_semanais_${getMesAtual()}.png`);
-    },'image/png',0.95);
+    },'image/png',1.0);
   }catch(e){ toast('Erro ao gerar imagem: '+e.message,'err'); }
   finally{ document.body.removeChild(wrap); }
 }
