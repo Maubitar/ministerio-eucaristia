@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '13.9';
+const APP_VERSAO = '14.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6611,9 +6611,9 @@ async function imprimirTodasSemanasJuntas(){
       }
 
       linhasSem += `<div style="margin-bottom:14px;break-inside:avoid;border:1px solid #d5d5d5">
-        <div style="background:#f4f7fb;border-left:6px solid ${corHora};padding:8px 14px">
-          <span style="font-weight:800;font-size:15px;color:${corHora}">⏰ ${h}</span>
-          <span style="font-size:12px;font-weight:600;margin-left:14px;color:#444">${datasLabel}</span>
+        <div style="background:${corHora};color:white;padding:8px 14px">
+          <span style="font-weight:800;font-size:15px">⏰ ${h}</span>
+          <span style="font-size:12px;font-weight:600;margin-left:14px">${datasLabel}</span>
         </div>
         <table>
           <tbody>${linhasNormais}${linhasRef}</tbody>
@@ -6627,9 +6627,9 @@ async function imprimirTodasSemanasJuntas(){
     const corSemana = coresSemana[(parseInt(s)-1) % coresSemana.length];
 
     blocosTodos += `<div style="margin-bottom:22px">
-      <div style="background:#fff;border:2px solid ${corSemana};border-left:10px solid ${corSemana};padding:10px 18px;margin-bottom:10px;text-align:center">
-        <div style="font-weight:900;font-size:19px;letter-spacing:.5px;color:${corSemana}">${s}ª SEMANA</div>
-        <div style="font-size:15px;font-weight:700;margin-top:2px;color:#333">${info?.periodo||''}</div>
+      <div style="background:${corSemana};color:white;padding:12px 18px;margin-bottom:10px;text-align:center">
+        <div style="font-weight:900;font-size:19px;letter-spacing:.5px">${s}ª SEMANA</div>
+        <div style="font-size:15px;font-weight:700;margin-top:2px">${info?.periodo||''}</div>
       </div>
       ${linhasSem}
     </div>`;
@@ -6852,9 +6852,8 @@ window.imprimirEscala = async function(){
     }).join('');
     blocos += `
     <div class="missa">
-      <div class="missa-hora"><span style="font-size:13px;font-weight:800;letter-spacing:.3px">⏰ ${h}</span></div>
+      <div class="missa-hora"><span style="font-size:14px;font-weight:800;letter-spacing:.3px">⏰ ${h}</span></div>
       <table class="tab">
-        <thead><tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Ministro(a)</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table>
     </div>`;
@@ -7936,10 +7935,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   /* LAYOUT 2 COLUNAS — economiza papel */
   #print-area .missas-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
   #print-area .missa{margin-bottom:0;page-break-inside:avoid}
-  #print-area .missa-hora{background:#085041 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;color:white !important;font-weight:800;font-size:13px;padding:5px 10px;border-radius:5px 5px 0 0;letter-spacing:0.3px}
-  #print-area table{width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none}
-  #print-area th{background:#f3f5f4 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-size:8px;padding:3px;border:1px solid #cfcfcf;text-transform:uppercase;color:#333 !important;text-align:left}
-  #print-area td{border:1px solid #e2e2e2;padding:2px 5px;font-size:10.5px;vertical-align:middle;color:#000 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;line-height:1.15}
+  #print-area .missa-hora{background:#085041 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;color:white !important;font-weight:800;font-size:14px;padding:6px 12px;letter-spacing:0.3px}
+  #print-area table{width:100%;border-collapse:collapse;border:1px solid #d5d5d5;border-top:none;table-layout:fixed}
+  #print-area th{display:none}
+  #print-area td{border:0!important;border-bottom:1px solid #e5e5e5!important;padding:5px 6px;font-size:10.5px;vertical-align:middle;color:#000 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;line-height:1.15}
   #print-area .num{width:22px;text-align:center;color:#444 !important;font-size:9px}
   #print-area th.num{text-align:center}
   #print-area .foto{width:30px;text-align:center;padding:1px 2px!important}
