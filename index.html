@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.3';
+const APP_VERSAO = '17.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6917,13 +6917,22 @@ async function gerarImagemTodasSemanas(){
 
       const respTelTopS = respObj?.tel ? `<span style="white-space:nowrap">&nbsp;&nbsp;📞 ${respObj.tel}</span>` : '';
       const respTopS = resp ? `<div style="font-weight:700;font-size:22px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">★ ${resp}${respTelTopS}</div>` : '';
-      horasCards.push(`<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:22px;break-inside:avoid"><div style="background:${corH.escuro};color:white;padding:12px 18px"><div style="font-weight:800;font-size:31px">⏰ ${h}</div>${respTopS}</div><table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhasN}${linhasR}</tbody></table></div>`);
+      const _htmlCard = `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:22px;break-inside:avoid"><div style="background:${corH.escuro};color:white;padding:12px 18px"><div style="font-weight:800;font-size:31px">⏰ ${h}</div>${respTopS}</div><table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhasN}${linhasR}</tbody></table></div>`;
+      // peso = nº de pessoas (para balancear as colunas por altura)
+      const _peso = ord.length + refsHora.reduce((a,r)=>a+r.ministros.length,0) + 2;
+      horasCards.push({ html:_htmlCard, peso:_peso });
     }
     if(!horasCards.length) continue;
-    // 3 COLUNAS lado a lado (mesmo padrão da dominical — tamanho idêntico no zap)
-    const cols3s = ['','',''];
-    horasCards.forEach((c,i)=>{ cols3s[i%3]+=c; });
-    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:50px">${s}ª SEMANA</div><div style="font-size:32px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols3s[0]}</div><div style="flex:1;min-width:0">${cols3s[1]}</div><div style="flex:1;min-width:0">${cols3s[2]}</div></div>`;
+    // 2 COLUNAS balanceadas por ALTURA (largura 1900px = mesmo tamanho da dominical no zap)
+    const cols2s = ['',''];
+    const alturas2 = [0,0];
+    // preserva ordem cronológica, mas escolhe a coluna mais curta a cada card
+    horasCards.forEach(card=>{
+      const menor = alturas2[0] <= alturas2[1] ? 0 : 1;
+      cols2s[menor] += card.html;
+      alturas2[menor] += card.peso;
+    });
+    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:50px">${s}ª SEMANA</div><div style="font-size:32px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols2s[0]}</div><div style="flex:1;min-width:0">${cols2s[1]}</div></div>`;
     semanasParaGerar.push({ s, corpo: corpoSemana });
   }
 
