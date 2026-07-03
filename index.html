@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '15.9';
+const APP_VERSAO = '16.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6752,9 +6752,9 @@ async function imprimirTodasSemanasJuntas(){
 
 // ===== GERAR IMAGEM DE TODAS AS SEMANAS PARA WHATSAPP =====
 async function gerarImagemTodasSemanas(){
-  toast('Gerando imagem de todas as semanas...','ok');
+  toast('Gerando uma imagem para cada semana...','ok');
   const mesKey = getMesAtual();
-  const sems = Object.keys(SEMANAS_MES).sort((a,b)=>parseInt(a)-parseInt(b));
+  const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((a,b)=>parseInt(a)-parseInt(b));
 
   // Carrega todas as escalas semanais
   for(const s of sems){
@@ -6765,10 +6765,7 @@ async function gerarImagemTodasSemanas(){
     }
   }
 
-  const wrap = document.createElement('div');
-  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1600px;background:white;padding:34px 40px;font-family:Arial,sans-serif';
-
-  let blocos = '';
+  const semanasParaGerar = [];
   for(const s of sems){
     const key = `escala_sem_sem${s}_${mesKey}`;
     const esc = escalas[key]||{};
@@ -6833,38 +6830,51 @@ async function gerarImagemTodasSemanas(){
       horasCards.push(`<div style="border:1px solid #cfcfcf;border-radius:8px;overflow:hidden;margin-bottom:14px;break-inside:avoid"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:26px;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="white-space:nowrap">⏰ ${h}</span>${respTopS}</div><table style="width:100%;border-collapse:separate;border-spacing:0"><tbody>${linhasN}${linhasR}</tbody></table></div>`);
     }
     if(!horasCards.length) continue;
-    // 2 colunas lado a lado (formato Excel)
+    // 2 colunas lado a lado — imagem LARGA e curta (proporção boa p/ WhatsApp)
     let colE='', colD='';
     horasCards.forEach((c,i)=>{ if(i%2===0) colE+=c; else colD+=c; });
-    blocos += `<div style="margin-bottom:24px"><div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:40px">${s}ª SEMANA</div><div style="font-size:26px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${colE}</div><div style="flex:1">${colD}</div></div></div>`;
+    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:44px">${s}ª SEMANA</div><div style="font-size:28px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${colE}</div><div style="flex:1">${colD}</div></div>`;
+    semanasParaGerar.push({ s, corpo: corpoSemana });
   }
 
-  if(!blocos){ toast('Nenhuma semana escalada.','warn'); return; }
+  if(!semanasParaGerar.length){ toast('Nenhuma semana escalada.','warn'); return; }
 
-  wrap.innerHTML = `
-    <div style="display:flex;align-items:center;gap:18px;border-bottom:4px solid #185FA5;padding-bottom:14px;margin-bottom:16px">
-      <img src="${APP_URL}/${LOGO_BASILICA}" crossorigin="anonymous" style="width:70px;height:70px;object-fit:contain">
-      <div style="flex:1;text-align:center">
-        <p style="font-size:11px;letter-spacing:1px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1 style="margin:4px 0;color:#185FA5;font-size:24px">Escalas Semanais</h1>
-        <p style="font-size:13px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+  // Gera UMA IMAGEM POR SEMANA (cada uma larga e nítida, como a dominical)
+  const totalImgs = semanasParaGerar.length;
+  for(let i=0; i<semanasParaGerar.length; i++){
+    const { s, corpo } = semanasParaGerar[i];
+    toast(`Gerando imagem ${i+1} de ${totalImgs} (${s}ª semana)...`, 'ok');
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1600px;background:white;padding:34px 40px;font-family:Arial,sans-serif';
+    wrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:18px;border-bottom:4px solid #185FA5;padding-bottom:14px;margin-bottom:16px">
+        <img src="${APP_URL}/${LOGO_BASILICA}" crossorigin="anonymous" style="width:80px;height:80px;object-fit:contain">
+        <div style="flex:1;text-align:center">
+          <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+          <h1 style="margin:4px 0;color:#185FA5;font-size:30px">Escalas Semanais</h1>
+          <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+        </div>
+        <img src="${APP_URL}/${LOGO_MESCE}" crossorigin="anonymous" style="width:80px;height:80px;object-fit:contain">
       </div>
-      <img src="${APP_URL}/${LOGO_MESCE}" crossorigin="anonymous" style="width:70px;height:70px;object-fit:contain">
-    </div>
-    ${blocos}
-    <p style="text-align:center;margin-top:16px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>`;
-  document.body.appendChild(wrap);
+      ${corpo}
+      <p style="text-align:center;margin-top:16px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>`;
+    document.body.appendChild(wrap);
 
-  const imgs = wrap.querySelectorAll('img');
-  await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
-  await new Promise(r=>setTimeout(r,200));
+    const imgs = wrap.querySelectorAll('img');
+    await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
+    await new Promise(r=>setTimeout(r,200));
 
-  try{
-    // ALTA QUALIDADE NATIVA via snapdom
-    const blob = await capturarImagemAlta(wrap);
-    await compartilharOuBaixarImagem(blob, `escalas_semanais_${getMesAtual()}.png`);
-  }catch(e){ toast('Erro ao gerar imagem: '+e.message,'err'); }
-  finally{ document.body.removeChild(wrap); }
+    try{
+      const blob = await capturarImagemAlta(wrap);
+      await compartilharOuBaixarImagem(blob, `escala_semana${s}_${getMesAtual()}.png`);
+    }catch(e){ toast('Erro na '+s+'ª semana: '+e.message,'err'); }
+    finally{ document.body.removeChild(wrap); }
+
+    // pequena pausa entre imagens para o compartilhamento não colidir
+    if(i < semanasParaGerar.length-1) await new Promise(r=>setTimeout(r,600));
+  }
+  toast(`✓ ${totalImgs} imagens geradas (uma por semana)!`, 'ok');
 }
 
 window.imprimirEscala = async function(){
