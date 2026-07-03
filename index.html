@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '15.7';
+const APP_VERSAO = '15.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3355,24 +3355,27 @@ async function capturarImagemAlta(elemento){
   await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
   await new Promise(r=>setTimeout(r,150));
 
+  // Escala adaptativa: maximiza resolução respeitando o limite de ~16000px por lado
+  const larguraEl = elemento.scrollWidth || 1600;
+  const alturaEl = elemento.scrollHeight || 1200;
+  let escala = 4;
+  if(larguraEl*escala > 15000) escala = 15000/larguraEl;
+  if(alturaEl*escala > 15000) escala = Math.min(escala, 15000/alturaEl);
+  escala = Math.max(2, escala);
+
   // snapdom: renderização nativa de alta fidelidade (import dinâmico — não trava o app se falhar)
   try{
     const mod = await import('https://cdn.jsdelivr.net/npm/@zumer/snapdom@2.12.9/dist/snapdom.mjs');
     const snapdom = mod.snapdom || mod.default;
     if(typeof snapdom === 'function'){
-      const result = await snapdom(elemento, { scale: 3, backgroundColor: '#ffffff', embedFonts: true });
+      const result = await snapdom(elemento, { scale: escala, backgroundColor: '#ffffff', embedFonts: true });
       const blob = await result.toBlob({ type: 'image/png' });
       if(blob && blob.size > 1000) return blob;
     }
   }catch(e){ console.warn('snapdom indisponível, usando html2canvas', e); }
 
-  // Fallback: html2canvas em alta escala
-  const larg = elemento.scrollWidth || 1200;
-  const alt = elemento.scrollHeight || 1200;
-  let sc = 4;
-  if(larg*sc > 16000) sc = 16000/larg;
-  if(alt*sc > 16000) sc = Math.min(sc, 16000/alt);
-  const canvas = await html2canvas(elemento,{scale:Math.max(2.5,sc),backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+  // Fallback: html2canvas com a mesma escala adaptativa
+  const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
   return await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
 }
 
@@ -3456,20 +3459,20 @@ window.gerarImagemEscala = async function(){
     }
     const linhas=ord.map((m,i)=>{
       const isResp=m===responsavel;
-      const telResp = isResp && respObj?.tel ? ` <span style="font-size:19px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:16px;margin-left:6px;white-space:nowrap">📞 ${respObj.tel}</span>` : '';
       const minObj = ministros.find(x=>x.nome===m);
       const fotoHtml = minObj?.foto
         ? `<img src="${minObj.foto}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #cde8d8" crossorigin="anonymous">`
         : `<div style="width:52px;height:52px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-      const selo = isResp?` <span style="font-size:18px;background:#faeeda;color:#7a4a06;padding:2px 10px;border-radius:16px;font-weight:700;margin-left:6px;white-space:nowrap">★ Resp</span>`:'';
       return `<tr>
         <td style="width:44px;text-align:center;color:#888;border-bottom:1px solid #e8e8e8;padding:5px;font-size:20px">${i+1}</td>
         <td style="width:64px;text-align:center;border-bottom:1px solid #e8e8e8;padding:5px">${fotoHtml}</td>
-        <td style="border-bottom:1px solid #e8e8e8;padding:8px 10px;font-size:24px;line-height:1.15;${isResp?'font-weight:700':''}">${m}${selo}${telResp}</td>
+        <td style="border-bottom:1px solid #e8e8e8;padding:8px 10px;font-size:24px;line-height:1.15;${isResp?'font-weight:700':''}">${m}</td>
       </tr>`;
     }).join('');
+    const respTelTop = respObj?.tel ? ` 📞 ${respObj.tel}` : '';
+    const respTop = responsavel ? `<span style="font-weight:400;font-size:17px;opacity:.95">★ ${responsavel}${respTelTop}</span>` : '';
     return `<div style="border:1px solid #cfcfcf;border-radius:8px;overflow:hidden;margin-bottom:14px;break-inside:avoid">
-      <div style="background:#085041;color:white;font-weight:700;font-size:26px;padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:17px;opacity:.9">${datasLabel}</span></div>
+      <div style="background:#085041;color:white;font-weight:700;font-size:26px;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="white-space:nowrap">⏰ ${h}</span>${respTop}</div>
       <table style="width:100%;border-collapse:separate;border-spacing:0"><tbody>${linhas}</tbody></table>
     </div>`;
   }
@@ -3493,14 +3496,13 @@ window.gerarImagemEscala = async function(){
       <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
       <div style="flex:1;text-align:center">
         <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1 style="margin:4px 0;color:#085041;font-size:30px">Escala de Serviço</h1>
+        <h1 style="margin:4px 0;color:#085041;font-size:30px">${periodoLabel}</h1>
         <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
       </div>
       <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:18px 0 22px;font-size:16px">
-      <div><strong>${subLabel}</strong></div>
-      <div style="font-size:15px;color:#085041;font-weight:700;background:#e1f5ee;padding:5px 14px;border-radius:20px">${periodoLabel}</div>
+    <div style="background:#085041;color:white;text-align:center;padding:14px 20px;border-radius:8px;margin:14px 0 22px">
+      <span style="font-size:24px;font-weight:800;letter-spacing:.5px">📅 ${tipo==='dom'?'DOMINGOS':'SEMANA'}: ${(subLabel||'').replace('Domingos: ','').replace('Semana de ','')}</span>
     </div>
     ${blocos}
     <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>`;
@@ -6771,6 +6773,9 @@ async function gerarImagemTodasSemanas(){
     const key = `escala_sem_sem${s}_${mesKey}`;
     const esc = escalas[key]||{};
     const info = SEMANAS_MES[s];
+    // PULA semanas sem ministros escalados nas missas normais (evita 5ª semana fantasma só de reforço)
+    const temMinistrosReais = MISSAS_SEM.some(h => (esc[h]?.ministros||[]).length > 0);
+    if(!temMinistrosReais) continue;
     // Cor da semana (mesma paleta da impressão)
     const coresImg = ['#2E7BC4','#1D9E75','#0E7C7B','#D99A2B','#546E9B'];
     const corImgSemana = coresImg[(parseInt(s)-1) % coresImg.length];
@@ -6809,10 +6814,8 @@ async function gerarImagemTodasSemanas(){
         idx++;
         const isResp = m===resp;
         const mo = ministros.find(x=>x.nome===m);
-        const telResp = isResp && respObj?.tel ? ` <span style="font-size:19px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:16px;margin-left:6px;white-space:nowrap">📞 ${respObj.tel}</span>` : '';
         const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #cde8d8">` : `<div style="width:52px;height:52px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-        const selo = isResp?` <span style="font-size:18px;background:#faeeda;color:#7a4a06;padding:2px 10px;border-radius:16px;font-weight:700;margin-left:6px;white-space:nowrap">★ Resp</span>`:'';
-        return `<tr><td style="width:44px;text-align:center;color:#888;padding:5px;font-size:20px;border-bottom:1px solid #e8e8e8">${idx}</td><td style="width:64px;text-align:center;padding:5px;border-bottom:1px solid #e8e8e8">${fotoHtml}</td><td style="padding:8px 10px;font-size:24px;line-height:1.15;border-bottom:1px solid #e8e8e8;${isResp?'font-weight:700':''}">${m}${selo}${telResp}</td></tr>`;
+        return `<tr><td style="width:44px;text-align:center;color:#888;padding:5px;font-size:20px;border-bottom:1px solid #e8e8e8">${idx}</td><td style="width:64px;text-align:center;padding:5px;border-bottom:1px solid #e8e8e8">${fotoHtml}</td><td style="padding:8px 10px;font-size:24px;line-height:1.15;border-bottom:1px solid #e8e8e8;${isResp?'font-weight:700':''}">${m}</td></tr>`;
       }).join('');
 
       let linhasR='';
@@ -6825,7 +6828,9 @@ async function gerarImagemTodasSemanas(){
         }).join('');
       }
 
-      horasCards.push(`<div style="border:1px solid #cfcfcf;border-radius:8px;overflow:hidden;margin-bottom:14px;break-inside:avoid"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:26px;padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:16px;opacity:.9">${datasLabel}</span></div><table style="width:100%;border-collapse:separate;border-spacing:0"><tbody>${linhasN}${linhasR}</tbody></table></div>`);
+      const respTelTopS = respObj?.tel ? ` 📞 ${respObj.tel}` : '';
+      const respTopS = resp ? `<span style="font-weight:400;font-size:16px;opacity:.95">★ ${resp}${respTelTopS}</span>` : '';
+      horasCards.push(`<div style="border:1px solid #cfcfcf;border-radius:8px;overflow:hidden;margin-bottom:14px;break-inside:avoid"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:26px;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="white-space:nowrap">⏰ ${h}</span>${respTopS}</div><table style="width:100%;border-collapse:separate;border-spacing:0"><tbody>${linhasN}${linhasR}</tbody></table></div>`);
     }
     if(!horasCards.length) continue;
     // 2 colunas lado a lado (formato Excel)
