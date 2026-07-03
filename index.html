@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.1';
+const APP_VERSAO = '17.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3550,14 +3550,14 @@ window.gerarImagemEscala = async function(){
   // Distribui em 3 colunas equilibradas
   const cols3 = ['','',''];
   cards.forEach((c,i)=>{ cols3[i%3]+=c; });
-  let blocos = `<div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${cols3[0]}</div><div style="flex:1">${cols3[1]}</div><div style="flex:1">${cols3[2]}</div></div>`;
+  let blocos = `<div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols3[0]}</div><div style="flex:1;min-width:0">${cols3[1]}</div><div style="flex:1;min-width:0">${cols3[2]}</div></div>`;
 
   toast('Gerando imagem...','ok');
 
-  // Container offscreen — MESMA largura da semanal (1600) p/ chegarem do mesmo tamanho no zap
-  const BASE_W = 1600;
+  // Container offscreen — largura p/ 3 colunas caberem com moldura, sem cortar
+  const BASE_W = 1900;
   const wrap=document.createElement('div');
-  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a`;
+  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
   wrap.innerHTML=`
    <div style="border:3px solid #085041;border-radius:14px;padding:26px 24px;background:white">
     <div style="display:flex;align-items:center;gap:22px;border-bottom:4px solid #085041;padding-bottom:16px;margin-bottom:8px">
