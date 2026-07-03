@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '15.6';
+const APP_VERSAO = '15.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3438,10 +3438,10 @@ window.gerarImagemEscala = async function(){
   if(tipo==='dom'){ periodoLabel='Escala Dominical'; subLabel=`Domingos: ${DOMINGOS_MES.join(' · ')}`; }
   else { periodoLabel='Escala Semanal'; subLabel=`Semana de ${SEMANAS_MES[sem]?.periodo||''}`; }
 
-  let blocos='';
-  horas.forEach(h=>{
+  // Monta um CARD por horário (formato Excel: 2 colunas lado a lado, fotos proporcionais)
+  function cardHorario(h){
     const g=esc[h]||{ministros:[],responsavel:''};
-    if(!g.ministros.length) return;
+    if(!g.ministros.length) return '';
     const responsavel=g.responsavel;
     const respObj=ministros.find(x=>x.nome===responsavel);
     const ord=[...g.ministros].sort((a,b)=>{ if(a===responsavel)return -1; if(b===responsavel)return 1; return a.localeCompare(b,'pt-BR'); });
@@ -3456,29 +3456,36 @@ window.gerarImagemEscala = async function(){
     }
     const linhas=ord.map((m,i)=>{
       const isResp=m===responsavel;
-      const telResp = isResp && respObj?.tel ? ` <span style="font-size:28px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 16px;border-radius:24px;margin-left:10px">📞 ${respObj.tel}</span>` : '';
+      const telResp = isResp && respObj?.tel ? ` <span style="font-size:19px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:16px;margin-left:6px;white-space:nowrap">📞 ${respObj.tel}</span>` : '';
       const minObj = ministros.find(x=>x.nome===m);
       const fotoHtml = minObj?.foto
-        ? `<img src="${minObj.foto}" style="width:90px;height:90px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:3px solid #e1f5ee" crossorigin="anonymous">`
-        : `<div style="width:90px;height:90px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        ? `<img src="${minObj.foto}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #cde8d8" crossorigin="anonymous">`
+        : `<div style="width:52px;height:52px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+      const selo = isResp?` <span style="font-size:18px;background:#faeeda;color:#7a4a06;padding:2px 10px;border-radius:16px;font-weight:700;margin-left:6px;white-space:nowrap">★ Resp</span>`:'';
       return `<tr>
-        <td style="width:70px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:10px;font-size:30px">${i+1}</td>
-        <td style="width:120px;text-align:center;border:1px solid #e2e2e2;padding:8px">${fotoHtml}</td>
-        <td style="border:1px solid #e2e2e2;padding:16px 18px;font-size:40px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:26px;background:#faeeda;color:#7a4a06;padding:4px 16px;border-radius:24px;font-weight:700;margin-left:10px">★ Responsável</span>':''}${telResp}</td>
+        <td style="width:44px;text-align:center;color:#888;border-bottom:1px solid #e8e8e8;padding:5px;font-size:20px">${i+1}</td>
+        <td style="width:64px;text-align:center;border-bottom:1px solid #e8e8e8;padding:5px">${fotoHtml}</td>
+        <td style="border-bottom:1px solid #e8e8e8;padding:8px 10px;font-size:24px;line-height:1.15;${isResp?'font-weight:700':''}">${m}${selo}${telResp}</td>
       </tr>`;
     }).join('');
-    blocos+=`<div style="margin-bottom:0;break-inside:avoid">
-      <div style="background:#085041;color:white;font-weight:700;font-size:44px;padding:18px 26px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:28px;opacity:.9">${datasLabel}</span></div>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="width:54px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Nº</th><th style="width:66px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Foto</th><th style="text-align:left;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Ministro</th></tr></thead><tbody>${linhas}</tbody></table>
+    return `<div style="border:1px solid #cfcfcf;border-radius:8px;overflow:hidden;margin-bottom:14px;break-inside:avoid">
+      <div style="background:#085041;color:white;font-weight:700;font-size:26px;padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:17px;opacity:.9">${datasLabel}</span></div>
+      <table style="width:100%;border-collapse:separate;border-spacing:0"><tbody>${linhas}</tbody></table>
     </div>`;
-  });
+  }
 
-  if(!blocos){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
+  // Monta os cards e distribui em 2 COLUNAS (formato Excel — imagem larga, não vira palito)
+  const cards = horas.map(h=>cardHorario(h)).filter(c=>c);
+  if(!cards.length){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
+  // Distribui alternadamente: pares na coluna esquerda, ímpares na direita
+  let colEsq='', colDir='';
+  cards.forEach((c,i)=>{ if(i%2===0) colEsq+=c; else colDir+=c; });
+  let blocos = `<div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${colEsq}</div><div style="flex:1">${colDir}</div></div>`;
 
   toast('Gerando imagem...','ok');
 
   // Container offscreen com o layout — largura base maior = mais nitidez
-  const BASE_W = 1080;
+  const BASE_W = 1600;
   const wrap=document.createElement('div');
   wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:34px 40px;font-family:Arial,sans-serif;color:#1a1a1a`;
   wrap.innerHTML=`
@@ -6757,7 +6764,7 @@ async function gerarImagemTodasSemanas(){
   }
 
   const wrap = document.createElement('div');
-  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1080px;background:white;padding:30px;font-family:Arial,sans-serif';
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1600px;background:white;padding:34px 40px;font-family:Arial,sans-serif';
 
   let blocos = '';
   for(const s of sems){
@@ -6774,7 +6781,7 @@ async function gerarImagemTodasSemanas(){
       '18:00h':[{id:'qui18',label:'Missa Quinta 18h'},{id:'sab17',label:'Missa Sábado 17h'}]
     };
 
-    let horasBlocos = '';
+    let horasCards = [];
     for(const h of MISSAS_SEM){
       const g = esc[h]||{ministros:[],responsavel:''};
       const resp = g.responsavel;
@@ -6802,9 +6809,10 @@ async function gerarImagemTodasSemanas(){
         idx++;
         const isResp = m===resp;
         const mo = ministros.find(x=>x.nome===m);
-        const telResp = isResp && respObj?.tel ? ` <span style="font-size:28px;color:#085041;font-weight:700;background:#e1f5ee;padding:4px 16px;border-radius:24px;margin-left:10px">📞 ${respObj.tel}</span>` : '';
-        const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:90px;height:90px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:3px solid #e1f5ee">` : `<div style="width:90px;height:90px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-        return `<tr><td style="width:70px;text-align:center;color:#888;padding:10px;font-size:30px;border-bottom:1px solid #eee">${idx}</td><td style="width:120px;text-align:center;padding:8px;border-bottom:1px solid #eee">${fotoHtml}</td><td style="padding:16px 18px;font-size:40px;border-bottom:1px solid #eee;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:26px;background:#faeeda;color:#7a4a06;padding:4px 16px;border-radius:24px;font-weight:700;margin-left:10px">★ Responsável</span>':''}${telResp}</td></tr>`;
+        const telResp = isResp && respObj?.tel ? ` <span style="font-size:19px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:16px;margin-left:6px;white-space:nowrap">📞 ${respObj.tel}</span>` : '';
+        const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #cde8d8">` : `<div style="width:52px;height:52px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        const selo = isResp?` <span style="font-size:18px;background:#faeeda;color:#7a4a06;padding:2px 10px;border-radius:16px;font-weight:700;margin-left:6px;white-space:nowrap">★ Resp</span>`:'';
+        return `<tr><td style="width:44px;text-align:center;color:#888;padding:5px;font-size:20px;border-bottom:1px solid #e8e8e8">${idx}</td><td style="width:64px;text-align:center;padding:5px;border-bottom:1px solid #e8e8e8">${fotoHtml}</td><td style="padding:8px 10px;font-size:24px;line-height:1.15;border-bottom:1px solid #e8e8e8;${isResp?'font-weight:700':''}">${m}${selo}${telResp}</td></tr>`;
       }).join('');
 
       let linhasR='';
@@ -6812,15 +6820,18 @@ async function gerarImagemTodasSemanas(){
         linhasR += rf.ministros.map((m)=>{
           idx++;
           const mo = ministros.find(x=>x.nome===m);
-          const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:90px;height:90px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:3px solid #e0c04a">` : `<div style="width:90px;height:90px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-          return `<tr style="background:#fff6d6"><td style="width:70px;text-align:center;color:#8a6d0c;padding:10px;font-size:30px;border-bottom:1px solid #f0e2b0">${idx}</td><td style="width:120px;text-align:center;padding:8px;border-bottom:1px solid #f0e2b0">${fotoHtml}</td><td style="padding:16px 18px;font-size:40px;font-weight:600;border-bottom:1px solid #f0e2b0">${m} <span style="font-size:26px;background:#f5c518;color:#5a4500;padding:4px 16px;border-radius:24px;font-weight:800">⭐ REFORÇO ${rf.label}</span></td></tr>`;
+          const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e0c04a">` : `<div style="width:52px;height:52px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+          return `<tr style="background:#fff6d6"><td style="width:44px;text-align:center;color:#8a6d0c;padding:5px;font-size:20px;border-bottom:1px solid #f0e2b0">${idx}</td><td style="width:64px;text-align:center;padding:5px;border-bottom:1px solid #f0e2b0">${fotoHtml}</td><td style="padding:8px 10px;font-size:24px;line-height:1.15;font-weight:600;border-bottom:1px solid #f0e2b0">${m} <span style="font-size:17px;background:#f5c518;color:#5a4500;padding:2px 10px;border-radius:16px;font-weight:800;white-space:nowrap">⭐ REFORÇO ${rf.label}</span></td></tr>`;
         }).join('');
       }
 
-      horasBlocos += `<div style="margin-bottom:16px"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:44px;padding:18px 26px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:28px;opacity:.9">${datasLabel}</span></div><table style="width:100%;border-collapse:separate;border-spacing:0;border-left:1px solid #ddd;border-right:1px solid #ddd;border-bottom:1px solid #ddd"><tbody>${linhasN}${linhasR}</tbody></table></div>`;
+      horasCards.push(`<div style="border:1px solid #cfcfcf;border-radius:8px;overflow:hidden;margin-bottom:14px;break-inside:avoid"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:26px;padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:16px;opacity:.9">${datasLabel}</span></div><table style="width:100%;border-collapse:separate;border-spacing:0"><tbody>${linhasN}${linhasR}</tbody></table></div>`);
     }
-    if(!horasBlocos) continue;
-    blocos += `<div style="margin-bottom:24px"><div style="background:${corImgSemana};color:white;padding:24px 30px;text-align:center;border-radius:8px;margin-bottom:16px"><div style="font-weight:900;font-size:52px">${s}ª SEMANA</div><div style="font-size:34px;font-weight:700;margin-top:6px">${info?.periodo||''}</div></div>${horasBlocos}</div>`;
+    if(!horasCards.length) continue;
+    // 2 colunas lado a lado (formato Excel)
+    let colE='', colD='';
+    horasCards.forEach((c,i)=>{ if(i%2===0) colE+=c; else colD+=c; });
+    blocos += `<div style="margin-bottom:24px"><div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:40px">${s}ª SEMANA</div><div style="font-size:26px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${colE}</div><div style="flex:1">${colD}</div></div></div>`;
   }
 
   if(!blocos){ toast('Nenhuma semana escalada.','warn'); return; }
