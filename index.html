@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '13.7';
+const APP_VERSAO = '13.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6611,9 +6611,9 @@ async function imprimirTodasSemanasJuntas(){
       }
 
       linhasSem += `<div style="margin-bottom:14px;break-inside:avoid;border:1px solid #d5d5d5">
-        <div style="background:${corHora};color:white;padding:8px 14px;display:flex;justify-content:space-between;align-items:center">
+        <div style="background:${corHora};color:white;padding:8px 14px">
           <span style="font-weight:800;font-size:15px">⏰ ${h}</span>
-          <span style="font-size:12px;font-weight:600">${datasLabel}</span>
+          <span style="font-size:12px;font-weight:600;margin-left:14px">${datasLabel}</span>
         </div>
         <table>
           <tbody>${linhasNormais}${linhasRef}</tbody>
@@ -6649,24 +6649,37 @@ async function imprimirTodasSemanasJuntas(){
     .cab .ct{flex:1;text-align:center}
     .cab h1{margin:1px 0;color:#185FA5;font-size:16px;font-weight:900}
     .cab .sub{font-size:10px;color:#555;margin:0}
-    /* PADRÃO ÚNICO das tabelas — linhas horizontais uniformes, sem verticais bagunçadas */
-    table{page-break-inside:auto;border-collapse:collapse;width:100%;table-layout:fixed}
-    tr{page-break-inside:avoid}
+    /* PADRÃO ÚNICO das tabelas — SEM bordas verticais, só linha horizontal fina */
+    table{
+      page-break-inside:auto;
+      border-collapse:collapse;
+      border-spacing:0;
+      width:100%;
+      table-layout:fixed;
+      border:0!important;
+    }
+    tr{page-break-inside:avoid;border:0!important}
+    thead,tbody{border:0!important}
     table td{
-      border:none!important;
-      border-bottom:1px solid #e0e0e0!important;
+      border:0!important;
+      border-top:0!important;
+      border-left:0!important;
+      border-right:0!important;
+      border-bottom:1px solid #e5e5e5!important;
       vertical-align:middle;
       overflow:hidden;
       text-overflow:ellipsis;
     }
-    table tr:last-child td{border-bottom:none!important}
-    /* Colunas com largura fixa para alinhar tudo na régua */
+    table tr:last-child td{border-bottom:0!important}
     table td:nth-child(1){width:34px;text-align:center}
     table td:nth-child(2){width:48px;text-align:center}
     table td:nth-child(3){width:auto;text-align:left}
-    /* Remove sombras (viram linhas na impressão em algumas impressoras) */
-    *{box-shadow:none!important;-webkit-box-shadow:none!important}
-    @media print{button{display:none}}
+    /* Remove QUALQUER sombra ou outline que vire linha na impressão */
+    *{box-shadow:none!important;-webkit-box-shadow:none!important;outline:0!important}
+    @media print{
+      button{display:none}
+      *{box-shadow:none!important;-webkit-box-shadow:none!important}
+    }
   </style></head><body>
   <div class="cab">
     <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
