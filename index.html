@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '15.4';
+const APP_VERSAO = '15.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3456,19 +3456,19 @@ window.gerarImagemEscala = async function(){
     }
     const linhas=ord.map((m,i)=>{
       const isResp=m===responsavel;
-      const telResp = isResp && respObj?.tel ? ` <span style="font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 9px;border-radius:20px;margin-left:6px">📞 ${respObj.tel}</span>` : '';
+      const telResp = isResp && respObj?.tel ? ` <span style="font-size:20px;color:#085041;font-weight:700;background:#e1f5ee;padding:3px 12px;border-radius:20px;margin-left:8px">📞 ${respObj.tel}</span>` : '';
       const minObj = ministros.find(x=>x.nome===m);
       const fotoHtml = minObj?.foto
-        ? `<img src="${minObj.foto}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e1f5ee" crossorigin="anonymous">`
-        : `<div style="width:48px;height:48px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        ? `<img src="${minObj.foto}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:3px solid #e1f5ee" crossorigin="anonymous">`
+        : `<div style="width:72px;height:72px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
       return `<tr>
-        <td style="width:54px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:6px 8px;font-size:16px">${i+1}</td>
-        <td style="width:66px;text-align:center;border:1px solid #e2e2e2;padding:4px 6px">${fotoHtml}</td>
-        <td style="border:1px solid #e2e2e2;padding:9px 10px;font-size:16px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:12px;background:#faeeda;color:#7a4a06;padding:2px 9px;border-radius:20px;font-weight:700;margin-left:6px">★ Responsável</span>':''}${telResp}</td>
+        <td style="width:60px;text-align:center;color:#888;border:1px solid #e2e2e2;padding:8px;font-size:22px">${i+1}</td>
+        <td style="width:96px;text-align:center;border:1px solid #e2e2e2;padding:6px">${fotoHtml}</td>
+        <td style="border:1px solid #e2e2e2;padding:12px 14px;font-size:24px;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:18px;background:#faeeda;color:#7a4a06;padding:3px 12px;border-radius:20px;font-weight:700;margin-left:8px">★ Responsável</span>':''}${telResp}</td>
       </tr>`;
     }).join('');
     blocos+=`<div style="margin-bottom:0;break-inside:avoid">
-      <div style="background:#085041;color:white;font-weight:700;font-size:19px;padding:9px 16px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:14px;opacity:.85">${datasLabel}</span></div>
+      <div style="background:#085041;color:white;font-weight:700;font-size:28px;padding:14px 20px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:20px;opacity:.9">${datasLabel}</span></div>
       <table style="width:100%;border-collapse:collapse;border:1px solid #cfcfcf;border-top:none"><thead><tr><th style="width:54px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Nº</th><th style="width:66px;text-align:center;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Foto</th><th style="text-align:left;background:#f3f5f4;font-size:14px;padding:8px;border:1px solid #cfcfcf;text-transform:uppercase;color:#555">Ministro</th></tr></thead><tbody>${linhas}</tbody></table>
     </div>`;
   });
@@ -3482,7 +3482,7 @@ window.gerarImagemEscala = async function(){
   toast('Gerando imagem...','ok');
 
   // Container offscreen com o layout — largura base maior = mais nitidez
-  const BASE_W = 1400;
+  const BASE_W = 2000;
   const wrap=document.createElement('div');
   wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:34px 40px;font-family:Arial,sans-serif;color:#1a1a1a`;
   wrap.innerHTML=`
@@ -6761,7 +6761,7 @@ async function gerarImagemTodasSemanas(){
   }
 
   const wrap = document.createElement('div');
-  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1080px;background:white;padding:30px;font-family:Arial,sans-serif';
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1500px;background:white;padding:36px;font-family:Arial,sans-serif';
 
   let blocos = '';
   for(const s of sems){
@@ -6806,9 +6806,9 @@ async function gerarImagemTodasSemanas(){
         idx++;
         const isResp = m===resp;
         const mo = ministros.find(x=>x.nome===m);
-        const telResp = isResp && respObj?.tel ? ` <span style="font-size:13px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 9px;border-radius:20px;margin-left:6px">📞 ${respObj.tel}</span>` : '';
-        const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e1f5ee">` : `<div style="width:48px;height:48px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-        return `<tr><td style="width:54px;text-align:center;color:#888;padding:6px 8px;font-size:16px;border-bottom:1px solid #eee">${idx}</td><td style="width:66px;text-align:center;padding:4px 6px;border-bottom:1px solid #eee">${fotoHtml}</td><td style="padding:9px 10px;font-size:16px;border-bottom:1px solid #eee;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:12px;background:#faeeda;color:#7a4a06;padding:2px 9px;border-radius:20px;font-weight:700;margin-left:6px">★ Responsável</span>':''}${telResp}</td></tr>`;
+        const telResp = isResp && respObj?.tel ? ` <span style="font-size:20px;color:#085041;font-weight:700;background:#e1f5ee;padding:3px 12px;border-radius:20px;margin-left:8px">📞 ${respObj.tel}</span>` : '';
+        const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:72px;height:72px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:3px solid #e1f5ee">` : `<div style="width:72px;height:72px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+        return `<tr><td style="width:60px;text-align:center;color:#888;padding:8px;font-size:22px;border-bottom:1px solid #eee">${idx}</td><td style="width:96px;text-align:center;padding:6px;border-bottom:1px solid #eee">${fotoHtml}</td><td style="padding:12px 14px;font-size:24px;border-bottom:1px solid #eee;${isResp?'font-weight:700':''}">${m}${isResp?' <span style="font-size:18px;background:#faeeda;color:#7a4a06;padding:3px 12px;border-radius:20px;font-weight:700;margin-left:8px">★ Responsável</span>':''}${telResp}</td></tr>`;
       }).join('');
 
       let linhasR='';
@@ -6816,15 +6816,15 @@ async function gerarImagemTodasSemanas(){
         linhasR += rf.ministros.map((m)=>{
           idx++;
           const mo = ministros.find(x=>x.nome===m);
-          const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:48px;height:48px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e0c04a">` : `<div style="width:48px;height:48px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-          return `<tr style="background:#fff6d6"><td style="width:54px;text-align:center;color:#8a6d0c;padding:6px 8px;font-size:16px;border-bottom:1px solid #f0e2b0">${idx}</td><td style="width:66px;text-align:center;padding:4px 6px;border-bottom:1px solid #f0e2b0">${fotoHtml}</td><td style="padding:9px 10px;font-size:16px;font-weight:600;border-bottom:1px solid #f0e2b0">${m} <span style="font-size:12px;background:#f5c518;color:#5a4500;padding:2px 9px;border-radius:20px;font-weight:800">⭐ REFORÇO ${rf.label}</span></td></tr>`;
+          const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:72px;height:72px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:3px solid #e0c04a">` : `<div style="width:72px;height:72px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
+          return `<tr style="background:#fff6d6"><td style="width:60px;text-align:center;color:#8a6d0c;padding:8px;font-size:22px;border-bottom:1px solid #f0e2b0">${idx}</td><td style="width:96px;text-align:center;padding:6px;border-bottom:1px solid #f0e2b0">${fotoHtml}</td><td style="padding:12px 14px;font-size:24px;font-weight:600;border-bottom:1px solid #f0e2b0">${m} <span style="font-size:18px;background:#f5c518;color:#5a4500;padding:3px 12px;border-radius:20px;font-weight:800">⭐ REFORÇO ${rf.label}</span></td></tr>`;
         }).join('');
       }
 
-      horasBlocos += `<div style="margin-bottom:16px"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:19px;padding:9px 16px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:14px;opacity:.9">${datasLabel}</span></div><table style="width:100%;border-collapse:separate;border-spacing:0;border-left:1px solid #ddd;border-right:1px solid #ddd;border-bottom:1px solid #ddd"><tbody>${linhasN}${linhasR}</tbody></table></div>`;
+      horasBlocos += `<div style="margin-bottom:16px"><div style="background:${corImgSemana};color:white;font-weight:700;font-size:28px;padding:14px 20px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center"><span>⏰ ${h}</span><span style="font-weight:400;font-size:20px;opacity:.9">${datasLabel}</span></div><table style="width:100%;border-collapse:separate;border-spacing:0;border-left:1px solid #ddd;border-right:1px solid #ddd;border-bottom:1px solid #ddd"><tbody>${linhasN}${linhasR}</tbody></table></div>`;
     }
     if(!horasBlocos) continue;
-    blocos += `<div style="margin-bottom:24px"><div style="background:${corImgSemana};color:white;padding:14px 18px;text-align:center;border-radius:8px;margin-bottom:12px"><div style="font-weight:900;font-size:22px">${s}ª SEMANA</div><div style="font-size:16px;font-weight:700;margin-top:2px">${info?.periodo||''}</div></div>${horasBlocos}</div>`;
+    blocos += `<div style="margin-bottom:24px"><div style="background:${corImgSemana};color:white;padding:18px 24px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:34px">${s}ª SEMANA</div><div style="font-size:24px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div>${horasBlocos}</div>`;
   }
 
   if(!blocos){ toast('Nenhuma semana escalada.','warn'); return; }
