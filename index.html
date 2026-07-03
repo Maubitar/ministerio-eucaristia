@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.0';
+const APP_VERSAO = '17.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3554,11 +3554,12 @@ window.gerarImagemEscala = async function(){
 
   toast('Gerando imagem...','ok');
 
-  // Container offscreen com o layout — largura base maior = mais nitidez
-  const BASE_W = 2400;
+  // Container offscreen — MESMA largura da semanal (1600) p/ chegarem do mesmo tamanho no zap
+  const BASE_W = 1600;
   const wrap=document.createElement('div');
-  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:28px 24px;font-family:Arial,sans-serif;color:#1a1a1a`;
+  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a`;
   wrap.innerHTML=`
+   <div style="border:3px solid #085041;border-radius:14px;padding:26px 24px;background:white">
     <div style="display:flex;align-items:center;gap:22px;border-bottom:4px solid #085041;padding-bottom:16px;margin-bottom:8px">
       <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
       <div style="flex:1;text-align:center">
@@ -3572,7 +3573,8 @@ window.gerarImagemEscala = async function(){
       <span style="font-size:28px;font-weight:800;letter-spacing:.5px">📅 ${tipo==='dom'?'DOMINGOS':'SEMANA'}: ${(subLabel||'').replace('Domingos: ','').replace('Semana de ','')}</span>
     </div>
     ${blocos}
-    <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>`;
+    <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
+   </div>`;
   document.body.appendChild(wrap);
 
   try{
@@ -6934,8 +6936,9 @@ async function gerarImagemTodasSemanas(){
     toast(`Gerando imagem ${i+1} de ${totalImgs} (${s}ª semana)...`, 'ok');
 
     const wrap = document.createElement('div');
-    wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1600px;background:white;padding:28px 24px;font-family:Arial,sans-serif';
+    wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1600px;background:white;padding:0;font-family:Arial,sans-serif';
     wrap.innerHTML = `
+     <div style="border:3px solid #185FA5;border-radius:14px;padding:26px 24px;background:white">
       <div style="display:flex;align-items:center;gap:18px;border-bottom:4px solid #185FA5;padding-bottom:14px;margin-bottom:16px">
         <img src="${APP_URL}/${LOGO_BASILICA}" crossorigin="anonymous" style="width:80px;height:80px;object-fit:contain">
         <div style="flex:1;text-align:center">
@@ -6946,7 +6949,8 @@ async function gerarImagemTodasSemanas(){
         <img src="${APP_URL}/${LOGO_MESCE}" crossorigin="anonymous" style="width:80px;height:80px;object-fit:contain">
       </div>
       ${corpo}
-      <p style="text-align:center;margin-top:16px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>`;
+      <p style="text-align:center;margin-top:16px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
+     </div>`;
     document.body.appendChild(wrap);
 
     const imgs = wrap.querySelectorAll('img');
