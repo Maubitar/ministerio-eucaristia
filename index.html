@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '16.0';
+const APP_VERSAO = '16.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6752,9 +6752,22 @@ async function imprimirTodasSemanasJuntas(){
 
 // ===== GERAR IMAGEM DE TODAS AS SEMANAS PARA WHATSAPP =====
 async function gerarImagemTodasSemanas(){
-  toast('Gerando uma imagem para cada semana...','ok');
   const mesKey = getMesAtual();
-  const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((a,b)=>parseInt(a)-parseInt(b));
+  let sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((a,b)=>parseInt(a)-parseInt(b));
+
+  // MODO COPIAR: a área de transferência só guarda 1 imagem. Copia só a semana selecionada.
+  if(_modoImagem === 'copiar'){
+    const semSel = document.getElementById('esc-sem')?.value;
+    if(semSel && sems.includes(semSel)){
+      sems = [semSel];
+      toast(`Copiando imagem da ${semSel}ª semana...`,'ok');
+    } else {
+      toast('Copiando imagem da 1ª semana...','ok');
+      sems = [sems[0]];
+    }
+  } else {
+    toast('Gerando uma imagem para cada semana...','ok');
+  }
 
   // Carrega todas as escalas semanais
   for(const s of sems){
@@ -8319,7 +8332,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button onclick="copiarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#128C7E;color:white;font-size:13px;font-weight:700;cursor:pointer">📸 Copiar imagem (colar no Zap)</button>
-      <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">🖼️ Baixar imagem</button>
+      <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">🖼️ Baixar imagem(ns)</button>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
       <button class="btn-w" onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px">📋 Copiar texto</button>
