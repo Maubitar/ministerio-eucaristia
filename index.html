@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.2';
+const APP_VERSAO = '17.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -6920,10 +6920,10 @@ async function gerarImagemTodasSemanas(){
       horasCards.push(`<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:22px;break-inside:avoid"><div style="background:${corH.escuro};color:white;padding:12px 18px"><div style="font-weight:800;font-size:31px">⏰ ${h}</div>${respTopS}</div><table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhasN}${linhasR}</tbody></table></div>`);
     }
     if(!horasCards.length) continue;
-    // 2 colunas lado a lado — imagem LARGA e curta (proporção boa p/ WhatsApp)
-    let colE='', colD='';
-    horasCards.forEach((c,i)=>{ if(i%2===0) colE+=c; else colD+=c; });
-    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:50px">${s}ª SEMANA</div><div style="font-size:32px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1">${colE}</div><div style="flex:1">${colD}</div></div>`;
+    // 3 COLUNAS lado a lado (mesmo padrão da dominical — tamanho idêntico no zap)
+    const cols3s = ['','',''];
+    horasCards.forEach((c,i)=>{ cols3s[i%3]+=c; });
+    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:50px">${s}ª SEMANA</div><div style="font-size:32px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols3s[0]}</div><div style="flex:1;min-width:0">${cols3s[1]}</div><div style="flex:1;min-width:0">${cols3s[2]}</div></div>`;
     semanasParaGerar.push({ s, corpo: corpoSemana });
   }
 
@@ -6936,7 +6936,7 @@ async function gerarImagemTodasSemanas(){
     toast(`Gerando imagem ${i+1} de ${totalImgs} (${s}ª semana)...`, 'ok');
 
     const wrap = document.createElement('div');
-    wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1600px;background:white;padding:0;font-family:Arial,sans-serif';
+    wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1900px;background:white;padding:0;font-family:Arial,sans-serif;box-sizing:border-box';
     wrap.innerHTML = `
      <div style="border:3px solid #185FA5;border-radius:14px;padding:26px 24px;background:white">
       <div style="display:flex;align-items:center;gap:18px;border-bottom:4px solid #185FA5;padding-bottom:14px;margin-bottom:16px">
