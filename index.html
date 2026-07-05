@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.9.5';
+const APP_VERSAO = '17.9.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3443,14 +3443,16 @@ function imprimirImagemBlob(blob){
     <style>
       @page{ size:landscape; margin:6mm }
       *{margin:0;padding:0;box-sizing:border-box}
-      html,body{background:white;height:100%}
+      html,body{background:white}
       .barra{position:fixed;top:0;left:0;right:0;background:#085041;color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
       .barra button{background:white;color:#085041;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
       .folha{margin-top:60px;min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center}
       .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
       @media print{
         .barra{display:none}
-        .folha{margin-top:0;min-height:100vh;page-break-inside:avoid}
+        /* MEDIDA FÍSICA FIXA (A4 paisagem menos margens de 6mm) — vh não é confiável na impressão real */
+        .folha{margin-top:0;width:285mm;height:198mm;min-height:0;page-break-inside:avoid}
+        .folha img{max-width:285mm;max-height:198mm}
       }
     </style></head><body>
     <div class="barra">Documento pronto para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
@@ -3550,6 +3552,11 @@ window.gerarImagemEscala = async function(){
   // SE SEMANAL: gera imagem de TODAS as semanas juntas
   if(tipo === 'sem'){
     await gerarImagemTodasSemanas();
+    // BUG CORRIGIDO: antes, no modo IMPRIMIR, os blobs ficavam prontos em _blobsImprimir
+    // mas NUNCA eram enviados para a janela de impressão — por isso ficava "travado".
+    if(_modoImagem === 'imprimir'){
+      finalizarImpressaoVariasImagens(_blobsImprimir, '#185FA5');
+    }
     return;
   }
   const sem=document.getElementById('esc-sem').value;
@@ -6719,52 +6726,66 @@ function datasDestacadas(tipo, sem){
 // ===== IMPRIMIR TODAS AS SEMANAS JUNTAS =====
 let _blobsImprimir = [];
 
+// Finaliza a impressão de várias imagens (uma por semana), uma por página — reaproveita a janela
+// já aberta no clique do usuário (_winImpressao) para nunca ser bloqueada como pop-up.
+function finalizarImpressaoVariasImagens(blobs, corBarra){
+  corBarra = corBarra || '#185FA5';
+  if(!blobs || !blobs.length){
+    toast('Nenhuma semana escalada para imprimir.','warn');
+    if(_winImpressao && !_winImpressao.closed) _winImpressao.close();
+    _winImpressao = null;
+    return;
+  }
+  const w = (_winImpressao && !_winImpressao.closed) ? _winImpressao : window.open('', '_blank');
+  _winImpressao = null;
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  w.document.open();
+  let corpo = '';
+  blobs.forEach((blob, i)=>{
+    const url = URL.createObjectURL(blob);
+    const quebra = i < blobs.length-1 ? 'page-break-after:always' : '';
+    corpo += `<div class="folha" style="${quebra}"><img src="${url}"></div>`;
+  });
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impressão — Escalas Semanais</title>
+    <style>
+      @page{ size:landscape; margin:6mm }
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{background:white}
+      .barra{position:fixed;top:0;left:0;right:0;background:${corBarra};color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
+      .barra button{background:white;color:${corBarra};border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
+      .folha{margin-top:60px;min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center}
+      .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
+      body{padding-top:60px}
+      @media print{
+        .barra{display:none}
+        body{padding-top:0}
+        /* MEDIDA FÍSICA FIXA (A4 paisagem menos margens de 6mm) — vh não é confiável na impressão real */
+        .folha{margin-top:0;width:285mm;height:198mm;min-height:0;page-break-inside:avoid}
+        .folha img{max-width:285mm;max-height:198mm}
+      }
+    </style></head><body>
+    <div class="barra">${blobs.length} semana(s) prontas para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
+    ${corpo}
+    </body></html>`);
+  w.document.close();
+  setTimeout(()=>w.focus(), 300);
+}
+
 async function imprimirTodasSemanasJuntas(){
   // Impressão semanal = as MESMAS imagens do WhatsApp (idênticas à tela), uma por página.
   _blobsImprimir = [];
   _modoImagem = 'imprimir';
   // BLINDAGEM DE POP-UP: abre a janela JÁ, dentro do clique do usuário — antes de qualquer espera.
-  const wPre = window.open('', '_blank');
-  if(wPre){
-    wPre.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Preparando impressão…</title></head><body style="font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#185FA5;font-size:16px">⏳ Gerando escalas para impressão, aguarde alguns segundos…</body></html>');
+  _winImpressao = window.open('', '_blank');
+  if(_winImpressao){
+    _winImpressao.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Preparando impressão…</title></head><body style="font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#185FA5;font-size:16px">⏳ Gerando escalas para impressão, aguarde alguns segundos…</body></html>');
   } else {
     toast('Seu navegador bloqueou a janela. Clique no ícone de pop-up bloqueado na barra de endereço e permita para este site.','warn');
   }
   toast('Preparando impressão das semanas (idêntica à tela)...','ok');
   try{
     await gerarImagemTodasSemanas();   // gera cada semana e coleta em _blobsImprimir
-    if(!_blobsImprimir.length){ toast('Nenhuma semana escalada para imprimir.','warn'); if(wPre && !wPre.closed) wPre.close(); return; }
-    // Reaproveita a janela já aberta no clique (ou abre uma nova se ela tiver sido bloqueada/fechada)
-    const w = (wPre && !wPre.closed) ? wPre : window.open('', '_blank');
-    if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
-    w.document.open();
-    let corpo = '';
-    _blobsImprimir.forEach((blob, i)=>{
-      const url = URL.createObjectURL(blob);
-      const quebra = i < _blobsImprimir.length-1 ? 'page-break-after:always' : '';
-      corpo += `<div class="folha" style="${quebra}"><img src="${url}"></div>`;
-    });
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impressão — Escalas Semanais</title>
-      <style>
-        @page{ size:landscape; margin:6mm }
-        *{margin:0;padding:0;box-sizing:border-box}
-        html,body{background:white}
-        .barra{position:fixed;top:0;left:0;right:0;background:#185FA5;color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
-        .barra button{background:white;color:#185FA5;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
-        .folha{min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center;page-break-inside:avoid}
-        .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
-        body{padding-top:60px}
-        @media print{
-          .barra{display:none}
-          body{padding-top:0}
-          .folha{min-height:100vh}
-        }
-      </style></head><body>
-      <div class="barra">${_blobsImprimir.length} semana(s) prontas para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
-      ${corpo}
-      </body></html>`);
-    w.document.close();
-    setTimeout(()=>w.focus(), 300);
+    finalizarImpressaoVariasImagens(_blobsImprimir, '#185FA5');
   }catch(e){
     toast('Erro ao preparar impressão: '+e.message,'err');
   }finally{
