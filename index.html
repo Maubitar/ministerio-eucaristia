@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '18.4';
+const APP_VERSAO = '18.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4176,7 +4176,7 @@ async function imprimirPresencaTodasSemanas(){
   const blocosArr = sems.map(blocoDaSemana).filter(Boolean);
   if(!blocosArr.length){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
   // Cada semana começa em página NOVA — o título azul nunca fica solto no fim de outra página
-  const blocos = blocosArr.map((b,i)=> i===0 ? b : `<div class="quebra-pagina"></div>${b}`).join('');
+  const blocos = blocosArr.join('');
 
   const w = window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — Semanas de ${mesKey}</title>
@@ -4195,7 +4195,6 @@ async function imprimirPresencaTodasSemanas(){
     .info .leg{font-size:9px;color:#555}
     .semana-bloco{margin-bottom:6px;break-inside:auto}
     .semana-titulo{background:#134E8E;color:white;font-size:12px;font-weight:800;padding:4px 12px;border-radius:6px;margin-bottom:4px;break-after:avoid;page-break-after:avoid}
-    .quebra-pagina{break-before:page;page-break-before:always;height:0;margin:0;padding:0}
     .missa{margin-bottom:8px;break-inside:avoid;page-break-inside:avoid}
     /* O thead (barra verde do horário + cabeçalho de colunas) repete no topo de cada página quando a tabela transborda */
     table.tab thead{display:table-header-group}
