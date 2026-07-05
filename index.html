@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.9.7';
+const APP_VERSAO = '17.9.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3441,26 +3441,32 @@ function imprimirImagemBlob(blob){
   w.document.open();
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impressão — Escala</title>
     <style>
-      @page{ size:landscape; margin:6mm }
+      /* Sua impressora ignora o pedido de "paisagem" — então nem pedimos mais.
+         A folha fica VERTICAL (o padrão real da sua impressora) e o CONTEÚDO
+         é girado 90° matematicamente, preenchendo a folha inteira certinho. */
+      @page{ size:portrait; margin:6mm }
       *{margin:0;padding:0;box-sizing:border-box}
       html,body{background:white;height:100%}
       .barra{position:fixed;top:0;left:0;right:0;background:#085041;color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
       .barra button{background:white;color:#085041;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
-      .aviso{position:fixed;top:60px;left:0;right:0;background:#fff4e0;color:#8a5a10;padding:8px 14px;text-align:center;font-family:Arial;font-size:13px;font-weight:700;border-bottom:2px solid #e0a83a;z-index:8}
-      .folha{margin-top:110px;min-height:calc(100vh - 110px);display:flex;align-items:center;justify-content:center}
-      .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
+      .folha{margin-top:60px;min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center}
+      .folha img{ max-width:90%; max-height:calc(100vh - 120px); width:auto; height:auto; display:block }
       @media print{
         .barra{display:none}
-        .aviso{display:none}
-        /* Encaixe por PORCENTAGEM da área útil da página — se adapta sozinho à orientação
-           que a impressora realmente usar (paisagem ou retrato), nunca corta o conteúdo */
-        html,body{height:100%;width:100%}
-        .folha{margin-top:0;width:100%;height:100%;min-height:0;page-break-inside:avoid}
+        html,body{width:100%;height:100%}
+        /* Girado 90°: a caixa usa as dimensões da folha JÁ TROCADAS (285x198mm),
+           que depois de girar preenchem exatamente os 198x285mm da folha vertical real */
+        .folha{
+          position:absolute; top:50%; left:50%; margin:0;
+          width:285mm; height:198mm; min-height:0;
+          transform:translate(-50%,-50%) rotate(90deg);
+          transform-origin:center center;
+          page-break-inside:avoid;
+        }
         .folha img{max-width:100%;max-height:100%}
       }
     </style></head><body>
     <div class="barra">Documento pronto para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
-    <div class="aviso">⚠️ Antes de clicar em Imprimir: abra "Mais definições" e confirme Orientação = Paisagem</div>
     <div class="folha"><img src="${url}" onload="window.focus()"></div>
     </body></html>`);
   w.document.close();
@@ -4111,7 +4117,7 @@ async function imprimirPresencaTodasSemanas(){
     const horasComMin = MISSAS_SEM.filter(h => (esc[h]?.ministros||[]).length);
     if(!horasComMin.length) return '';
 
-    const missasHtml = horasComMin.map(hora=>{
+    const missasArr = horasComMin.map(hora=>{
       const g = esc[hora] || {ministros:[],responsavel:''};
       const responsavel = g.responsavel||'';
       const respObj = ministros.find(x=>x.nome===responsavel);
@@ -4133,11 +4139,16 @@ async function imprimirPresencaTodasSemanas(){
         <div class="missa-hora"><span class="hr">⏰ ${hora}</span><span class="resp-info">Responsável: <strong>${responsavel||'—'}</strong>${respTel}</span></div>
         <table class="tab"><thead><tr><th class="num">Nº</th><th class="nome">Nomes Ministros(as)</th>${thDatas}</tr></thead><tbody>${linhas}</tbody></table>
       </div>`;
-    }).join('');
+    });
 
+    const primeiraMissa = missasArr[0] || '';
+    const demaisMissas = missasArr.slice(1).join('');
     return `<div class="semana-bloco">
-      <div class="semana-titulo">📅 ${info.label||s+'ª semana'} — ${info.periodo||''}</div>
-      ${missasHtml}
+      <div class="grupo-titulo">
+        <div class="semana-titulo">📅 ${info.label||s+'ª semana'} — ${info.periodo||''}</div>
+        ${primeiraMissa}
+      </div>
+      ${demaisMissas}
     </div>`;
   }
 
@@ -4160,7 +4171,8 @@ async function imprimirPresencaTodasSemanas(){
     .info .tipo{font-size:9px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:20px}
     .info .leg{font-size:9px;color:#555}
     .semana-bloco{margin-bottom:6px;break-inside:auto}
-    .semana-titulo{background:#134E8E;color:white;font-size:12px;font-weight:800;padding:4px 12px;border-radius:6px;margin-bottom:4px;page-break-after:avoid;page-break-inside:avoid;break-after:avoid-page;break-inside:avoid}
+    .semana-titulo{background:#134E8E;color:white;font-size:12px;font-weight:800;padding:4px 12px;border-radius:6px;margin-bottom:4px}
+    .grupo-titulo{page-break-inside:avoid;break-inside:avoid}
     .missa{margin-bottom:5px;page-break-inside:avoid}
     .missa-hora{background:#085041;color:white;padding:3px 12px;border-radius:5px 5px 0 0;display:flex;justify-content:space-between;align-items:center}
     .missa-hora .hr{font-weight:700;font-size:11px}
@@ -4169,10 +4181,10 @@ async function imprimirPresencaTodasSemanas(){
     table.tab th{background:#dfe7e4;font-size:9px;padding:3px 3px;border:1px solid #333;color:#1a1a1a;text-align:center;font-weight:700}
     table.tab td{border:1px solid #888;padding:2px 5px;font-size:9px;height:22px;vertical-align:middle}
     th.data{background:#085041;color:white;font-size:10px}
-    td.subst{min-width:42px}
-    td.letra,th.letra{width:20px;text-align:center;background:#fafafa}
+    td.subst{min-width:32px}
+    td.letra,th.letra{width:16px;text-align:center;background:#fafafa}
     .num{width:22px;text-align:center;color:#888;font-size:9px}
-    .nome{text-align:left;width:290px;line-height:1.15;font-size:12px}
+    .nome{text-align:left;width:320px;line-height:1.15;font-size:12px}
     .nome.resp-nome{font-weight:700}
     .resp{color:#BA7517;font-weight:700;margin-left:2px}
     .rodape{text-align:center;margin-top:16px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:8px}
@@ -6749,32 +6761,38 @@ function finalizarImpressaoVariasImagens(blobs, corBarra){
   blobs.forEach((blob, i)=>{
     const url = URL.createObjectURL(blob);
     const quebra = i < blobs.length-1 ? 'page-break-after:always' : '';
-    corpo += `<div class="folha" style="${quebra}"><img src="${url}"></div>`;
+    corpo += `<div class="pagina" style="${quebra}"><div class="folha"><img src="${url}"></div></div>`;
   });
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impressão — Escalas Semanais</title>
     <style>
-      @page{ size:landscape; margin:6mm }
+      /* Sua impressora ignora o pedido de "paisagem" — então nem pedimos mais.
+         A folha fica VERTICAL (o padrão real da sua impressora) e cada imagem é
+         girada 90° matematicamente, preenchendo a folha inteira certinho. */
+      @page{ size:portrait; margin:6mm }
       *{margin:0;padding:0;box-sizing:border-box}
       html,body{background:white;height:100%}
       .barra{position:fixed;top:0;left:0;right:0;background:${corBarra};color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
       .barra button{background:white;color:${corBarra};border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
-      .aviso{position:fixed;top:60px;left:0;right:0;background:#fff4e0;color:#8a5a10;padding:8px 14px;text-align:center;font-family:Arial;font-size:13px;font-weight:700;border-bottom:2px solid #e0a83a;z-index:8}
-      .folha{margin-top:110px;min-height:calc(100vh - 110px);display:flex;align-items:center;justify-content:center}
-      .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
-      body{padding-top:110px}
+      .pagina{position:relative;min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center}
+      .folha img{ max-width:90%; max-height:100%; width:auto; height:auto; display:block }
+      body{padding-top:60px}
       @media print{
         .barra{display:none}
-        .aviso{display:none}
         body{padding-top:0}
-        html,body{height:100%;width:100%}
-        /* Encaixe por PORCENTAGEM da área útil da página — se adapta sozinho à orientação
-           que a impressora realmente usar, nunca corta o conteúdo */
-        .folha{margin-top:0;width:100%;height:100%;min-height:0;page-break-inside:avoid}
+        html,body{width:100%;height:100%}
+        .pagina{width:198mm;height:285mm;min-height:0;page-break-inside:avoid;margin:0 auto}
+        /* Girado 90°: a caixa usa as dimensões JÁ TROCADAS (285x198mm), que depois
+           de girar preenchem exatamente os 198x285mm da folha vertical real */
+        .folha{
+          position:absolute; top:50%; left:50%;
+          width:285mm; height:198mm;
+          transform:translate(-50%,-50%) rotate(90deg);
+          transform-origin:center center;
+        }
         .folha img{max-width:100%;max-height:100%}
       }
     </style></head><body>
     <div class="barra">${blobs.length} semana(s) prontas para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
-    <div class="aviso">⚠️ Antes de clicar em Imprimir: abra "Mais definições" e confirme Orientação = Paisagem</div>
     ${corpo}
     </body></html>`);
   w.document.close();
