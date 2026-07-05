@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.8';
+const APP_VERSAO = '17.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -280,7 +280,7 @@ window.addEventListener('load', async()=>{
     await carregarMinistros();
     escutarMinistrosTempoReal();
     if(typeof carregarAusencias==='function') carregarAusencias();
-    setTimeout(()=>{ if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
+    setTimeout(()=>{ if(typeof carregarNumSemanas==='function') carregarNumSemanas(); if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
     await carregarConfigAcesso();
     document.getElementById('loading').style.display='none';
     // Mostra a tela de login (o app só abre após autenticar)
@@ -1904,6 +1904,11 @@ let SEMANAS_SERVICO = 5;
 
 window.definirSemanas = function(n){
   SEMANAS_SERVICO = n;
+  // BLINDAGEM: salva a escolha do usuário (não pode ser desfeita ao atualizar)
+  try{
+    const mk = getMesAtual();
+    localStorage.setItem(`sogi_num_semanas_${mk}`, String(n));
+  }catch(e){}
   document.getElementById('btn-sem4').style.border = n===4?'1.5px solid #085041':'1.5px solid #ddd';
   document.getElementById('btn-sem4').style.background = n===4?'#e1f5ee':'white';
   document.getElementById('btn-sem4').style.color = n===4?'#085041':'#555';
@@ -2500,6 +2505,7 @@ window.trocarMes = function(){
   // Ao trocar de mês, zera memória local e carrega do localStorage
   _periodoSemanaCustom = {};
   Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
+  carregarNumSemanas();
   recalcularComSemanas();
   // Carrega semanas do novo mês (se já foram definidas antes)
   carregarSemanasLocais();
@@ -2509,7 +2515,31 @@ window.trocarMes = function(){
   if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
 };
 window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
-window.inicializarEscala = function(){ recalcularComSemanas(); };
+// BLINDAGEM: carrega a escolha de nº de semanas salva pelo usuário (4 ou 5)
+window.carregarNumSemanas = function(){
+  try{
+    const mk = getMesAtual();
+    const salvo = localStorage.getItem(`sogi_num_semanas_${mk}`);
+    if(salvo === '4' || salvo === '5'){
+      const n = parseInt(salvo);
+      SEMANAS_SERVICO = n;
+      // atualiza os botões visualmente sem re-salvar
+      const b4=document.getElementById('btn-sem4'), b5=document.getElementById('btn-sem5');
+      if(b4 && b5){
+        b4.style.border = n===4?'1.5px solid #085041':'1.5px solid #ddd';
+        b4.style.background = n===4?'#e1f5ee':'white';
+        b4.style.color = n===4?'#085041':'#555';
+        b4.textContent = n===4?'4 semanas ✓':'4 semanas';
+        b5.style.border = n===5?'1.5px solid #085041':'1.5px solid #ddd';
+        b5.style.background = n===5?'#e1f5ee':'white';
+        b5.style.color = n===5?'#085041':'#555';
+        b5.textContent = n===5?'5 semanas ✓':'5 semanas';
+      }
+    }
+  }catch(e){}
+};
+
+window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); };
 
 window.verEscalaAnterior = function(){
   const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
@@ -3508,7 +3538,7 @@ window.copiarImagemEscala = async function(){
 };
 
 window.gerarImagemEscala = async function(){
-  if(_modoImagem !== 'copiar') _modoImagem = 'compartilhar';
+  if(_modoImagem !== 'copiar' && _modoImagem !== 'imprimir') _modoImagem = 'compartilhar';
   const tipo=document.getElementById('esc-tipo').value;
   // SE SEMANAL: gera imagem de TODAS as semanas juntas
   if(tipo === 'sem'){
