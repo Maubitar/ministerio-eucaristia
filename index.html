@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.9.9';
+const APP_VERSAO = '18.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -4137,8 +4137,10 @@ async function imprimirPresencaTodasSemanas(){
     </div>`;
   }
 
-  const blocos = sems.map(blocoDaSemana).filter(Boolean).join('');
-  if(!blocos){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
+  const blocosArr = sems.map(blocoDaSemana).filter(Boolean);
+  if(!blocosArr.length){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
+  // Cada semana começa em página NOVA — o título azul nunca fica solto no fim de outra página
+  const blocos = blocosArr.map((b,i)=> i===0 ? b : `<div class="quebra-pagina"></div>${b}`).join('');
 
   const w = window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — Semanas de ${mesKey}</title>
@@ -4157,8 +4159,12 @@ async function imprimirPresencaTodasSemanas(){
     .info .leg{font-size:9px;color:#555}
     .semana-bloco{margin-bottom:6px;break-inside:auto}
     .semana-titulo{background:#134E8E;color:white;font-size:12px;font-weight:800;padding:4px 12px;border-radius:6px;margin-bottom:4px;break-after:avoid;page-break-after:avoid}
-    .missa:first-of-type{break-before:avoid;page-break-before:avoid}
-    .missa{margin-bottom:5px;page-break-inside:avoid}
+    .quebra-pagina{break-before:page;page-break-before:always;height:0;margin:0;padding:0}
+    .missa{margin-bottom:5px;break-inside:avoid;page-break-inside:avoid}
+    .missa-hora{break-after:avoid;page-break-after:avoid}
+    table.tab{break-before:avoid;page-break-before:avoid}
+    table.tab thead{display:table-header-group}
+    tr{break-inside:avoid;page-break-inside:avoid}
     .missa-hora{background:#085041;color:white;padding:3px 12px;border-radius:5px 5px 0 0;display:flex;justify-content:space-between;align-items:center}
     .missa-hora .hr{font-weight:700;font-size:11px}
     .missa-hora .resp-info{font-size:10px;font-weight:400}
