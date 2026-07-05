@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '18.6';
+const APP_VERSAO = '18.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4193,12 +4193,11 @@ async function imprimirPresencaTodasSemanas(){
     .info{display:flex;justify-content:space-between;align-items:center;margin:4px 0 3px;font-size:10px}
     .info .tipo{font-size:9px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:20px}
     .info .leg{font-size:9px;color:#555}
-    .semana-bloco{margin-bottom:6px;break-inside:auto}
+    .semana-bloco{margin-bottom:4px;break-inside:auto}
     .semana-titulo{background:#134E8E;color:white;font-size:12px;font-weight:800;padding:4px 12px;border-radius:6px;margin-bottom:4px;break-after:avoid;page-break-after:avoid}
-    .missa{margin-bottom:8px;break-inside:auto}
-    /* O thead (barra verde do horário + cabeçalho de colunas) repete no topo de cada página quando a tabela transborda */
+    .missa{margin-bottom:4px;break-inside:avoid;page-break-inside:avoid}
+    /* Cada horário fica inteiro numa página — nunca deixa ministro isolado com cabeçalho repetido */
     table.tab thead{display:table-header-group}
-    table.tab tbody{orphans:3;widows:3}
     tr{break-inside:avoid;page-break-inside:avoid}
     /* Barra verde do horário agora é uma célula do cabeçalho — nunca sai cortada */
     .linha-hora .hora-cel{background:#085041;color:white;padding:5px 12px;text-align:left;border:1.5px solid #333;border-bottom:none}
@@ -4335,9 +4334,8 @@ window.imprimirPresenca = async function(){
     .info{display:flex;justify-content:space-between;align-items:center;margin:5px 0 4px;font-size:11px}
     .info .tipo{font-size:10px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:20px}
     .info .leg{font-size:10px;color:#555}
-    .missa{margin-bottom:8px;break-inside:auto}
+    .missa{margin-bottom:4px;break-inside:avoid;page-break-inside:avoid}
     table.tab thead{display:table-header-group}
-    table.tab tbody{orphans:3;widows:3}
     tr{break-inside:avoid;page-break-inside:avoid}
     .linha-hora .hora-cel{background:#085041;color:white;padding:5px 12px;text-align:left;border:1px solid #333;border-bottom:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .linha-hora .hora-cel .hr{font-weight:700;font-size:12px;margin-right:14px}
