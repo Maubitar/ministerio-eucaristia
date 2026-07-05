@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.9.1';
+const APP_VERSAO = '17.9.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3438,16 +3438,20 @@ function imprimirImagemBlob(blob){
   if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impressão — Escala</title>
     <style>
-      @page{ size:landscape; margin:8mm }
+      @page{ size:landscape; margin:6mm }
       *{margin:0;padding:0;box-sizing:border-box}
-      html,body{background:white}
-      img{ width:100%; height:auto; display:block }
-      @media print{ button{display:none} }
-      .barra{position:fixed;top:0;left:0;right:0;background:#085041;color:white;padding:12px;text-align:center;font-family:Arial}
+      html,body{background:white;height:100%}
+      .barra{position:fixed;top:0;left:0;right:0;background:#085041;color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
       .barra button{background:white;color:#085041;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
+      .folha{margin-top:60px;min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center}
+      .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
+      @media print{
+        .barra{display:none}
+        .folha{margin-top:0;min-height:100vh;page-break-inside:avoid}
+      }
     </style></head><body>
     <div class="barra">Documento pronto para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
-    <div style="margin-top:60px"><img src="${url}" onload="window.focus()"></div>
+    <div class="folha"><img src="${url}" onload="window.focus()"></div>
     </body></html>`);
   w.document.close();
 }
@@ -6727,21 +6731,26 @@ async function imprimirTodasSemanasJuntas(){
     _blobsImprimir.forEach((blob, i)=>{
       const url = URL.createObjectURL(blob);
       const quebra = i < _blobsImprimir.length-1 ? 'page-break-after:always' : '';
-      corpo += `<div style="${quebra}"><img src="${url}"></div>`;
+      corpo += `<div class="folha" style="${quebra}"><img src="${url}"></div>`;
     });
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impressão — Escalas Semanais</title>
       <style>
-        @page{ size:landscape; margin:8mm }
+        @page{ size:landscape; margin:6mm }
         *{margin:0;padding:0;box-sizing:border-box}
         html,body{background:white}
-        img{ width:100%; height:auto; display:block }
-        @media print{ .barra{display:none} }
         .barra{position:fixed;top:0;left:0;right:0;background:#185FA5;color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
         .barra button{background:white;color:#185FA5;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
-        .pagina{margin-top:0}
+        .folha{min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center;page-break-inside:avoid}
+        .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
+        body{padding-top:60px}
+        @media print{
+          .barra{display:none}
+          body{padding-top:0}
+          .folha{min-height:100vh}
+        }
       </style></head><body>
       <div class="barra">${_blobsImprimir.length} semana(s) prontas para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
-      <div style="margin-top:60px">${corpo}</div>
+      ${corpo}
       </body></html>`);
     w.document.close();
     setTimeout(()=>w.focus(), 300);
