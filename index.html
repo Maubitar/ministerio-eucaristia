@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.9';
+const APP_VERSAO = '17.9.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3599,8 +3599,8 @@ window.gerarImagemEscala = async function(){
         <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${isResp?'font-weight:700':''}">${m}</td>
       </tr>`;
     }).join('');
-    const respTelTop = respObj?.tel ? `<span style="white-space:nowrap">&nbsp;&nbsp;📞 ${respObj.tel}</span>` : '';
-    const respTop = responsavel ? `<div style="font-weight:700;font-size:24px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">★ ${responsavel}${respTelTop}</div>` : '';
+    const respTelTop = respObj?.tel ? `<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${respObj.tel}</span>` : '';
+    const respTop = responsavel ? `<div style="font-weight:700;font-size:24px;margin-top:5px;line-height:1.3;word-break:break-word">★ ${responsavel}${respTelTop}</div>` : '';
     return `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:24px;break-inside:avoid">
       <div style="background:${corH.escuro};color:white;padding:14px 20px">
         <div style="font-weight:800;font-size:34px">⏰ ${h}</div>
@@ -6848,8 +6848,8 @@ async function gerarImagemTodasSemanas(){
         }).join('');
       }
 
-      const respTelTopS = respObj?.tel ? `<span style="white-space:nowrap">&nbsp;&nbsp;📞 ${respObj.tel}</span>` : '';
-      const respTopS = resp ? `<div style="font-weight:700;font-size:22px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">★ ${resp}${respTelTopS}</div>` : '';
+      const respTelTopS = respObj?.tel ? `<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${respObj.tel}</span>` : '';
+      const respTopS = resp ? `<div style="font-weight:700;font-size:22px;margin-top:4px;line-height:1.3;word-break:break-word">★ ${resp}${respTelTopS}</div>` : '';
       const _htmlCard = `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:22px;break-inside:avoid"><div style="background:${corH.escuro};color:white;padding:12px 18px"><div style="font-weight:800;font-size:31px">⏰ ${h}</div>${respTopS}</div><table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhasN}${linhasR}</tbody></table></div>`;
       // peso = nº de pessoas (para balancear as colunas por altura)
       const _peso = ord.length + refsHora.reduce((a,r)=>a+r.ministros.length,0) + 2;
