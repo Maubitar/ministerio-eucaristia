@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.9.3';
+const APP_VERSAO = '17.9.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3430,12 +3430,15 @@ async function capturarImagemAlta(elemento){
 }
 
 let _modoImagem = 'baixar'; // 'baixar' | 'copiar' | 'compartilhar'
+let _winImpressao = null; // janela de impressão aberta SINCRONAMENTE no clique, para o navegador nunca bloquear como pop-up
 
 // Abre a imagem gerada numa janela de impressão — fica IDÊNTICO ao que se vê na tela
 function imprimirImagemBlob(blob){
   const url = URL.createObjectURL(blob);
-  const w = window.open('', '_blank');
+  const w = (_winImpressao && !_winImpressao.closed) ? _winImpressao : window.open('', '_blank');
+  _winImpressao = null;
   if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  w.document.open();
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impressão — Escala</title>
     <style>
       @page{ size:landscape; margin:6mm }
@@ -4144,8 +4147,8 @@ async function imprimirPresencaTodasSemanas(){
     .info{display:flex;justify-content:space-between;align-items:center;margin:5px 0 4px;font-size:11px}
     .info .tipo{font-size:10px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:20px}
     .info .leg{font-size:10px;color:#555}
-    .semana-bloco{margin-bottom:10px}
-    .semana-titulo{background:#134E8E;color:white;font-size:13px;font-weight:800;padding:5px 12px;border-radius:6px;margin-bottom:5px}
+    .semana-bloco{margin-bottom:10px;break-inside:auto}
+    .semana-titulo{background:#134E8E;color:white;font-size:13px;font-weight:800;padding:5px 12px;border-radius:6px;margin-bottom:5px;page-break-after:avoid;page-break-inside:avoid;break-after:avoid-page;break-inside:avoid}
     .missa{margin-bottom:8px;page-break-inside:avoid}
     .missa-hora{background:#085041;color:white;padding:4px 12px;border-radius:5px 5px 0 0;display:flex;justify-content:space-between;align-items:center}
     .missa-hora .hr{font-weight:700;font-size:12px}
@@ -6720,13 +6723,21 @@ async function imprimirTodasSemanasJuntas(){
   // Impressão semanal = as MESMAS imagens do WhatsApp (idênticas à tela), uma por página.
   _blobsImprimir = [];
   _modoImagem = 'imprimir';
+  // BLINDAGEM DE POP-UP: abre a janela JÁ, dentro do clique do usuário — antes de qualquer espera.
+  const wPre = window.open('', '_blank');
+  if(wPre){
+    wPre.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Preparando impressão…</title></head><body style="font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#185FA5;font-size:16px">⏳ Gerando escalas para impressão, aguarde alguns segundos…</body></html>');
+  } else {
+    toast('Seu navegador bloqueou a janela. Clique no ícone de pop-up bloqueado na barra de endereço e permita para este site.','warn');
+  }
   toast('Preparando impressão das semanas (idêntica à tela)...','ok');
   try{
     await gerarImagemTodasSemanas();   // gera cada semana e coleta em _blobsImprimir
-    if(!_blobsImprimir.length){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
-    // Monta janela de impressão com uma imagem por página
-    const w = window.open('', '_blank');
+    if(!_blobsImprimir.length){ toast('Nenhuma semana escalada para imprimir.','warn'); if(wPre && !wPre.closed) wPre.close(); return; }
+    // Reaproveita a janela já aberta no clique (ou abre uma nova se ela tiver sido bloqueada/fechada)
+    const w = (wPre && !wPre.closed) ? wPre : window.open('', '_blank');
     if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+    w.document.open();
     let corpo = '';
     _blobsImprimir.forEach((blob, i)=>{
       const url = URL.createObjectURL(blob);
@@ -6927,8 +6938,15 @@ async function gerarImagemTodasSemanas(){
 window.imprimirEscala = async function(){
   const tipo=document.getElementById('esc-tipo').value;
   // A impressão reaproveita EXATAMENTE o layout da imagem (idêntico à tela).
-  // Ativa o modo imprimir e chama a mesma geração usada no WhatsApp.
   _modoImagem = 'imprimir';
+  // BLINDAGEM DE POP-UP: abre a janela JÁ, dentro do clique do usuário — antes de qualquer espera.
+  // Isso impede o navegador de tratar a janela como pop-up bloqueado.
+  _winImpressao = window.open('', '_blank');
+  if(_winImpressao){
+    _winImpressao.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Preparando impressão…</title></head><body style="font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#085041;font-size:16px">⏳ Gerando escala para impressão, aguarde alguns segundos…</body></html>');
+  } else {
+    toast('Seu navegador bloqueou a janela. Clique no ícone de pop-up bloqueado na barra de endereço e permita para este site.','warn');
+  }
   toast('Preparando impressão (idêntica à tela)...','ok');
   try{
     await gerarImagemEscala();
