@@ -34,7 +34,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '17.9.6';
+const APP_VERSAO = '17.9.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE: força URL com versão para atualização instantânea
@@ -3443,19 +3443,24 @@ function imprimirImagemBlob(blob){
     <style>
       @page{ size:landscape; margin:6mm }
       *{margin:0;padding:0;box-sizing:border-box}
-      html,body{background:white}
+      html,body{background:white;height:100%}
       .barra{position:fixed;top:0;left:0;right:0;background:#085041;color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
       .barra button{background:white;color:#085041;border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
-      .folha{margin-top:60px;min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center}
+      .aviso{position:fixed;top:60px;left:0;right:0;background:#fff4e0;color:#8a5a10;padding:8px 14px;text-align:center;font-family:Arial;font-size:13px;font-weight:700;border-bottom:2px solid #e0a83a;z-index:8}
+      .folha{margin-top:110px;min-height:calc(100vh - 110px);display:flex;align-items:center;justify-content:center}
       .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
       @media print{
         .barra{display:none}
-        /* MEDIDA FÍSICA FIXA (A4 paisagem menos margens de 6mm) — vh não é confiável na impressão real */
-        .folha{margin-top:0;width:285mm;height:198mm;min-height:0;page-break-inside:avoid}
-        .folha img{max-width:285mm;max-height:198mm}
+        .aviso{display:none}
+        /* Encaixe por PORCENTAGEM da área útil da página — se adapta sozinho à orientação
+           que a impressora realmente usar (paisagem ou retrato), nunca corta o conteúdo */
+        html,body{height:100%;width:100%}
+        .folha{margin-top:0;width:100%;height:100%;min-height:0;page-break-inside:avoid}
+        .folha img{max-width:100%;max-height:100%}
       }
     </style></head><body>
     <div class="barra">Documento pronto para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
+    <div class="aviso">⚠️ Antes de clicar em Imprimir: abra "Mais definições" e confirme Orientação = Paisagem</div>
     <div class="folha"><img src="${url}" onload="window.focus()"></div>
     </body></html>`);
   w.document.close();
@@ -6750,21 +6755,26 @@ function finalizarImpressaoVariasImagens(blobs, corBarra){
     <style>
       @page{ size:landscape; margin:6mm }
       *{margin:0;padding:0;box-sizing:border-box}
-      html,body{background:white}
+      html,body{background:white;height:100%}
       .barra{position:fixed;top:0;left:0;right:0;background:${corBarra};color:white;padding:12px;text-align:center;font-family:Arial;z-index:9}
       .barra button{background:white;color:${corBarra};border:none;padding:10px 24px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 6px}
-      .folha{margin-top:60px;min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center}
+      .aviso{position:fixed;top:60px;left:0;right:0;background:#fff4e0;color:#8a5a10;padding:8px 14px;text-align:center;font-family:Arial;font-size:13px;font-weight:700;border-bottom:2px solid #e0a83a;z-index:8}
+      .folha{margin-top:110px;min-height:calc(100vh - 110px);display:flex;align-items:center;justify-content:center}
       .folha img{ max-width:100%; max-height:100%; width:auto; height:auto; display:block }
-      body{padding-top:60px}
+      body{padding-top:110px}
       @media print{
         .barra{display:none}
+        .aviso{display:none}
         body{padding-top:0}
-        /* MEDIDA FÍSICA FIXA (A4 paisagem menos margens de 6mm) — vh não é confiável na impressão real */
-        .folha{margin-top:0;width:285mm;height:198mm;min-height:0;page-break-inside:avoid}
-        .folha img{max-width:285mm;max-height:198mm}
+        html,body{height:100%;width:100%}
+        /* Encaixe por PORCENTAGEM da área útil da página — se adapta sozinho à orientação
+           que a impressora realmente usar, nunca corta o conteúdo */
+        .folha{margin-top:0;width:100%;height:100%;min-height:0;page-break-inside:avoid}
+        .folha img{max-width:100%;max-height:100%}
       }
     </style></head><body>
     <div class="barra">${blobs.length} semana(s) prontas para impressão &nbsp; <button onclick="window.print()">🖨️ Imprimir</button><button onclick="window.close()">Fechar</button></div>
+    <div class="aviso">⚠️ Antes de clicar em Imprimir: abra "Mais definições" e confirme Orientação = Paisagem</div>
     ${corpo}
     </body></html>`);
   w.document.close();
@@ -6795,6 +6805,7 @@ async function imprimirTodasSemanasJuntas(){
 
 // ===== GERAR IMAGEM DE TODAS AS SEMANAS PARA WHATSAPP =====
 async function gerarImagemTodasSemanas(){
+  if(_modoImagem === 'imprimir') _blobsImprimir = []; // BUG CORRIGIDO: garantir lista limpa a cada impressão
   const mesKey = getMesAtual();
   let sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((a,b)=>parseInt(a)-parseInt(b));
 
@@ -6970,9 +6981,19 @@ window.imprimirEscala = async function(){
   }
   toast('Preparando impressão (idêntica à tela)...','ok');
   try{
-    await gerarImagemEscala();
+    // ALARME DE SEGURANÇA: se demorar mais de 30s (rede lenta, Firebase sem responder etc.),
+    // mostra erro claro em vez de deixar a janela girando pra sempre.
+    await Promise.race([
+      gerarImagemEscala(),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('Demorou mais de 30 segundos. Verifique sua internet e tente novamente.')), 30000))
+    ]);
   }catch(e){
     toast('Erro ao preparar impressão: '+e.message,'err');
+    if(_winImpressao && !_winImpressao.closed){
+      _winImpressao.document.open();
+      _winImpressao.document.write('<!DOCTYPE html><html><body style="font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#B00020;font-size:16px;text-align:center;padding:30px">❌ '+(e.message||'Erro ao gerar a escala.')+'<br><br>Feche esta janela e tente novamente.</body></html>');
+      _winImpressao.document.close();
+    }
   }finally{
     _modoImagem = 'baixar';
   }
