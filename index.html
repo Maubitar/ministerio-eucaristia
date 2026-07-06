@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.2';
+const APP_VERSAO = '19.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4212,6 +4212,22 @@ async function imprimirPresencaTodasSemanas(){
 }
 
 // ===== GERAÇÃO DE PDF REAL (paginação controlada, não depende do navegador) =====
+// Desenha uma estrela dourada de 5 pontas centrada em (cx,cy) com raio r
+function desenharEstrela(pdf, cx, cy, r){
+  const pts = [];
+  for(let i=0;i<5;i++){
+    const aOut = (-90 + i*72) * Math.PI/180;
+    const aIn = (-90 + i*72 + 36) * Math.PI/180;
+    pts.push([cx + Math.cos(aOut)*r, cy + Math.sin(aOut)*r]);
+    pts.push([cx + Math.cos(aIn)*(r*0.45), cy + Math.sin(aIn)*(r*0.45)]);
+  }
+  pdf.setFillColor(212,160,23); // dourado
+  const lines = [];
+  for(let i=1;i<pts.length;i++){ lines.push([pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]]); }
+  lines.push([pts[0][0]-pts[pts.length-1][0], pts[0][1]-pts[pts.length-1][1]]);
+  pdf.lines(lines, pts[0][0], pts[0][1], [1,1], 'F', true);
+}
+
 async function gerarPDFPresenca(semanas, tipoLabel){
   if(!window.jspdf || !window.jspdf.jsPDF){
     toast('Biblioteca de PDF ainda carregando, tente de novo em instantes.','warn');
@@ -4310,7 +4326,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
         margin:{left:M, right:M},
         theme:'grid',
         tableWidth: pageW - 2*M,
-        styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:9 },
+        styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:8 },
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
         rowPageBreak:'avoid',
@@ -4322,6 +4338,18 @@ async function gerarPDFPresenca(semanas, tipoLabel){
           }
         },
         didDrawCell:(data)=>{
+          // Estrela dourada ao lado do nome do responsável (coluna Nome, índice 2)
+          if(data.section==='body' && data.column.index===2){
+            const idx = data.row.index;
+            const m = h.ministros[idx];
+            if(m && m.isResp){
+              // posição: logo após o texto do nome
+              const txtW = pdf.getTextWidth(m.nome) ;
+              const sx = data.cell.x + 2 + txtW + 3;
+              const sy = data.cell.y + data.cell.height/2;
+              desenharEstrela(pdf, sx, sy, 1.6);
+            }
+          }
           // Desenha a foto (ou iniciais) na coluna Foto (índice 1) do corpo
           if(data.section==='body' && data.column.index===1){
             const idx = data.row.index;
