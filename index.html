@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.9.9';
+const APP_VERSAO = '19.10.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1733,6 +1733,7 @@ window.nav = function(id, btn){
     eventos: ()=>renderEventos(),
     financeiro: ()=>renderFinanceiro(),
     secretaria: ()=>renderSecretaria(),
+    finalizadas: ()=>renderEscalasFinalizadas(),
     'tel-rapido': ()=>renderTelefonesRapido(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
@@ -4200,6 +4201,146 @@ async function imprimirPresencaTodasSemanas(){
 
   await gerarPDFPresenca(dadosSemanas, 'Escala Semanal');
 }
+
+// ===== ESCALAS FINALIZADAS (congela os dados salvos — impressão nunca mais muda sozinha) =====
+async function _lerEscalaDocRaw(key){
+  if(escalas[key]) return escalas[key];
+  try{ const d = await getDoc(doc(db,'escalas',key)); escalas[key] = d.exists()? d.data() : {}; }
+  catch(e){ escalas[key] = {}; }
+  return escalas[key];
+}
+
+window.finalizarEscalaDominical = async function(){
+  const mesKey = getMesAtual();
+  if(!confirm(`Finalizar a Escala Dominical de ${CAL.mesNome}/${CAL.ano}?\n\nOs dados de hoje ficam travados para impressão. Mudanças futuras na escala não vão mais alterar o que foi finalizado.`)) return;
+  try{
+    const escDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
+    const missasComMin = MISSAS_DOM.map(hora=>({hora, g: escDom[hora]||{ministros:[],responsavel:''}})).filter(x=>x.g.ministros.length);
+    if(!missasComMin.length){ toast('Nenhuma escala dominical para finalizar.','warn'); return; }
+    const horarios = missasComMin.map(({hora,g})=>{
+      const responsavel = g.responsavel||'';
+      const respObj = ministros.find(x=>x.nome===responsavel);
+      const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
+      const ordenados = [...g.ministros].sort((a,b)=>{
+        if(a===responsavel) return -1;
+        if(b===responsavel) return 1;
+        return a.localeCompare(b,'pt-BR');
+      });
+      return {
+        hora, responsavel, respTel,
+        dias: DOMINGOS_MES.map(d=>`dom ${d}`),
+        ministros: ordenados.map((nome,i)=>{
+          const minObj = ministros.find(x=>x.nome===nome);
+          return { num:i+1, nome, isResp: nome===responsavel, foto:(minObj?.foto||null) };
+        })
+      };
+    });
+    const semanas = [{ label:'', periodo:`Domingos: ${DOMINGOS_MES.join(' · ')}`, horarios }];
+    await setDoc(doc(db,'escalas_finalizadas',`${mesKey}_dom`), {
+      tipo:'dom', mesKey, mesNome:CAL.mesNome, ano:CAL.ano, semanas, finalizadoEm: serverTimestamp()
+    });
+    toast('✓ Escala Dominical finalizada! Imprima na aba Escalas Finalizadas.','ok');
+    if(typeof renderEscalasFinalizadas==='function') renderEscalasFinalizadas();
+  }catch(e){ toast('Erro ao finalizar: '+e.message,'warn'); }
+};
+
+window.finalizarEscalaSemanal = async function(){
+  const mesKey = getMesAtual();
+  const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(k)).sort((a,b)=>parseInt(a)-parseInt(b));
+  if(!sems.length){ toast('Nenhuma semana definida.','warn'); return; }
+  if(!confirm(`Finalizar a Escala Semanal de ${CAL.mesNome}/${CAL.ano} (${sems.length} semana(s))?\n\nOs dados de hoje ficam travados para impressão. Mudanças futuras na escala não vão mais alterar o que foi finalizado.`)) return;
+  try{
+    const escalasPorSem = {};
+    for(const s of sems){ escalasPorSem[s] = await _lerEscalaDocRaw(`escala_sem_sem${s}_${mesKey}`); }
+    function dadosDaSemanaFinal(s){
+      const info = SEMANAS_MES[s];
+      const esc = escalasPorSem[s]||{};
+      const horasComMin = MISSAS_SEM.filter(h=>(esc[h]?.ministros||[]).length);
+      if(!horasComMin.length) return null;
+      const horarios = horasComMin.map(hora=>{
+        const g = esc[hora]||{ministros:[],responsavel:''};
+        const responsavel = g.responsavel||'';
+        const respObj = ministros.find(x=>x.nome===responsavel);
+        const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
+        const ordenados = [...(g.ministros||[])].sort((a,b)=>{
+          if(a===responsavel) return -1;
+          if(b===responsavel) return 1;
+          return a.localeCompare(b,'pt-BR');
+        });
+        const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
+        return {
+          hora, responsavel, respTel,
+          dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
+          ministros: ordenados.map((nome,i)=>{
+            const minObj = ministros.find(x=>x.nome===nome);
+            return { num:i+1, nome, isResp: nome===responsavel, foto:(minObj?.foto||null) };
+          })
+        };
+      });
+      return { label:(info.label||s+'ª semana'), periodo:(info.periodo||''), horarios };
+    }
+    const semanas = sems.map(dadosDaSemanaFinal).filter(Boolean);
+    if(!semanas.length){ toast('Nenhuma semana escalada para finalizar.','warn'); return; }
+    await setDoc(doc(db,'escalas_finalizadas',`${mesKey}_sem`), {
+      tipo:'sem', mesKey, mesNome:CAL.mesNome, ano:CAL.ano, semanas, finalizadoEm: serverTimestamp()
+    });
+    toast('✓ Escala Semanal finalizada! Imprima na aba Escalas Finalizadas.','ok');
+    if(typeof renderEscalasFinalizadas==='function') renderEscalasFinalizadas();
+  }catch(e){ toast('Erro ao finalizar: '+e.message,'warn'); }
+};
+
+window.finalizarEscalaAtual = function(){
+  const t = document.getElementById('esc-tipo')?.value || 'dom';
+  if(t==='dom') finalizarEscalaDominical(); else finalizarEscalaSemanal();
+};
+
+window.imprimirEscalaFinalizada = async function(docId){
+  try{
+    const d = await getDoc(doc(db,'escalas_finalizadas',docId));
+    if(!d.exists()){ toast('Escala finalizada não encontrada.','warn'); return; }
+    const dados = d.data();
+    const rotulo = (dados.tipo==='dom'?'Escala Dominical':'Escala Semanal') + ' — ' + dados.mesNome + '/' + dados.ano + ' (finalizada)';
+    await gerarPDFPresenca(dados.semanas, rotulo);
+  }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
+};
+
+window.excluirEscalaFinalizada = async function(docId){
+  if(!confirm('Excluir esta escala finalizada? Você poderá finalizar de novo depois, com os dados atuais.')) return;
+  try{
+    await deleteDoc(doc(db,'escalas_finalizadas',docId));
+    toast('✓ Escala finalizada removida.','ok');
+    if(typeof renderEscalasFinalizadas==='function') renderEscalasFinalizadas();
+  }catch(e){ toast('Erro ao excluir: '+e.message,'warn'); }
+};
+
+window.renderEscalasFinalizadas = async function(){
+  const cont = document.getElementById('lista-finalizadas');
+  if(!cont) return;
+  cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando...</p>';
+  try{
+    const snap = await getDocs(collection(db,'escalas_finalizadas'));
+    const itens = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=> (b.mesKey||'').localeCompare(a.mesKey||''));
+    if(!itens.length){
+      cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Nenhuma escala finalizada ainda.</p>';
+      return;
+    }
+    cont.innerHTML = itens.map(it=>{
+      const icone = it.tipo==='dom' ? '📅' : '📆';
+      const titulo = (it.tipo==='dom'?'Dominical':'Semanal') + ' — ' + (it.mesNome||'') + '/' + (it.ano||'');
+      const qtdHorarios = (it.semanas||[]).reduce((acc,s)=>acc + (s.horarios?.length||0), 0);
+      return `<div class="card" style="border:1.5px solid #e1f5ee;margin-bottom:10px">
+        <p class="ct">${icone} ${titulo}</p>
+        <p style="font-size:12px;color:#666;margin:0 0 10px">${qtdHorarios} horário(s) travado(s) para impressão</p>
+        <div style="display:flex;gap:8px">
+          <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir PDF</button>
+          <button onclick="excluirEscalaFinalizada('${it.id}')" style="padding:10px 14px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer">🗑️</button>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: ${e.message}</p>`;
+  }
+};
 
 // ===== GERAÇÃO DE PDF REAL (paginação controlada, não depende do navegador) =====
 // Desenha uma estrela dourada de 5 pontas centrada em (cx,cy) com raio r
@@ -8475,6 +8616,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="imprimirEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <button onclick="finalizarEscalaAtual()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer">✅ Finalizar Escala</button>
+      <button onclick="nav('finalizadas')" style="margin:0;flex:1;min-width:80px;padding:11px;border:1.5px solid #0A6E58;border-radius:8px;background:white;color:#0A6E58;font-size:13px;font-weight:700;cursor:pointer">📌 Ver Finalizadas</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button onclick="copiarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#128C7E;color:white;font-size:13px;font-weight:700;cursor:pointer">📸 Copiar imagem (colar no Zap)</button>
       <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">🖼️ Baixar imagem(ns)</button>
     </div>
@@ -8705,6 +8850,16 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 10px">Apaga escalas, presenças, reuniões, adorações, eventos e logs (úteis durante os testes). <strong>Ministros, fotos, senhas e financeiro são preservados.</strong> Use ao terminar os testes, antes de começar com os dados reais.</p>
     <button onclick="limparDadosTeste()" style="width:100%;padding:11px;border:1.5px solid #A32D2D;border-radius:9px;background:white;color:#A32D2D;font-size:13px;font-weight:700;cursor:pointer">🧹 Limpar dados de teste</button>
   </div>
+</div>
+
+<!-- ESCALAS FINALIZADAS -->
+<div id="s-finalizadas" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #0A6E58;background:#f0faf7">
+    <p class="ct" style="color:#0A6E58">✅ Escalas Finalizadas</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0">Aqui ficam as escalas que você travou (finalizou). Elas não mudam mais sozinhas — imprima direto daqui sempre que precisar, sem editar data nenhuma.</p>
+  </div>
+  <div id="lista-finalizadas"></div>
 </div>
 
 <!-- SEÇÃO: EVENTOS ESPECIAIS (lista) -->
