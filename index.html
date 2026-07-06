@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.10.0';
+const APP_VERSAO = '19.10.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4230,8 +4230,7 @@ window.finalizarEscalaDominical = async function(){
         hora, responsavel, respTel,
         dias: DOMINGOS_MES.map(d=>`dom ${d}`),
         ministros: ordenados.map((nome,i)=>{
-          const minObj = ministros.find(x=>x.nome===nome);
-          return { num:i+1, nome, isResp: nome===responsavel, foto:(minObj?.foto||null) };
+          return { num:i+1, nome, isResp: nome===responsavel };
         })
       };
     });
@@ -4272,8 +4271,7 @@ window.finalizarEscalaSemanal = async function(){
           hora, responsavel, respTel,
           dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
           ministros: ordenados.map((nome,i)=>{
-            const minObj = ministros.find(x=>x.nome===nome);
-            return { num:i+1, nome, isResp: nome===responsavel, foto:(minObj?.foto||null) };
+            return { num:i+1, nome, isResp: nome===responsavel };
           })
         };
       });
@@ -4299,8 +4297,19 @@ window.imprimirEscalaFinalizada = async function(docId){
     const d = await getDoc(doc(db,'escalas_finalizadas',docId));
     if(!d.exists()){ toast('Escala finalizada não encontrada.','warn'); return; }
     const dados = d.data();
+    // Fotos não ficam salvas no snapshot (estouraria o limite de 1MB do Firestore) — reanexa do cadastro atual
+    const semanasComFoto = (dados.semanas||[]).map(sem=>({
+      ...sem,
+      horarios: (sem.horarios||[]).map(h=>({
+        ...h,
+        ministros: (h.ministros||[]).map(m=>{
+          const minObj = ministros.find(x=>x.nome===m.nome);
+          return { ...m, foto:(minObj?.foto||null) };
+        })
+      }))
+    }));
     const rotulo = (dados.tipo==='dom'?'Escala Dominical':'Escala Semanal') + ' — ' + dados.mesNome + '/' + dados.ano + ' (finalizada)';
-    await gerarPDFPresenca(dados.semanas, rotulo);
+    await gerarPDFPresenca(semanasComFoto, rotulo);
   }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
 };
 
