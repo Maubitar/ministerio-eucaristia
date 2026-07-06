@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.9.7';
+const APP_VERSAO = '19.9.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4274,8 +4274,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       // ALTURA REAL deste horário, com MARGEM DE SEGURANÇA: nomes longos podem
       // quebrar em 2 linhas na tabela real, então usamos uma folga por linha
       // para nunca deixar o cálculo "achar que cabe" quando na prática não cabe.
-      // BLINDADO v19.9.6: NÃO AUMENTAR. 7mm fazia sobrar poucos horários por página.
-      const alturaLinha = 5.5;
+      const alturaLinha = 6.2; // BLINDADO v19.9.8: leve aumento p/ caber foto maior, sem voltar ao 7mm antigo
       const folgaPorLinha = 0; // já não é necessária: a coluna de nomes (80mm) elimina o risco de quebra de linha
       const alturaCabTab = 2 * alturaLinha; // barra verde do horário + linha de colunas
       const alturaHorario = (h.ministros.length + 2) * (alturaLinha + folgaPorLinha) + 2;
@@ -4329,7 +4328,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       // Larguras: Nº, Foto (quadrada), Nome largo; cada dia: substituto + P/F/S
       const colStyles = {
         0:{cellWidth:8,halign:'center',textColor:[120,120,120]},
-        1:{cellWidth:11,halign:'center'},   // Foto
+        1:{cellWidth:13,halign:'center'},   // Foto
         2:{cellWidth:80, overflow:'linebreak'}   // Nome — largura generosa, elimina risco de quebra em nomes longos
       };
       let ci = 3;
@@ -4346,7 +4345,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
         theme:'grid',
         tableWidth: pageW - 2*M,
         showHead: 'everyPage',
-        styles:{ fontSize:8, cellPadding:0.6, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:5.5 },
+        styles:{ fontSize:8, cellPadding:0.6, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:6.2 },
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
         rowPageBreak: 'avoid',
@@ -4377,10 +4376,17 @@ async function gerarPDFPresenca(semanas, tipoLabel){
             if(!m) return;
             const cx = data.cell.x + data.cell.width/2;
             const cy = data.cell.y + data.cell.height/2;
-            const d = Math.min(data.cell.width, data.cell.height) - 2; // diâmetro
+            const d = Math.min(data.cell.width, data.cell.height) - 1.2; // diâmetro (maior, quase preenchendo a célula)
             const foto = m.foto ? fotoCache[m.nome] : null;
             if(foto){
-              try{ pdf.addImage(foto, 'JPEG', cx-d/2, cy-d/2, d, d); }catch(e){}
+              try{
+                pdf.saveGraphicsState();
+                pdf.circle(cx, cy, d/2, null);
+                pdf.clip();
+                pdf.discardPath();
+                pdf.addImage(foto, 'JPEG', cx-d/2, cy-d/2, d, d);
+                pdf.restoreGraphicsState();
+              }catch(e){ try{ pdf.addImage(foto, 'JPEG', cx-d/2, cy-d/2, d, d); }catch(e2){} }
             } else {
               // Círculo com iniciais
               const ini = (m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
