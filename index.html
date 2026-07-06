@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.8';
+const APP_VERSAO = '19.9';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4240,10 +4240,13 @@ async function gerarPDFPresenca(semanas, tipoLabel){
     sem.horarios.forEach(h=>{
       // Colunas: Nº, Foto, Nome, + (2 por dia: substituto + P/F/S)
       const nCols = 3 + h.dias.length*2;
-      // ALTURA REAL deste horário (medida): cada linha = 8mm, incluindo 2 linhas de cabeçalho (barra verde + colunas)
+      // ALTURA REAL deste horário, com MARGEM DE SEGURANÇA: nomes longos podem
+      // quebrar em 2 linhas na tabela real, então usamos uma folga por linha
+      // para nunca deixar o cálculo "achar que cabe" quando na prática não cabe.
       const alturaLinha = 8;
+      const folgaPorLinha = 2; // mm extras por ministro, cobre quebra de nome longo
       const alturaCabTab = 2 * alturaLinha; // barra verde do horário + linha de colunas
-      const alturaHorario = (h.ministros.length + 2) * alturaLinha + 2;
+      const alturaHorario = (h.ministros.length + 2) * (alturaLinha + folgaPorLinha) + 2;
       const alturaTitulo = tituloPendente ? (tituloH + 1.5) : 0;
 
       // O horário sozinho é maior que uma página inteira? (caso Semana Santa, muitos ministros)
@@ -4254,15 +4257,14 @@ async function gerarPDFPresenca(semanas, tipoLabel){
 
       if(maiorQuePagina){
         // Horário GIGANTE: será dividido em várias páginas pelo autoTable (cabeçalho repete no topo).
-        // Só garantimos que o título da semana + o cabeçalho + algumas linhas cabem para começar.
-        const minimoParaComecar = alturaTitulo + alturaCabTab + (3 * alturaLinha);
-        // Só pula de página se a atual JÁ tem conteúdo (senão desperdiça a página atual)
+        // Exige espaço para o título + cabeçalho da tabela + pelo menos 4 linhas de ministro,
+        // senão o cabeçalho fica sozinho na página atual.
+        const minimoParaComecar = alturaTitulo + alturaCabTab + (4 * (alturaLinha + folgaPorLinha));
         if(espacoRestante < minimoParaComecar && paginaAtualTemConteudo){
           pdf.addPage(); cabecalho(); y = M + 16; paginaAtualTemConteudo = false;
         }
       } else {
-        // Horário normal: se não cabe inteiro na página atual, joga para a próxima.
-        // Mas só pula se a página atual já tem algo desenhado (evita página quase vazia).
+        // Horário normal: se não cabe inteiro (com folga) na página atual, joga para a próxima.
         if(y + alturaNecessaria > pageH - M - 4 && paginaAtualTemConteudo){
           pdf.addPage(); cabecalho(); y = M + 16; paginaAtualTemConteudo = false;
         }
@@ -4296,7 +4298,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       const colStyles = {
         0:{cellWidth:8,halign:'center',textColor:[120,120,120]},
         1:{cellWidth:11,halign:'center'},   // Foto
-        2:{cellWidth:66}                      // Nome
+        2:{cellWidth:80, overflow:'linebreak'}   // Nome — largura generosa, elimina risco de quebra em nomes longos
       };
       let ci = 3;
       h.dias.forEach(()=>{
