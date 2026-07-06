@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.9.2';
+const APP_VERSAO = '19.9.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4246,7 +4246,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       // ALTURA REAL deste horário, com MARGEM DE SEGURANÇA: nomes longos podem
       // quebrar em 2 linhas na tabela real, então usamos uma folga por linha
       // para nunca deixar o cálculo "achar que cabe" quando na prática não cabe.
-      const alturaLinha = 8;
+      const alturaLinha = 7;
       const folgaPorLinha = 0; // já não é necessária: a coluna de nomes (80mm) elimina o risco de quebra de linha
       const alturaCabTab = 2 * alturaLinha; // barra verde do horário + linha de colunas
       const alturaHorario = (h.ministros.length + 2) * (alturaLinha + folgaPorLinha) + 2;
@@ -4317,7 +4317,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
         theme:'grid',
         tableWidth: pageW - 2*M,
         showHead: 'everyPage',
-        styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:8 },
+        styles:{ fontSize:8, cellPadding:1, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:7 },
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
         rowPageBreak: 'avoid',
