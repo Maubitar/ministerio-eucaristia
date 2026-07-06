@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.1';
+const APP_VERSAO = '19.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4196,7 +4196,10 @@ async function imprimirPresencaTodasSemanas(){
       return {
         hora, responsavel, respTel,
         dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
-        ministros: ordenados.map((nome,i)=>({ num:i+1, nome, isResp: nome===responsavel }))
+        ministros: ordenados.map((nome,i)=>{
+          const minObj = ministros.find(x=>x.nome===nome);
+          return { num:i+1, nome, isResp: nome===responsavel, foto: (minObj?.foto || null) };
+        })
       };
     });
     return { label: (info.label||s+'ª semana'), periodo: (info.periodo||''), horarios };
@@ -4205,15 +4208,48 @@ async function imprimirPresencaTodasSemanas(){
   const dadosSemanas = sems.map(dadosDaSemana).filter(Boolean);
   if(!dadosSemanas.length){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
 
-  gerarPDFPresenca(dadosSemanas, 'Escala Semanal');
+  await gerarPDFPresenca(dadosSemanas, 'Escala Semanal');
 }
 
 // ===== GERAÇÃO DE PDF REAL (paginação controlada, não depende do navegador) =====
-function gerarPDFPresenca(semanas, tipoLabel){
+async function gerarPDFPresenca(semanas, tipoLabel){
   if(!window.jspdf || !window.jspdf.jsPDF){
     toast('Biblioteca de PDF ainda carregando, tente de novo em instantes.','warn');
     return;
   }
+  toast('Gerando PDF com fotos, aguarde...','ok');
+
+  // PRÉ-CARREGA todas as fotos como base64 (autoTable é síncrono e precisa da imagem pronta)
+  const fotoCache = {}; // nome -> {dataURL, w, h} ou null
+  async function carregarFoto(url){
+    return new Promise((resolve)=>{
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = ()=>{
+        try{
+          const cnv = document.createElement('canvas');
+          const size = 60; // miniatura quadrada
+          cnv.width = size; cnv.height = size;
+          const ctx = cnv.getContext('2d');
+          // recorta quadrado central para ficar redondinho depois
+          const min = Math.min(img.width, img.height);
+          const sx = (img.width - min)/2, sy = (img.height - min)/2;
+          ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+          resolve(cnv.toDataURL('image/jpeg', 0.8));
+        }catch(e){ resolve(null); }
+      };
+      img.onerror = ()=>resolve(null);
+      img.src = url;
+    });
+  }
+  // Coleta URLs únicas
+  const nomesComFoto = new Set();
+  semanas.forEach(s=>s.horarios.forEach(h=>h.ministros.forEach(m=>{ if(m.foto) nomesComFoto.add(m.nome+'|||'+m.foto); })));
+  for(const chave of nomesComFoto){
+    const [nome, url] = chave.split('|||');
+    fotoCache[nome] = await carregarFoto(url);
+  }
+
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
@@ -4241,26 +4277,30 @@ function gerarPDFPresenca(semanas, tipoLabel){
     y += tituloH + 1.5;
 
     sem.horarios.forEach(h=>{
-      // Cada dia = 2 colunas: uma larga (substituto) + uma estreita (P/F/S)
-      const nCols = 2 + h.dias.length*2; // Nº, Nome, + (2 por dia)
+      // Colunas: Nº, Foto, Nome, + (2 por dia: substituto + P/F/S)
+      const nCols = 3 + h.dias.length*2;
       const headDias = [];
       h.dias.forEach(d=>{ headDias.push({content:d, colSpan:2, styles:{halign:'center'}}); });
       const head = [
         [{ content:'Horário: '+h.hora+'      Responsável: '+(h.responsavel||'—')+(h.respTel||''),
            colSpan:nCols, styles:{fillColor:[8,80,65],textColor:[255,255,255],halign:'left',fontStyle:'bold',fontSize:8.5,cellPadding:1.5} }],
-        [ {content:'Nº',styles:{halign:'center'}}, {content:'Nomes Ministros(as)'}, ...headDias ]
+        [ {content:'Nº',styles:{halign:'center'}}, {content:'Foto',styles:{halign:'center'}}, {content:'Nomes Ministros(as)'}, ...headDias ]
       ];
       const body = h.ministros.map(m=>{
-        const linha = [ String(m.num), m.nome ];
-        h.dias.forEach(()=>{ linha.push(''); linha.push(''); }); // substituto + letra
+        const linha = [ String(m.num), '', m.nome ]; // '' = célula da foto (imagem desenhada no hook)
+        h.dias.forEach(()=>{ linha.push(''); linha.push(''); });
         return linha;
       });
-      // Larguras: Nº pequeno, Nome largo; para cada dia: coluna substituto + coluna estreita P/F/S
-      const colStyles = {0:{cellWidth:8,halign:'center',textColor:[120,120,120]}, 1:{cellWidth:70}};
-      let ci = 2;
+      // Larguras: Nº, Foto (quadrada), Nome largo; cada dia: substituto + P/F/S
+      const colStyles = {
+        0:{cellWidth:8,halign:'center',textColor:[120,120,120]},
+        1:{cellWidth:11,halign:'center'},   // Foto
+        2:{cellWidth:66}                      // Nome
+      };
+      let ci = 3;
       h.dias.forEach(()=>{
-        colStyles[ci] = {cellWidth:'auto'};            // substituto (largo)
-        colStyles[ci+1] = {cellWidth:8, halign:'center', fillColor:[250,250,250]}; // P/F/S (estreito)
+        colStyles[ci] = {cellWidth:'auto'};
+        colStyles[ci+1] = {cellWidth:8, halign:'center', fillColor:[250,250,250]};
         ci += 2;
       });
 
@@ -4270,17 +4310,36 @@ function gerarPDFPresenca(semanas, tipoLabel){
         margin:{left:M, right:M},
         theme:'grid',
         tableWidth: pageW - 2*M,
-        styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:6 },
+        styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:9 },
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
         rowPageBreak:'avoid',
         pageBreak:'avoid',
         didParseCell:(data)=>{
-          // Nome do responsável em negrito (identificado pelo índice do ministro, não por símbolo)
+          if(data.section==='body' && data.column.index===2){
+            const idx = data.row.index;
+            if(h.ministros[idx] && h.ministros[idx].isResp){ data.cell.styles.fontStyle='bold'; }
+          }
+        },
+        didDrawCell:(data)=>{
+          // Desenha a foto (ou iniciais) na coluna Foto (índice 1) do corpo
           if(data.section==='body' && data.column.index===1){
             const idx = data.row.index;
-            if(h.ministros[idx] && h.ministros[idx].isResp){
-              data.cell.styles.fontStyle='bold';
+            const m = h.ministros[idx];
+            if(!m) return;
+            const cx = data.cell.x + data.cell.width/2;
+            const cy = data.cell.y + data.cell.height/2;
+            const d = Math.min(data.cell.width, data.cell.height) - 2; // diâmetro
+            const foto = m.foto ? fotoCache[m.nome] : null;
+            if(foto){
+              try{ pdf.addImage(foto, 'JPEG', cx-d/2, cy-d/2, d, d); }catch(e){}
+            } else {
+              // Círculo com iniciais
+              const ini = (m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
+              pdf.setFillColor(225,245,238);
+              pdf.circle(cx, cy, d/2, 'F');
+              pdf.setTextColor(8,80,65); pdf.setFontSize(6); pdf.setFont('helvetica','bold');
+              pdf.text(ini, cx, cy+1.2, {align:'center'});
             }
           }
         }
