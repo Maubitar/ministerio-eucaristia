@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.6';
+const APP_VERSAO = '19.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4122,59 +4122,6 @@ async function imprimirPresencaTodasSemanas(){
     }
   }
 
-  // Gera um bloco de semana (com todos os horários que têm ministros)
-  function blocoDaSemana(s){
-    const info = SEMANAS_MES[s];
-    const esc = escalasPorSem[s] || {};
-    const horasComMin = MISSAS_SEM.filter(h => (esc[h]?.ministros||[]).length);
-    if(!horasComMin.length) return '';
-
-    const missasArr = horasComMin.map(hora=>{
-      const g = esc[hora] || {ministros:[],responsavel:''};
-      const responsavel = g.responsavel||'';
-      const respObj = ministros.find(x=>x.nome===responsavel);
-      const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
-      const ordenados = [...(g.ministros||[])].sort((a,b)=>{
-        if(a===responsavel) return -1;
-        if(b===responsavel) return 1;
-        return a.localeCompare(b,'pt-BR');
-      });
-      // Datas (colunas) — só dias do mês selecionado
-      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora) && d.mesRef===true);
-      const thDatas = dias.map(d=>`<th class="data" colspan="2">${d.dia.slice(0,3).toLowerCase()} ${d.data}</th>`).join('');
-      const linhas = ordenados.map((nome,i)=>{
-        const isResp = nome===responsavel;
-        const cels = dias.map(()=>`<td class="subst"></td><td class="letra"></td>`).join('');
-        const minObj = ministros.find(x=>x.nome===nome);
-        const fotoHtml = minObj?.foto
-          ? `<img src="${minObj.foto}" class="foto-min">`
-          : `<div class="ini-min">${iniciais(nome)}</div>`;
-        return `<tr>
-          <td class="num">${i+1}</td>
-          <td class="foto">${fotoHtml}</td>
-          <td class="nome${isResp?' resp-nome':''}">${nome}${isResp?' <span class="resp">★</span>':''}</td>
-          ${cels}
-        </tr>`;
-      }).join('');
-      const totalCols = 3 + (dias.length*2);
-      return `<div class="missa">
-        <table class="tab">
-          <thead>
-            <tr class="linha-hora"><th class="hora-cel" colspan="${totalCols}"><span class="hr">⏰ Horário: ${hora}</span><span class="resp-info">Responsável Escala: <strong>${responsavel||'—'}</strong>${respTel}</span></th></tr>
-            <tr><th class="num">Nº</th><th class="foto">Foto</th><th class="nome">Nomes Ministros(as)</th>${thDatas}</tr>
-          </thead>
-          <tbody>${linhas}</tbody>
-        </table>
-      </div>`;
-    });
-
-    const missasHtml = missasArr.join('');
-    return `<div class="semana-bloco">
-      <div class="semana-titulo">📅 ${info.label||s+'ª semana'} — ${info.periodo||''}</div>
-      ${missasHtml}
-    </div>`;
-  }
-
   // Gera um bloco de semana (com todos os horários que têm ministros) — DADOS ESTRUTURADOS para o PDF
   function dadosDaSemana(s){
     const info = SEMANAS_MES[s];
@@ -4284,6 +4231,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
   let y = M + 16;
 
   const alturaUtilPagina = (pageH - M - 4) - (M + 16); // espaço útil de uma página (sem cabeçalho geral)
+  let paginaAtualTemConteudo = false; // a página atual já recebeu algum horário?
 
   semanas.forEach(sem=>{
     const tituloH = 7;
@@ -4308,13 +4256,15 @@ async function gerarPDFPresenca(semanas, tipoLabel){
         // Horário GIGANTE: será dividido em várias páginas pelo autoTable (cabeçalho repete no topo).
         // Só garantimos que o título da semana + o cabeçalho + algumas linhas cabem para começar.
         const minimoParaComecar = alturaTitulo + alturaCabTab + (3 * alturaLinha);
-        if(espacoRestante < minimoParaComecar){
-          pdf.addPage(); cabecalho(); y = M + 16;
+        // Só pula de página se a atual JÁ tem conteúdo (senão desperdiça a página atual)
+        if(espacoRestante < minimoParaComecar && paginaAtualTemConteudo){
+          pdf.addPage(); cabecalho(); y = M + 16; paginaAtualTemConteudo = false;
         }
       } else {
-        // Horário normal: se não cabe inteiro na página atual, joga para a próxima
-        if(y + alturaNecessaria > pageH - M - 4){
-          pdf.addPage(); cabecalho(); y = M + 16;
+        // Horário normal: se não cabe inteiro na página atual, joga para a próxima.
+        // Mas só pula se a página atual já tem algo desenhado (evita página quase vazia).
+        if(y + alturaNecessaria > pageH - M - 4 && paginaAtualTemConteudo){
+          pdf.addPage(); cabecalho(); y = M + 16; paginaAtualTemConteudo = false;
         }
       }
 
@@ -4407,10 +4357,24 @@ async function gerarPDFPresenca(semanas, tipoLabel){
           }
         }
       });
-      y = pdf.lastAutoTable.finalY + 2;
+      y = pdf.lastAutoTable.finalY + 2; paginaAtualTemConteudo = true;
+      // Se o autoTable dividiu a tabela em várias páginas, a última página desenhada tem conteúdo
+      const pagAposTabela = pdf.internal.getCurrentPageInfo().pageNumber;
+      if(pagAposTabela === pdf.internal.getNumberOfPages()) paginaAtualTemConteudo = true;
     });
     y += 1;
   });
+
+  // LIMPEZA: remove páginas em branco criadas pelo autoTable no fim.
+  // Página vazia = sem comando de texto (BT) e sem imagem (Do). Método testado.
+  function _paginaVazia(k){
+    const pg = pdf.internal.pages[k];
+    const c = Array.isArray(pg) ? pg.join('\n') : String(pg || '');
+    return !/BT/.test(c) && !/ Do/.test(c);
+  }
+  while(pdf.internal.getNumberOfPages() > 1 && _paginaVazia(pdf.internal.getNumberOfPages())){
+    pdf.deletePage(pdf.internal.getNumberOfPages());
+  }
 
   // Rodapé em todas as páginas
   const totalP = pdf.internal.getNumberOfPages();
