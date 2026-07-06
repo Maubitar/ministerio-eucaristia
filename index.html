@@ -10,6 +10,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -34,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '18.7';
+const APP_VERSAO = '19.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4173,71 +4175,124 @@ async function imprimirPresencaTodasSemanas(){
     </div>`;
   }
 
-  const blocosArr = sems.map(blocoDaSemana).filter(Boolean);
-  if(!blocosArr.length){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
-  // Cada semana começa em página NOVA — o título azul nunca fica solto no fim de outra página
-  const blocos = blocosArr.join('');
+  // Gera um bloco de semana (com todos os horários que têm ministros) — DADOS ESTRUTURADOS para o PDF
+  function dadosDaSemana(s){
+    const info = SEMANAS_MES[s];
+    const esc = escalasPorSem[s] || {};
+    const horasComMin = MISSAS_SEM.filter(h => (esc[h]?.ministros||[]).length);
+    if(!horasComMin.length) return null;
 
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — Semanas de ${mesKey}</title>
-  <style>
-    @page{ size: landscape; margin: 6mm; }
-    *{box-sizing:border-box}
-    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:8px 12px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .cab{display:flex;align-items:center;gap:10px;border-bottom:2px solid #085041;padding-bottom:4px;margin-bottom:3px}
-    .cab img{width:34px;height:34px;object-fit:contain}
-    .cab .ct{flex:1;text-align:center}
-    .cab .basilica{font-size:8px;letter-spacing:1px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
-    .cab h1{margin:1px 0;color:#085041;font-size:15px}
-    .cab .sub{font-size:8px;color:#555;margin:0}
-    .info{display:flex;justify-content:space-between;align-items:center;margin:4px 0 3px;font-size:10px}
-    .info .tipo{font-size:9px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:20px}
-    .info .leg{font-size:9px;color:#555}
-    .semana-bloco{margin-bottom:4px;break-inside:auto}
-    .semana-titulo{background:#134E8E;color:white;font-size:12px;font-weight:800;padding:4px 12px;border-radius:6px;margin-bottom:4px;break-after:avoid;page-break-after:avoid}
-    .missa{margin-bottom:4px;break-inside:avoid;page-break-inside:avoid}
-    /* Cada horário fica inteiro numa página — nunca deixa ministro isolado com cabeçalho repetido */
-    table.tab thead{display:table-header-group}
-    tr{break-inside:avoid;page-break-inside:avoid}
-    /* Barra verde do horário agora é uma célula do cabeçalho — nunca sai cortada */
-    .linha-hora .hora-cel{background:#085041;color:white;padding:5px 12px;text-align:left;border:1.5px solid #333;border-bottom:none}
-    .linha-hora .hora-cel .hr{font-weight:700;font-size:11px;margin-right:14px}
-    .linha-hora .hora-cel .resp-info{font-size:10px;font-weight:400}
-    table.tab{width:100%;border-collapse:collapse;border:1.5px solid #333}
-    table.tab th{background:#dfe7e4;font-size:9px;padding:3px 3px;border:1px solid #333;color:#1a1a1a;text-align:center;font-weight:700}
-    table.tab td{border:1px solid #888;padding:2px 5px;font-size:9px;height:22px;vertical-align:middle}
-    .foto{width:32px;text-align:center;padding:1px!important}
-    .foto-min{width:26px;height:26px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1px solid #cde8d8}
-    .ini-min{width:26px;height:26px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;margin:0 auto}
-    th.data{background:#085041;color:white;font-size:10px}
-    td.subst{min-width:32px}
-    td.letra,th.letra{width:16px;text-align:center;background:#fafafa}
-    .num{width:22px;text-align:center;color:#888;font-size:9px}
-    .nome{text-align:left;width:320px;line-height:1.15;font-size:12px}
-    .nome.resp-nome{font-weight:700}
-    .resp{color:#BA7517;font-weight:700;margin-left:2px}
-    .rodape{text-align:center;margin-top:16px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:8px}
-  </style></head>
-  <body>
-    <div class="cab">
-      <img src="${APP_URL}/${LOGO_BASILICA}">
-      <div class="ct">
-        <p class="basilica">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1>Lista de Presença — Escala Semanal</h1>
-        <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      </div>
-      <img src="${APP_URL}/${LOGO_MESCE}">
-    </div>
-    <div class="info">
-      <div><strong>Todas as semanas do mês</strong></div>
-      <div class="leg"><strong>Legendas:</strong> P – presente / F – faltou / S – substituição</div>
-      <div class="tipo">Escala Semanal</div>
-    </div>
-    ${blocos}
-    <p class="rodape">Em caso de substituição (S), o responsável anota o nome do substituto na coluna da data &nbsp;·&nbsp; S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
-    <script>window.onload=()=>window.print();<\/script>
-  </body></html>`);
-  w.document.close();
+    const horarios = horasComMin.map(hora=>{
+      const g = esc[hora] || {ministros:[],responsavel:''};
+      const responsavel = g.responsavel||'';
+      const respObj = ministros.find(x=>x.nome===responsavel);
+      const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
+      const ordenados = [...(g.ministros||[])].sort((a,b)=>{
+        if(a===responsavel) return -1;
+        if(b===responsavel) return 1;
+        return a.localeCompare(b,'pt-BR');
+      });
+      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora) && d.mesRef===true);
+      return {
+        hora, responsavel, respTel,
+        dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
+        ministros: ordenados.map((nome,i)=>({ num:i+1, nome, isResp: nome===responsavel }))
+      };
+    });
+    return { label: (info.label||s+'ª semana'), periodo: (info.periodo||''), horarios };
+  }
+
+  const dadosSemanas = sems.map(dadosDaSemana).filter(Boolean);
+  if(!dadosSemanas.length){ toast('Nenhuma semana escalada para imprimir.','warn'); return; }
+
+  gerarPDFPresenca(dadosSemanas, 'Escala Semanal');
+}
+
+// ===== GERAÇÃO DE PDF REAL (paginação controlada, não depende do navegador) =====
+function gerarPDFPresenca(semanas, tipoLabel){
+  if(!window.jspdf || !window.jspdf.jsPDF){
+    toast('Biblioteca de PDF ainda carregando, tente de novo em instantes.','warn');
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const M = 6; // margem
+
+  function cabecalho(){
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(13); pdf.setTextColor(8,80,65);
+    pdf.text('Lista de Presença — '+tipoLabel, pageW/2, M+4, {align:'center'});
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(90,90,90);
+    pdf.text('Basílica Santuário de Nossa Senhora de Nazaré · Ministério Extraordinário da Sagrada Comunhão Eucarística', pageW/2, M+8.5, {align:'center'});
+    pdf.setFontSize(7.5); pdf.setTextColor(60,60,60);
+    pdf.text('Legendas: P – presente / F – faltou / S – substituição', pageW/2, M+12, {align:'center'});
+  }
+  cabecalho();
+  let y = M + 16;
+
+  semanas.forEach(sem=>{
+    // Faixa azul do título da semana. Se não couber título + 1ª tabela mínima, nova página.
+    const tituloH = 7;
+    if(y + tituloH + 24 > pageH - M){ pdf.addPage(); cabecalho(); y = M + 16; }
+    pdf.setFillColor(19,78,142); pdf.rect(M, y, pageW-2*M, tituloH, 'F');
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(10); pdf.setTextColor(255,255,255);
+    pdf.text(sem.label + (sem.periodo? ' — '+sem.periodo : ''), M+3, y+5);
+    y += tituloH + 1.5;
+
+    sem.horarios.forEach(h=>{
+      const nCols = 2 + h.dias.length; // Nº, Nome, + dias (1 coluna por dia)
+      const head = [
+        [{ content:'Horário: '+h.hora+'      Responsável: '+(h.responsavel||'—')+(h.respTel||''),
+           colSpan:nCols, styles:{fillColor:[8,80,65],textColor:[255,255,255],halign:'left',fontStyle:'bold',fontSize:8.5,cellPadding:1.5} }],
+        [ {content:'Nº',styles:{halign:'center'}}, {content:'Nomes Ministros(as)'}, ...h.dias.map(d=>({content:d,styles:{halign:'center'}})) ]
+      ];
+      const body = h.ministros.map(m=>[
+        String(m.num),
+        (m.isResp ? m.nome+'  \u2605' : m.nome),
+        ...h.dias.map(()=>'')
+      ]);
+      const colStyles = {0:{cellWidth:8,halign:'center',textColor:[120,120,120]}, 1:{cellWidth:75,fontStyle:'normal'}};
+      for(let c=2;c<nCols;c++) colStyles[c] = {cellWidth:'auto'};
+
+      pdf.autoTable({
+        startY: y,
+        head, body,
+        margin:{left:M, right:M},
+        theme:'grid',
+        tableWidth: pageW - 2*M,
+        styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:6 },
+        headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
+        columnStyles: colStyles,
+        rowPageBreak:'avoid',   // não corta linha no meio
+        pageBreak:'avoid',      // horário inteiro numa página (nunca deixa ministro solto)
+        didParseCell:(data)=>{
+          // Nome do responsável em negrito
+          if(data.section==='body' && data.column.index===1 && data.row.raw[1].includes('\u2605')){
+            data.cell.styles.fontStyle='bold';
+          }
+        }
+      });
+      y = pdf.lastAutoTable.finalY + 2;
+    });
+    y += 1;
+  });
+
+  // Rodapé em todas as páginas
+  const totalP = pdf.internal.getNumberOfPages();
+  for(let i=1;i<=totalP;i++){
+    pdf.setPage(i);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(150,150,150);
+    pdf.text('Em caso de substituição (S), o responsável anota o nome do substituto na coluna da data  ·  S.O.G.I. — Basílica de Nazaré  ·  Página '+i+'/'+totalP,
+      pageW/2, pageH-3, {align:'center'});
+  }
+
+  // Abre o PDF em nova aba para visualizar/imprimir/salvar
+  const blob = pdf.output('blob');
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if(!win){ toast('Permita pop-ups para abrir o PDF.','warn'); }
+  else { toast('✓ PDF gerado! Use o botão de impressão do PDF.','ok'); }
 }
 
 window.imprimirPresenca = async function(){
