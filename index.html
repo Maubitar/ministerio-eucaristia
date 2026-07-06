@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.0';
+const APP_VERSAO = '19.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4241,19 +4241,28 @@ function gerarPDFPresenca(semanas, tipoLabel){
     y += tituloH + 1.5;
 
     sem.horarios.forEach(h=>{
-      const nCols = 2 + h.dias.length; // Nº, Nome, + dias (1 coluna por dia)
+      // Cada dia = 2 colunas: uma larga (substituto) + uma estreita (P/F/S)
+      const nCols = 2 + h.dias.length*2; // Nº, Nome, + (2 por dia)
+      const headDias = [];
+      h.dias.forEach(d=>{ headDias.push({content:d, colSpan:2, styles:{halign:'center'}}); });
       const head = [
         [{ content:'Horário: '+h.hora+'      Responsável: '+(h.responsavel||'—')+(h.respTel||''),
            colSpan:nCols, styles:{fillColor:[8,80,65],textColor:[255,255,255],halign:'left',fontStyle:'bold',fontSize:8.5,cellPadding:1.5} }],
-        [ {content:'Nº',styles:{halign:'center'}}, {content:'Nomes Ministros(as)'}, ...h.dias.map(d=>({content:d,styles:{halign:'center'}})) ]
+        [ {content:'Nº',styles:{halign:'center'}}, {content:'Nomes Ministros(as)'}, ...headDias ]
       ];
-      const body = h.ministros.map(m=>[
-        String(m.num),
-        (m.isResp ? m.nome+'  \u2605' : m.nome),
-        ...h.dias.map(()=>'')
-      ]);
-      const colStyles = {0:{cellWidth:8,halign:'center',textColor:[120,120,120]}, 1:{cellWidth:75,fontStyle:'normal'}};
-      for(let c=2;c<nCols;c++) colStyles[c] = {cellWidth:'auto'};
+      const body = h.ministros.map(m=>{
+        const linha = [ String(m.num), m.nome ];
+        h.dias.forEach(()=>{ linha.push(''); linha.push(''); }); // substituto + letra
+        return linha;
+      });
+      // Larguras: Nº pequeno, Nome largo; para cada dia: coluna substituto + coluna estreita P/F/S
+      const colStyles = {0:{cellWidth:8,halign:'center',textColor:[120,120,120]}, 1:{cellWidth:70}};
+      let ci = 2;
+      h.dias.forEach(()=>{
+        colStyles[ci] = {cellWidth:'auto'};            // substituto (largo)
+        colStyles[ci+1] = {cellWidth:8, halign:'center', fillColor:[250,250,250]}; // P/F/S (estreito)
+        ci += 2;
+      });
 
       pdf.autoTable({
         startY: y,
@@ -4264,12 +4273,15 @@ function gerarPDFPresenca(semanas, tipoLabel){
         styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:6 },
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
-        rowPageBreak:'avoid',   // não corta linha no meio
-        pageBreak:'avoid',      // horário inteiro numa página (nunca deixa ministro solto)
+        rowPageBreak:'avoid',
+        pageBreak:'avoid',
         didParseCell:(data)=>{
-          // Nome do responsável em negrito
-          if(data.section==='body' && data.column.index===1 && data.row.raw[1].includes('\u2605')){
-            data.cell.styles.fontStyle='bold';
+          // Nome do responsável em negrito (identificado pelo índice do ministro, não por símbolo)
+          if(data.section==='body' && data.column.index===1){
+            const idx = data.row.index;
+            if(h.ministros[idx] && h.ministros[idx].isResp){
+              data.cell.styles.fontStyle='bold';
+            }
           }
         }
       });
