@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.9';
+const APP_VERSAO = '19.9.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4139,7 +4139,10 @@ async function imprimirPresencaTodasSemanas(){
         if(b===responsavel) return 1;
         return a.localeCompare(b,'pt-BR');
       });
-      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora) && d.mesRef===true);
+      // Todos os dias da semana pastoral entram como coluna — mesmo quando a semana
+      // atravessa a virada do mês (ex.: sábado cai no mês seguinte). O ministro está
+      // escalado para aquele dia de verdade e precisa de onde marcar presença.
+      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
       return {
         hora, responsavel, respTel,
         dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
