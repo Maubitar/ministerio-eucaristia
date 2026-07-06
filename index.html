@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.9.6';
+const APP_VERSAO = '19.9.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -303,7 +303,14 @@ window.addEventListener('load', async()=>{
     await carregarMinistros();
     escutarMinistrosTempoReal();
     if(typeof carregarAusencias==='function') carregarAusencias();
-    setTimeout(()=>{ if(typeof carregarNumSemanas==='function') carregarNumSemanas(); if(typeof recalcularComSemanas==='function') recalcularComSemanas(); },500);
+    setTimeout(()=>{
+      if(typeof carregarNumSemanas==='function') carregarNumSemanas();
+      if(typeof recalcularComSemanas==='function') recalcularComSemanas();
+      if(typeof carregarDomingosCustom==='function' && carregarDomingosCustom()){
+        if(typeof atualizarChipsDomingos==='function') atualizarChipsDomingos();
+        if(typeof renderEscala==='function') renderEscala();
+      }
+    },500);
     await carregarConfigAcesso();
     document.getElementById('loading').style.display='none';
     // Mostra a tela de login (o app só abre após autenticar)
@@ -2122,10 +2129,29 @@ window.confirmarDomingos = function(){
   _domingosCustom = [...lista];
   DOMINGOS_MES.length = 0;
   _domingosCustom.forEach(d => DOMINGOS_MES.push(d));
+  // BLINDAGEM: salva os domingos manuais para não se perderem em nova atualização/carregamento
+  try{ localStorage.setItem(`sogi_domingos_custom_${getMesAtual()}`, JSON.stringify(_domingosCustom)); }catch(e){}
   atualizarChipsDomingos();
   fecharModal('modal-editar-domingos');
   renderEscala();
   toast(`✓ ${lista.length} domingo(s) definido(s) manualmente.`);
+};
+
+// BLINDAGEM: carrega os domingos customizados salvos para o mês atual (se existirem)
+window.carregarDomingosCustom = function(){
+  try{
+    const salvo = localStorage.getItem(`sogi_domingos_custom_${getMesAtual()}`);
+    if(salvo){
+      const lista = JSON.parse(salvo);
+      if(Array.isArray(lista) && lista.length){
+        _domingosCustom = [...lista];
+        DOMINGOS_MES.length = 0;
+        _domingosCustom.forEach(d => DOMINGOS_MES.push(d));
+        return true;
+      }
+    }
+  }catch(e){}
+  return false;
 };
 
 // ===== ABAS DOMINICAL / SEMANAL =====
@@ -2530,6 +2556,8 @@ window.trocarMes = function(){
   Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
   carregarNumSemanas();
   recalcularComSemanas();
+  // BLINDAGEM: restaura domingos manuais salvos para este mês (se houver) — sobrepõe o cálculo automático
+  carregarDomingosCustom();
   // Carrega semanas do novo mês (se já foram definidas antes)
   carregarSemanasLocais();
   // Reset o select para semana 1 ao trocar de mês
@@ -2562,7 +2590,7 @@ window.carregarNumSemanas = function(){
   }catch(e){}
 };
 
-window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); };
+window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); carregarDomingosCustom(); };
 
 window.verEscalaAnterior = function(){
   const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
@@ -4246,6 +4274,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       // ALTURA REAL deste horário, com MARGEM DE SEGURANÇA: nomes longos podem
       // quebrar em 2 linhas na tabela real, então usamos uma folga por linha
       // para nunca deixar o cálculo "achar que cabe" quando na prática não cabe.
+      // BLINDADO v19.9.6: NÃO AUMENTAR. 7mm fazia sobrar poucos horários por página.
       const alturaLinha = 5.5;
       const folgaPorLinha = 0; // já não é necessária: a coluna de nomes (80mm) elimina o risco de quebra de linha
       const alturaCabTab = 2 * alturaLinha; // barra verde do horário + linha de colunas
