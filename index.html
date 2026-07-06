@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.4';
+const APP_VERSAO = '19.6';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4283,6 +4283,8 @@ async function gerarPDFPresenca(semanas, tipoLabel){
   cabecalho();
   let y = M + 16;
 
+  const alturaUtilPagina = (pageH - M - 4) - (M + 16); // espaço útil de uma página (sem cabeçalho geral)
+
   semanas.forEach(sem=>{
     const tituloH = 7;
     let tituloPendente = true; // desenha o título só junto com o 1º horário que couber
@@ -4290,16 +4292,30 @@ async function gerarPDFPresenca(semanas, tipoLabel){
     sem.horarios.forEach(h=>{
       // Colunas: Nº, Foto, Nome, + (2 por dia: substituto + P/F/S)
       const nCols = 3 + h.dias.length*2;
-      // ALTURA ESTIMADA deste horário: barra verde do cabeçalho + linha de colunas + linhas dos ministros
-      const alturaLinha = 8;      // minCellHeight
-      const alturaCabTab = 6 + 6; // barra verde (hora) + linha de colunas
-      const alturaHorario = alturaCabTab + (h.ministros.length * alturaLinha) + 2;
-      // Se for desenhar o título junto, soma a altura do título
-      const alturaNecessaria = alturaHorario + (tituloPendente ? (tituloH + 1.5) : 0);
+      // ALTURA REAL deste horário (medida): cada linha = 8mm, incluindo 2 linhas de cabeçalho (barra verde + colunas)
+      const alturaLinha = 8;
+      const alturaCabTab = 2 * alturaLinha; // barra verde do horário + linha de colunas
+      const alturaHorario = (h.ministros.length + 2) * alturaLinha + 2;
+      const alturaTitulo = tituloPendente ? (tituloH + 1.5) : 0;
 
-      // Se não couber na página atual, nova página
-      if(y + alturaNecessaria > pageH - M - 4){
-        pdf.addPage(); cabecalho(); y = M + 16;
+      // O horário sozinho é maior que uma página inteira? (caso Semana Santa, muitos ministros)
+      const maiorQuePagina = alturaHorario > alturaUtilPagina;
+
+      const espacoRestante = (pageH - M - 4) - y;
+      const alturaNecessaria = alturaHorario + alturaTitulo;
+
+      if(maiorQuePagina){
+        // Horário GIGANTE: será dividido em várias páginas pelo autoTable (cabeçalho repete no topo).
+        // Só garantimos que o título da semana + o cabeçalho + algumas linhas cabem para começar.
+        const minimoParaComecar = alturaTitulo + alturaCabTab + (3 * alturaLinha);
+        if(espacoRestante < minimoParaComecar){
+          pdf.addPage(); cabecalho(); y = M + 16;
+        }
+      } else {
+        // Horário normal: se não cabe inteiro na página atual, joga para a próxima
+        if(y + alturaNecessaria > pageH - M - 4){
+          pdf.addPage(); cabecalho(); y = M + 16;
+        }
       }
 
       // Desenha a faixa azul do título da semana (só uma vez, junto do 1º horário)
@@ -4342,14 +4358,14 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       pdf.autoTable({
         startY: y,
         head, body,
-        margin:{left:M, right:M},
+        margin:{left:M, right:M, bottom:M+6},
         theme:'grid',
         tableWidth: pageW - 2*M,
+        showHead: 'everyPage',
         styles:{ fontSize:8.5, cellPadding:1.2, lineColor:[120,120,120], lineWidth:0.1, valign:'middle', minCellHeight:8 },
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
-        rowPageBreak:'avoid',
-        pageBreak:'avoid',
+        rowPageBreak: 'avoid',
         didParseCell:(data)=>{
           if(data.section==='body' && data.column.index===2){
             const idx = data.row.index;
