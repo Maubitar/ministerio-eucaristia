@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.9.4';
+const APP_VERSAO = '19.9.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4313,7 +4313,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       pdf.autoTable({
         startY: y,
         head, body,
-        margin:{left:M, right:M, bottom:M+6, top:M+16},
+        margin:{left:M, right:M, bottom:M+6, top:M+4},
         theme:'grid',
         tableWidth: pageW - 2*M,
         showHead: 'everyPage',
@@ -4321,7 +4321,7 @@ async function gerarPDFPresenca(semanas, tipoLabel){
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
         rowPageBreak: 'avoid',
-        didDrawPage:()=>{ cabecalho(); },
+        didDrawPage:(data)=>{ if(data.pageNumber===1) return; pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(140,140,140); pdf.text('Lista de Presença — '+tipoLabel+' (continuação)', pageW/2, M+2, {align:'center'}); },
         didParseCell:(data)=>{
           if(data.section==='body' && data.column.index===2){
             const idx = data.row.index;
