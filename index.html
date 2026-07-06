@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.3';
+const APP_VERSAO = '19.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4284,17 +4284,36 @@ async function gerarPDFPresenca(semanas, tipoLabel){
   let y = M + 16;
 
   semanas.forEach(sem=>{
-    // Faixa azul do título da semana. Se não couber título + 1ª tabela mínima, nova página.
     const tituloH = 7;
-    if(y + tituloH + 24 > pageH - M){ pdf.addPage(); cabecalho(); y = M + 16; }
-    pdf.setFillColor(19,78,142); pdf.rect(M, y, pageW-2*M, tituloH, 'F');
-    pdf.setFont('helvetica','bold'); pdf.setFontSize(10); pdf.setTextColor(255,255,255);
-    pdf.text(sem.label + (sem.periodo? ' — '+sem.periodo : ''), M+3, y+5);
-    y += tituloH + 1.5;
+    let tituloPendente = true; // desenha o título só junto com o 1º horário que couber
 
     sem.horarios.forEach(h=>{
       // Colunas: Nº, Foto, Nome, + (2 por dia: substituto + P/F/S)
       const nCols = 3 + h.dias.length*2;
+      // ALTURA ESTIMADA deste horário: barra verde do cabeçalho + linha de colunas + linhas dos ministros
+      const alturaLinha = 8;      // minCellHeight
+      const alturaCabTab = 6 + 6; // barra verde (hora) + linha de colunas
+      const alturaHorario = alturaCabTab + (h.ministros.length * alturaLinha) + 2;
+      // Se for desenhar o título junto, soma a altura do título
+      const alturaNecessaria = alturaHorario + (tituloPendente ? (tituloH + 1.5) : 0);
+
+      // Se não couber na página atual, nova página
+      if(y + alturaNecessaria > pageH - M - 4){
+        pdf.addPage(); cabecalho(); y = M + 16;
+      }
+
+      // Desenha a faixa azul do título da semana (só uma vez, junto do 1º horário)
+      if(tituloPendente){
+        pdf.setFillColor(19,78,142); pdf.rect(M, y, pageW-2*M, tituloH, 'F');
+        pdf.setFont('helvetica','bold'); pdf.setFontSize(10); pdf.setTextColor(255,255,255);
+        const tituloFaixa = sem.label
+          ? sem.label + (sem.periodo ? ' — '+sem.periodo : '')
+          : (sem.periodo || '');
+        pdf.text(tituloFaixa, M+3, y+5);
+        y += tituloH + 1.5;
+        tituloPendente = false;
+      }
+
       const headDias = [];
       h.dias.forEach(d=>{ headDias.push({content:d, colSpan:2, styles:{halign:'center'}}); });
       const head = [
@@ -4399,34 +4418,18 @@ window.imprimirPresenca = async function(){
   const { info } = presListaAtual;
   const ehDom = info.diaSemana==='Domingo';
 
-  // SE SEMANAL: imprime TODAS as semanas juntas
+  // SE SEMANAL: gera PDF de TODAS as semanas juntas (mesma carcaça)
   if(!ehDom){
     await imprimirPresencaTodasSemanas();
     return;
   }
 
+  // DOMINICAL: monta os dados no MESMO formato e usa a MESMA função de PDF (carcaça idêntica)
   const { missas } = presListaAtual;
   const missasComMin = missas.filter(m=>m.ministros.length);
   if(!missasComMin.length){ toast('Nenhuma escala para imprimir nesta data.','warn'); return; }
 
-  const tipoEscala = ehDom ? 'Dominical' : 'Semanal';
-  const periodoSem = ehDom ? '' : periodoDaSemana(info.data, info.diaSemana);
-  const dataLabel = periodoSem ? `Semana de ${periodoSem}` : `Domingos: ${DOMINGOS_MES.join(' · ')}`;
-
-  // Datas que entram como COLUNAS na lista de presença
-  function datasDoHorario(hora){
-    if(ehDom){
-      return DOMINGOS_MES.map(d=>({rotulo:`dom ${d}`}));
-    } else {
-      const sem = periodoDaSemana(info.data, info.diaSemana);
-      let semKey=null;
-      Object.entries(SEMANAS_MES).forEach(([k,v])=>{ if((v.periodo||'')===sem) semKey=k; });
-      const dias=(SEMANAS_MES[semKey]?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
-      return dias.map(d=>({rotulo:`${d.dia.slice(0,3).toLowerCase()} ${d.data}`}));
-    }
-  }
-
-  const blocos = missasComMin.map(missa=>{
+  const horarios = missasComMin.map(missa=>{
     const responsavel = missa.responsavel;
     const respObj = ministros.find(x=>x.nome===responsavel);
     const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
@@ -4435,103 +4438,22 @@ window.imprimirPresenca = async function(){
       if(b===responsavel) return 1;
       return a.localeCompare(b,'pt-BR');
     });
-    const datas = datasDoHorario(missa.hora);
+    return {
+      hora: missa.hora,
+      responsavel, respTel,
+      dias: DOMINGOS_MES.map(d=>`dom ${d}`),
+      ministros: ordenados.map((nome,i)=>{
+        const minObj = ministros.find(x=>x.nome===nome);
+        return { num:i+1, nome, isResp: nome===responsavel, foto:(minObj?.foto||null) };
+      })
+    };
+  });
 
-    // Para cada data: coluna larga (substituto) + coluna estreita (letra P/F/S)
-    const thDatas = datas.map(d=>`<th class="data" colspan="2">${d.rotulo}</th>`).join('');
-
-    const linhas = ordenados.map((nome,i)=>{
-      const isResp = nome===responsavel;
-      const cels = datas.map(()=>`<td class="subst"></td><td class="letra"></td>`).join('');
-      const minObj = ministros.find(x=>x.nome===nome);
-      const fotoHtml = minObj?.foto
-        ? `<img src="${minObj.foto}" class="foto-min">`
-        : `<div class="ini-min">${iniciais(nome)}</div>`;
-      return `<tr>
-        <td class="num">${i+1}</td>
-        <td class="foto">${fotoHtml}</td>
-        <td class="nome${isResp?' resp-nome':''}">${nome}${isResp?' <span class="resp">★</span>':''}</td>
-        ${cels}
-      </tr>`;
-    }).join('');
-
-    const totalCols = 3 + (datas.length*2);
-    return `
-    <div class="missa">
-      <table class="tab">
-        <thead>
-          <tr class="linha-hora"><th class="hora-cel" colspan="${totalCols}"><span class="hr">⏰ Horário: ${missa.hora}</span><span class="resp-info">Responsável Escala: <strong>${responsavel||'—'}</strong>${respTel}</span></th></tr>
-          <tr>
-            <th class="num">Nº</th>
-            <th class="foto">Foto</th>
-            <th class="nome">Nomes Ministros(as)</th>
-            ${thDatas}
-          </tr>
-        </thead>
-        <tbody>${linhas}</tbody>
-      </table>
-    </div>`;
-  }).join('');
-
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de Presença — ${periodoSem ? 'Semana '+periodoSem : 'Domingos'}</title>
-  <style>
-    @page{ size: landscape; margin: 7mm; }
-    *{box-sizing:border-box}
-    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;margin:0;padding:10px 14px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .cab{display:flex;align-items:center;gap:12px;border-bottom:2.5px solid #085041;padding-bottom:6px;margin-bottom:4px}
-    .cab img{width:44px;height:44px;object-fit:contain}
-    .cab .ct{flex:1;text-align:center}
-    .cab .basilica{font-size:9px;letter-spacing:1px;color:#444;margin:0;text-transform:uppercase;font-weight:700}
-    .cab h1{margin:1px 0;color:#085041;font-size:17px}
-    .cab .sub{font-size:9px;color:#555;margin:0}
-    .info{display:flex;justify-content:space-between;align-items:center;margin:5px 0 4px;font-size:11px}
-    .info .tipo{font-size:10px;color:#085041;font-weight:700;background:#e1f5ee;padding:2px 10px;border-radius:20px}
-    .info .leg{font-size:10px;color:#555}
-    .missa{margin-bottom:4px;break-inside:avoid;page-break-inside:avoid}
-    table.tab thead{display:table-header-group}
-    tr{break-inside:avoid;page-break-inside:avoid}
-    .linha-hora .hora-cel{background:#085041;color:white;padding:5px 12px;text-align:left;border:1px solid #333;border-bottom:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .linha-hora .hora-cel .hr{font-weight:700;font-size:12px;margin-right:14px}
-    .linha-hora .hora-cel .resp-info{font-size:11px;font-weight:400}
-    .linha-hora .hora-cel .resp-info strong{font-weight:700}
-    table.tab{width:100%;border-collapse:collapse;border:1px solid #333}
-    table.tab th{background:#dfe7e4;font-size:9px;padding:3px;border:1px solid #333;color:#1a1a1a;text-align:center;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    table.tab td{border:1px solid #888;padding:2px 5px;font-size:10.5px;height:26px;vertical-align:middle}
-    table.tab tbody tr{height:26px}
-    th.data{background:#085041;color:white;font-size:10px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    td.subst{min-width:42px}
-    td.letra,th.letra{width:20px;text-align:center;background:#fafafa}
-    .num{width:22px;text-align:center;color:#888;font-size:9px}
-    .foto{width:32px;text-align:center;padding:1px!important}
-    .foto-min{width:26px;height:26px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:1px solid #cde8d8}
-    .ini-min{width:26px;height:26px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;margin:0 auto}
-    .nome{text-align:left;width:250px;line-height:1.1}
-    .nome.resp-nome{font-weight:700}
-    .resp{color:#BA7517;font-weight:700;margin-left:2px}
-    .rodape{text-align:center;margin-top:10px;font-size:8px;color:#999;border-top:1px solid #eee;padding-top:6px}
-  </style></head>
-  <body>
-    <div class="cab">
-      <img src="${APP_URL}/${LOGO_BASILICA}">
-      <div class="ct">
-        <p class="basilica">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1>Lista de Presença</h1>
-        <p class="sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      </div>
-      <img src="${APP_URL}/${LOGO_MESCE}">
-    </div>
-    <div class="info">
-      <div><strong>Data:</strong> ${dataLabel}</div>
-      <div class="leg"><strong>Legendas:</strong> P – presente / F – faltou / S – substituição</div>
-      <div class="tipo">Escala ${tipoEscala}</div>
-    </div>
-    ${blocos}
-    <p class="rodape">Em caso de substituição (S), o responsável anota o nome do substituto na coluna da data &nbsp;·&nbsp; S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
-    <script>window.onload=()=>window.print();<\/script>
-  </body></html>`);
-  w.document.close();
+  // A dominical é "uma única semana" cujos dias são os domingos do mês
+  const semanas = [{ label:'', periodo:`Domingos: ${DOMINGOS_MES.join(' · ')}`, horarios }];
+  await gerarPDFPresenca(semanas, 'Escala Dominical');
 };
+
 
 const presReuniaoMap = {};
 
