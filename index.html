@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.10.1';
+const APP_VERSAO = '19.11.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -8544,8 +8544,9 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card">
     <p class="ct">📅 Montar escala</p>
-    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
-      <select id="esc-mes" onchange="trocarMes()" style="flex:1;margin:0;font-weight:600;color:#085041">
+    <div style="display:flex;align-items:center;gap:8px;background:#f7f9f8;border-radius:10px;padding:4px 10px;margin-bottom:12px">
+      <span style="font-size:15px">🗓️</span>
+      <select id="esc-mes" onchange="trocarMes()" style="flex:2 1 0;min-width:0;margin:0;font-weight:700;color:#085041;border:none;background:transparent;font-size:14px;padding:8px 2px">
         <option value="0">Janeiro</option><option value="1">Fevereiro</option>
         <option value="2">Março</option><option value="3">Abril</option>
         <option value="4">Maio</option><option value="5">Junho</option>
@@ -8553,7 +8554,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <option value="8">Setembro</option><option value="9">Outubro</option>
         <option value="10">Novembro</option><option value="11">Dezembro</option>
       </select>
-      <select id="esc-ano" onchange="trocarMes()" style="width:90px;margin:0;font-weight:600;color:#085041">
+      <span style="color:#ccc;font-weight:300">|</span>
+      <select id="esc-ano" onchange="trocarMes()" style="flex:0 0 70px;width:70px;margin:0;font-weight:700;color:#085041;border:none;background:transparent;font-size:14px;padding:8px 2px">
         <option value="2026" selected>2026</option>
         <option value="2027">2027</option>
         <option value="2028">2028</option>
@@ -8613,29 +8615,44 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5;display:none">
       📌 Escala mensal — mesmos ministros em todos os domingos de junho
     </p>
-    <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px">
+    <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
       👁 Visualizar todas as escalas do mês
     </button>
-    <div id="indicador-nao-salvo" style="display:none;align-items:center;gap:6px;background:#fff4e0;border:1.5px solid #BA7517;border-radius:8px;padding:8px 12px;margin-bottom:8px">
+    <div id="indicador-nao-salvo" style="display:none;align-items:center;gap:6px;background:#fff4e0;border:1.5px solid #BA7517;border-radius:8px;padding:8px 12px;margin-bottom:10px">
       <span style="font-size:14px">⚠️</span>
       <span style="font-size:12px;color:#a05c10;font-weight:700">Você tem alterações não salvas! Clique em "Salvar Escala" para não perder.</span>
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-      <button class="btn-g" onclick="salvarEscala()" style="margin:0;flex:1;min-width:80px">💾 Salvar Escala</button>
-      <button onclick="imprimirEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir</button>
+
+    <!-- AÇÃO PRINCIPAL -->
+    <button class="btn-g" onclick="salvarEscala()" style="width:100%;margin:0 0 10px;padding:14px;font-size:15px">💾 Salvar Escala</button>
+
+    <!-- FINALIZAÇÃO — destaque próprio, é a ação que trava para impressão -->
+    <div style="border:1.5px solid #0A6E58;background:#f0faf7;border-radius:12px;padding:12px;margin-bottom:10px">
+      <p style="font-size:12px;font-weight:700;color:#0A6E58;margin:0 0 8px">✅ Finalização para impressão</p>
+      <div style="display:flex;gap:6px">
+        <button onclick="finalizarEscalaAtual()" style="flex:1;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer">✅ Finalizar Escala</button>
+        <button onclick="nav('finalizadas')" style="flex:1;padding:11px;border:1.5px solid #0A6E58;border-radius:8px;background:white;color:#0A6E58;font-size:13px;font-weight:700;cursor:pointer">📌 Ver Finalizadas</button>
+      </div>
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-      <button onclick="finalizarEscalaAtual()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer">✅ Finalizar Escala</button>
-      <button onclick="nav('finalizadas')" style="margin:0;flex:1;min-width:80px;padding:11px;border:1.5px solid #0A6E58;border-radius:8px;background:white;color:#0A6E58;font-size:13px;font-weight:700;cursor:pointer">📌 Ver Finalizadas</button>
-    </div>
-    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-      <button onclick="copiarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#128C7E;color:white;font-size:13px;font-weight:700;cursor:pointer">📸 Copiar imagem (colar no Zap)</button>
-      <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">🖼️ Baixar imagem(ns)</button>
-    </div>
-    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
-      <button class="btn-w" onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px">📋 Copiar texto</button>
-      <button onclick="enviarEscalaIndividual()" style="margin:0;flex:1;min-width:80px;padding:11px;border:none;border-radius:8px;background:#25D366;color:white;font-size:13px;font-weight:600;cursor:pointer">📲 Enviar a cada ministro</button>
-    </div>
+
+    <!-- IMPRESSÃO RÁPIDA — secundária, não travada -->
+    <button onclick="imprimirEscala()" style="width:100%;margin:0 0 10px;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir rascunho (não finalizado)</button>
+
+    <!-- COMPARTILHAR — agrupado, fora do caminho principal -->
+    <details style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:#555;padding:11px 12px;background:#f7f9f8;border-radius:8px;list-style:none">📤 Mais opções de envio e imagem</summary>
+      <div style="padding:10px 2px 0">
+        <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+          <button onclick="copiarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #128C7E;border-radius:8px;background:white;color:#128C7E;font-size:12px;font-weight:700;cursor:pointer">📸 Copiar imagem</button>
+          <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #1D9E75;border-radius:8px;background:white;color:#1D9E75;font-size:12px;font-weight:600;cursor:pointer">🖼️ Baixar imagem(ns)</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #999;border-radius:8px;background:white;color:#555;font-size:12px;font-weight:600;cursor:pointer">📋 Copiar texto</button>
+          <button onclick="enviarEscalaIndividual()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1ba34d;font-size:12px;font-weight:700;cursor:pointer">📲 Enviar a cada ministro</button>
+        </div>
+      </div>
+    </details>
+
     <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
       ✓ Autocomplete filtra apenas ministros disponíveis para cada horário
     </p>
