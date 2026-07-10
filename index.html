@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.15.2';
+const APP_VERSAO = '19.16.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -236,6 +236,79 @@ function atualizarContadorMinistros(){
 let recognition=null;
 const LOGO_BASILICA = 'logo-basilica.jpg';
 const LOGO_MESCE = 'logo-mesce.jpg';
+
+// ===== GEOLOCALIZAÇÃO DO SCANNER (antifraude — confere se o scan está sendo feito no local certo) =====
+// Cada contexto pode ter um local diferente: Missa na Basílica, Reunião/Adoração no Centro Social, por exemplo.
+// lat/lng null = ainda não configurado para esse contexto (não faz checagem até ser definido em Mais > Configurações).
+let _geoConfig = {
+  missa:    { lat: -1.4527, lng: -48.4811, raio: 250 }, // Basílica de Nazaré (padrão)
+  reuniao:  { lat: null, lng: null, raio: 250 },
+  adoracao: { lat: null, lng: null, raio: 250 }
+};
+function geoDistanciaMetros(lat1, lng1, lat2, lng2){
+  const R = 6371000;
+  const toRad = g => g*Math.PI/180;
+  const dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R * 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+async function carregarGeoConfig(){
+  try{
+    const d = await getDoc(doc(db,'config','localizacao'));
+    if(d.exists()){
+      const salvo = d.data();
+      ['missa','reuniao','adoracao'].forEach(c=>{ if(salvo[c]) _geoConfig[c] = {..._geoConfig[c], ...salvo[c]}; });
+    }
+  }catch(e){}
+}
+
+window.abrirGeoCfgModal = function(contexto){
+  window._geoCtxAtual = contexto;
+  const nomes = {missa:'⛪ Missa', reuniao:'📋 Reunião', adoracao:'🙏 Adoração'};
+  document.getElementById('geo-modal-titulo').textContent = `📍 Localização — ${nomes[contexto]||contexto}`;
+  atualizarPainelGeoCfg();
+  document.getElementById('modal-geo-cfg').style.display='flex';
+};
+
+window.usarMinhaLocalizacaoAtual = function(){
+  if(!navigator.geolocation){ toast('Localização não disponível neste aparelho.','warn'); return; }
+  const contexto = window._geoCtxAtual || 'missa';
+  toast('📍 Obtendo sua localização atual...');
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      _geoConfig[contexto].lat = pos.coords.latitude;
+      _geoConfig[contexto].lng = pos.coords.longitude;
+      atualizarPainelGeoCfg();
+      toast('✓ Localização atual capturada! Toque em "Salvar" para confirmar.');
+    },
+    (err)=>{ toast('Não foi possível obter a localização: '+err.message,'warn'); },
+    { enableHighAccuracy:true, timeout:8000 }
+  );
+};
+
+window.salvarGeoConfig = async function(){
+  const contexto = window._geoCtxAtual || 'missa';
+  const el = document.getElementById('geo-raio-cfg');
+  const raio = el ? (parseInt(el.value)||250) : 250;
+  _geoConfig[contexto].raio = raio;
+  try{
+    await setDoc(doc(db,'config','localizacao'), _geoConfig);
+    document.getElementById('modal-geo-cfg').style.display='none';
+    toast('✓ Localização salva!');
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+window.atualizarPainelGeoCfg = function(){
+  const contexto = window._geoCtxAtual || 'missa';
+  const cfg = _geoConfig[contexto];
+  const raioEl = document.getElementById('geo-raio-cfg');
+  if(raioEl) raioEl.value = cfg.raio||250;
+  const status = document.getElementById('geo-status-cfg');
+  if(status){
+    status.textContent = (cfg.lat!=null) ? `📍 Local definido (${cfg.lat.toFixed(5)}, ${cfg.lng.toFixed(5)})` : '⚠️ Ainda não configurado — o scanner não vai checar localização até você definir.';
+    status.style.color = (cfg.lat!=null) ? '#0A6E58' : '#BA7517';
+  }
+};
 // Assinatura do Diretor Espiritual (Pe. Josué). Quando o coordenador enviar a imagem,
 // colocamos aqui a URL (ex: 'assinatura-padre.png' no repositório) ou um data:image base64.
 const ASSINATURA_PADRE = '';
@@ -312,6 +385,7 @@ window.addEventListener('load', async()=>{
       }
     },500);
     await carregarConfigAcesso();
+    carregarGeoConfig();
     document.getElementById('loading').style.display='none';
     // Mostra a tela de login (o app só abre após autenticar)
     mostrarLogin();
@@ -6934,6 +7008,48 @@ let scannerInterval = null;
 
 let _scannerFacingMode = 'environment'; // começa com câmera traseira
 
+function checarLocalizacaoScanner(contexto){
+  const badge = document.getElementById('scanner-geo-status');
+  if(!badge) return;
+  const cfg = _geoConfig[contexto] || _geoConfig.missa;
+  if(!navigator.geolocation || cfg.lat==null){
+    badge.textContent = '';
+    return;
+  }
+  badge.textContent = '📍 Verificando localização...';
+  badge.style.background = 'rgba(255,255,255,.15)';
+  badge.style.color = 'white';
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const {latitude, longitude} = pos.coords;
+      const dist = Math.round(geoDistanciaMetros(latitude, longitude, cfg.lat, cfg.lng));
+      const dentro = dist <= cfg.raio;
+      if(dentro){
+        badge.textContent = '📍 Localização confirmada';
+        badge.style.background = 'rgba(29,158,117,.9)';
+        badge.style.color = 'white';
+      } else {
+        badge.textContent = `⚠️ Fora do raio esperado (~${dist}m do local)`;
+        badge.style.background = 'rgba(186,117,23,.95)';
+        badge.style.color = 'white';
+      }
+      // Log para auditoria (não bloqueia o uso do scanner)
+      try{
+        addDoc(collection(db,'scanner_sessoes'), {
+          contexto: contexto||'missa', lat:latitude, lng:longitude, distanciaM:dist, dentroDoRaio:dentro,
+          usuario: _usuarioLogado?.usuario||'desconhecido', criadoEm: serverTimestamp()
+        });
+      }catch(e){}
+    },
+    (err)=>{
+      badge.textContent = '📍 Localização não disponível neste aparelho';
+      badge.style.background = 'rgba(255,255,255,.15)';
+      badge.style.color = 'rgba(255,255,255,.7)';
+    },
+    { enableHighAccuracy:true, timeout:8000, maximumAge:60000 }
+  );
+}
+
 window.abrirScanner = function(){
   const el = document.getElementById('modal-scanner');
   el.style.display = 'flex';
@@ -6942,6 +7058,7 @@ window.abrirScanner = function(){
   document.getElementById('scanner-status').textContent='Iniciando câmera...';
   _scanLidos = new Set();
   _scanPausado = false;
+  checarLocalizacaoScanner(window._secContexto || 'missa');
   const cont=document.getElementById('scanner-contador'); if(cont) cont.textContent='';
   const fb=document.getElementById('scanner-feedback'); if(fb) fb.style.display='none';
   iniciarCameraScanner(_scannerFacingMode);
@@ -9217,6 +9334,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <p id="pres-count" style="font-size:11px;color:#1D9E75;margin:0"></p>
         <div style="display:flex;gap:6px">
           <button onclick="window._secContexto=null;abrirScanner()" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:500">📷 Scanner QR</button>
+          <button onclick="abrirGeoCfgModal('missa')" style="font-size:11px;color:#666;background:#f0f0ee;border:none;border-radius:20px;padding:4px 8px;cursor:pointer;font-weight:500" title="Localização do scanner">📍</button>
           <button onclick="window._secContexto=null;abrirQuiosqueCfg()" style="font-size:11px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:4px 10px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
         </div>
       </div>
@@ -9233,6 +9351,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </div>
       <div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px">
         <button onclick="abrirScannerSec('reuniao')" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:6px 12px;cursor:pointer;font-weight:600">📷 Scanner QR</button>
+        <button onclick="abrirGeoCfgModal('reuniao')" style="font-size:11px;color:#666;background:#f0f0ee;border:none;border-radius:20px;padding:6px 9px;cursor:pointer;font-weight:500" title="Localização do scanner">📍</button>
         <button onclick="abrirQuiosqueSec('reuniao')" style="font-size:11px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:6px 12px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
       </div>
       <p style="font-size:11px;color:#888;margin-bottom:8px;padding:6px 10px;background:#f5f5f3;border-radius:6px">
@@ -9251,6 +9370,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </div>
       <div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px">
         <button onclick="abrirScannerSec('adoracao')" style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:6px 12px;cursor:pointer;font-weight:600">📷 Scanner QR</button>
+        <button onclick="abrirGeoCfgModal('adoracao')" style="font-size:11px;color:#666;background:#f0f0ee;border:none;border-radius:20px;padding:6px 9px;cursor:pointer;font-weight:500" title="Localização do scanner">📍</button>
         <button onclick="abrirQuiosqueSec('adoracao')" style="font-size:11px;color:#085041;background:#e1f5ee;border:none;border-radius:20px;padding:6px 12px;cursor:pointer;font-weight:600">🖥️ Quiosque</button>
       </div>
       <p style="font-size:11px;color:#888;margin-bottom:8px;padding:6px 10px;background:#f5f5f3;border-radius:6px">
@@ -9645,6 +9765,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <div>
       <p style="color:white;font-size:16px;font-weight:700;margin:0;text-shadow:0 1px 4px rgba(0,0,0,.5)">📷 Scanner de Presença</p>
       <p id="scanner-status" style="color:rgba(255,255,255,.8);font-size:12px;margin:2px 0 0">Iniciando câmera...</p>
+      <p id="scanner-geo-status" style="font-size:11px;margin:4px 0 0;padding:3px 10px;border-radius:20px;display:inline-block"></p>
     </div>
     <button onclick="pararScanner()" style="width:40px;height:40px;border:none;border-radius:50%;background:rgba(0,0,0,.5);color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
   </div>
@@ -9881,6 +10002,21 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Saldo real dessa conta agora (R$)</label>
     <input type="text" id="ajs-valor" inputmode="decimal" placeholder="0,00" style="margin-bottom:14px;width:100%;box-sizing:border-box">
     <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarAjusteSaldo()">💾 Ajustar saldo</button>
+  </div>
+</div>
+
+<div id="modal-geo-cfg" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-geo-cfg')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <p id="geo-modal-titulo" style="font-size:16px;font-weight:700">📍 Localização</p>
+      <button onclick="fecharModal('modal-geo-cfg')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#666;line-height:1.5;margin:0 0 10px">O scanner confere se o aparelho está perto deste local e avisa se estiver fora — sem travar o uso.</p>
+    <p id="geo-status-cfg" style="font-size:11px;margin:0 0 12px;padding:8px 10px;background:#f7f7f5;border-radius:8px"></p>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Raio permitido (metros)</label>
+    <input type="number" id="geo-raio-cfg" value="250" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+    <button onclick="usarMinhaLocalizacaoAtual()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:9px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📍 Estou aqui agora — usar este local</button>
+    <button onclick="salvarGeoConfig()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar</button>
   </div>
 </div>
 
