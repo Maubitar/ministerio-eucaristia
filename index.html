@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.14.0';
+const APP_VERSAO = '19.15.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7870,6 +7870,8 @@ function finMesKeyAtual(){
   const d=new Date();
   return FIN_MESES[d.getMonth()]+d.getFullYear();
 }
+const FIN_CONTAS_NOME = { cofre:'🔒 Cofre', banco1:'🏦 Banco 1', banco2:'🏦 Banco 2' };
+function finLocalNome(local){ return FIN_CONTAS_NOME[local] || FIN_CONTAS_NOME.cofre; }
 
 async function carregarFinanceiro(){
   try{
@@ -7909,9 +7911,10 @@ window.renderFinanceiro = async function(){
   const arrecadadoMes = pagosCount * valor;
   const pendentesCount = ativos.length - pagosCount;
 
-  // Saldo geral por local: mensalidades (local configurável) + receitas avulsas - despesas, cada uma no seu local
+  // Saldo por conta: mensalidades (conta configurável) + receitas avulsas - despesas, cada uma na sua conta
   const localMensalidade = _finConfig.localMensalidade || 'cofre';
-  let totalArrecadadoGeral = 0, mensalidadesBanco = 0, mensalidadesCofre = 0;
+  let totalArrecadadoGeral = 0;
+  const mensalidadesPorConta = {cofre:0, banco1:0, banco2:0};
   try{
     const snapPag = await getDocs(collection(db,'financeiro'));
     snapPag.docs.forEach(d=>{
@@ -7920,24 +7923,29 @@ window.renderFinanceiro = async function(){
         const qtd = Object.values(pagos).filter(p=>p.pago).length;
         const valorMes = qtd * valor;
         totalArrecadadoGeral += valorMes;
-        if(localMensalidade==='banco') mensalidadesBanco += valorMes; else mensalidadesCofre += valorMes;
+        mensalidadesPorConta[localMensalidade] = (mensalidadesPorConta[localMensalidade]||0) + valorMes;
       }
     });
   }catch(e){}
 
-  const receitasBanco = _finReceitas.filter(r=>r.local==='banco').reduce((s,r)=>s+(Number(r.valor)||0),0);
-  const receitasCofre = _finReceitas.filter(r=>r.local!=='banco').reduce((s,r)=>s+(Number(r.valor)||0),0);
-  const totalReceitasAvulsas = receitasBanco + receitasCofre;
-  const totalDespesas = _finDespesas.reduce((s,d)=>s+(Number(d.valor)||0),0);
-  const despesasBanco = _finDespesas.filter(d=>d.local==='banco').reduce((s,d)=>s+(Number(d.valor)||0),0);
-  const despesasCofre = _finDespesas.filter(d=>d.local!=='banco').reduce((s,d)=>s+(Number(d.valor)||0),0);
+  function porConta(lista){
+    const r = {cofre:0, banco1:0, banco2:0};
+    lista.forEach(item=>{ r[item.local]=(r[item.local]||0)+(Number(item.valor)||0); });
+    return r;
+  }
+  const receitasPorConta = porConta(_finReceitas);
+  const despesasPorConta = porConta(_finDespesas);
+  const totalReceitasAvulsas = receitasPorConta.cofre + receitasPorConta.banco1 + receitasPorConta.banco2;
+  const totalDespesas = despesasPorConta.cofre + despesasPorConta.banco1 + despesasPorConta.banco2;
 
-  const entradasBanco = mensalidadesBanco + receitasBanco;
-  const entradasCofre = mensalidadesCofre + receitasCofre;
-  const saldoBanco = entradasBanco - despesasBanco;
-  const saldoCofre = entradasCofre - despesasCofre;
-  const saldo = saldoBanco + saldoCofre;
+  const entradasPorConta = {}, saldoPorConta = {};
+  ['cofre','banco1','banco2'].forEach(c=>{
+    entradasPorConta[c] = (mensalidadesPorConta[c]||0) + (receitasPorConta[c]||0);
+    saldoPorConta[c] = entradasPorConta[c] - (despesasPorConta[c]||0);
+  });
+  const saldo = saldoPorConta.cofre + saldoPorConta.banco1 + saldoPorConta.banco2;
   const totalEntradasGeral = totalArrecadadoGeral + totalReceitasAvulsas;
+  window._saldoPorContaAtual = saldoPorConta;
 
   // Opções de mês (12 meses do ano atual + permite navegar)
   const anoAtual = new Date().getFullYear();
@@ -7962,17 +7970,22 @@ window.renderFinanceiro = async function(){
       </div>
     </div>
 
-    <!-- SALDO POR LOCAL -->
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <div style="flex:1;background:#e6f1fb;border-radius:12px;padding:12px">
-        <p style="font-size:11px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Saldo Banco</p>
-        <p style="font-size:18px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoBanco)}</p>
+    <!-- SALDO POR CONTA -->
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <div style="flex:1;background:#faeeda;border-radius:12px;padding:11px">
+        <p style="font-size:10px;color:#BA7517;font-weight:700;margin:0 0 2px">🔒 Cofre</p>
+        <p style="font-size:15px;font-weight:700;margin:0;color:#BA7517">${fmt(saldoPorConta.cofre)}</p>
       </div>
-      <div style="flex:1;background:#faeeda;border-radius:12px;padding:12px">
-        <p style="font-size:11px;color:#BA7517;font-weight:700;margin:0 0 2px">🔒 Saldo Cofre</p>
-        <p style="font-size:18px;font-weight:700;margin:0;color:#BA7517">${fmt(saldoCofre)}</p>
+      <div style="flex:1;background:#e6f1fb;border-radius:12px;padding:11px">
+        <p style="font-size:10px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Banco 1</p>
+        <p style="font-size:15px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoPorConta.banco1)}</p>
+      </div>
+      <div style="flex:1;background:#e6f1fb;border-radius:12px;padding:11px">
+        <p style="font-size:10px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Banco 2</p>
+        <p style="font-size:15px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoPorConta.banco2)}</p>
       </div>
     </div>
+    <button onclick="abrirAjusteSaldo()" style="width:100%;padding:9px;border:1.5px dashed #999;border-radius:8px;background:transparent;color:#555;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:14px">✏️ Corrigir/lançar saldo direto de uma conta</button>
 
     <!-- SELETOR DE MÊS -->
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
@@ -8108,8 +8121,8 @@ async function finRenderBalancete(){
       const mesNum = parseInt((item.data||'').slice(5,7));
       if(String(ano)===String(anoRef) && mesNum>=1 && mesNum<=12){
         const mk = FIN_MESES[mesNum-1]+anoRef;
-        if(!porMes[mk]) porMes[mk] = {banco:0, cofre:0};
-        porMes[mk][item.local==='banco'?'banco':'cofre'] += (Number(item.valor)||0);
+        if(!porMes[mk]) porMes[mk] = {cofre:0, banco1:0, banco2:0};
+        porMes[mk][item.local] = (porMes[mk][item.local]||0) + (Number(item.valor)||0);
       }
     });
     return porMes;
@@ -8117,29 +8130,32 @@ async function finRenderBalancete(){
   const despesasPorMes = agruparPorMes(_finDespesas);
   const receitasPorMes = agruparPorMes(_finReceitas);
 
-  let entradasAno=0, saidasAno=0, entradasBancoAno=0, entradasCofreAno=0, saidasBancoAno=0, saidasCofreAno=0;
+  let entradasAno=0, saidasAno=0;
+  const saldoContaAno = {cofre:0, banco1:0, banco2:0};
+  const entradasContaAno = {cofre:0, banco1:0, banco2:0};
+  const saidasContaAno = {cofre:0, banco1:0, banco2:0};
   const linhas = FIN_MESES.map((m,i)=>{
     const mk = m+anoRef;
     const pagos = pagosPorMes[mk]||0;
     const valorMensalidades = pagos*valor;
-    const rec = receitasPorMes[mk]||{banco:0,cofre:0};
-    const desp = despesasPorMes[mk]||{banco:0,cofre:0};
-    const entradasBanco = rec.banco + (localMensalidade==='banco'?valorMensalidades:0);
-    const entradasCofre = rec.cofre + (localMensalidade==='banco'?0:valorMensalidades);
-    const entradas = entradasBanco + entradasCofre;
-    const saidas = desp.banco + desp.cofre;
+    const rec = receitasPorMes[mk]||{cofre:0,banco1:0,banco2:0};
+    const desp = despesasPorMes[mk]||{cofre:0,banco1:0,banco2:0};
+    let entradas=0, saidas=0;
+    ['cofre','banco1','banco2'].forEach(c=>{
+      const entradaConta = (rec[c]||0) + (c===localMensalidade?valorMensalidades:0);
+      const saidaConta = desp[c]||0;
+      entradas += entradaConta; saidas += saidaConta;
+      entradasContaAno[c] += entradaConta; saidasContaAno[c] += saidaConta;
+    });
     entradasAno += entradas; saidasAno += saidas;
-    entradasBancoAno += entradasBanco; entradasCofreAno += entradasCofre;
-    saidasBancoAno += desp.banco; saidasCofreAno += desp.cofre;
-    return { mk, nome:FIN_MESES_NOME[m], pagos, entradas, saidas, saldoMes: entradas-saidas, entradasBanco, entradasCofre, saidasBanco:desp.banco, saidasCofre:desp.cofre };
+    return { mk, nome:FIN_MESES_NOME[m], pagos, entradas, saidas, saldoMes: entradas-saidas };
   });
+  ['cofre','banco1','banco2'].forEach(c=>{ saldoContaAno[c] = entradasContaAno[c] - saidasContaAno[c]; });
   const saldoAno = entradasAno - saidasAno;
-  const saldoBancoAno = entradasBancoAno - saidasBancoAno;
-  const saldoCofreAno = entradasCofreAno - saidasCofreAno;
   const mesSelInfo = linhas.find(l=>l.mk===_finMesSel) || {entradas:0,saidas:0,saldoMes:0};
 
   // guarda pra usar em imprimir/compartilhar sem recalcular
-  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoBancoAno, saldoCofreAno, mesSel:_finMesSel, mesSelInfo };
+  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoContaAno, mesSel:_finMesSel, mesSelInfo };
 
   cont.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -8155,14 +8171,18 @@ async function finRenderBalancete(){
       </div>
     </div>
 
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <div style="flex:1;background:#f5f9fb;border:1.5px solid #e6f1fb;border-radius:10px;padding:10px;text-align:center">
-        <p style="font-size:10px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Banco em ${anoRef}</p>
-        <p style="font-size:14px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoBancoAno)}</p>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <div style="flex:1;background:#fdf8f0;border:1.5px solid #faeeda;border-radius:10px;padding:9px;text-align:center">
+        <p style="font-size:9px;color:#BA7517;font-weight:700;margin:0 0 2px">🔒 Cofre ${anoRef}</p>
+        <p style="font-size:13px;font-weight:700;margin:0;color:#BA7517">${fmt(saldoContaAno.cofre)}</p>
       </div>
-      <div style="flex:1;background:#fdf8f0;border:1.5px solid #faeeda;border-radius:10px;padding:10px;text-align:center">
-        <p style="font-size:10px;color:#BA7517;font-weight:700;margin:0 0 2px">🔒 Cofre em ${anoRef}</p>
-        <p style="font-size:14px;font-weight:700;margin:0;color:#BA7517">${fmt(saldoCofreAno)}</p>
+      <div style="flex:1;background:#f5f9fb;border:1.5px solid #e6f1fb;border-radius:10px;padding:9px;text-align:center">
+        <p style="font-size:9px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Banco 1 ${anoRef}</p>
+        <p style="font-size:13px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoContaAno.banco1)}</p>
+      </div>
+      <div style="flex:1;background:#f5f9fb;border:1.5px solid #e6f1fb;border-radius:10px;padding:9px;text-align:center">
+        <p style="font-size:9px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Banco 2 ${anoRef}</p>
+        <p style="font-size:13px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoContaAno.banco2)}</p>
       </div>
     </div>
 
@@ -8204,7 +8224,7 @@ window.compartilharBalancete = async function(){
     txt += `${l.nome}: entradas ${fmt(l.entradas)} · saídas ${fmt(l.saidas)} · saldo ${fmt(l.saldoMes)}\n`;
   });
   txt += `\n*TOTAL ${b.anoRef}:* entradas ${fmt(b.entradasAno)} · saídas ${fmt(b.saidasAno)} · saldo *${fmt(b.saldoAno)}*\n`;
-  txt += `🏦 Banco: ${fmt(b.saldoBancoAno)} · 🔒 Cofre: ${fmt(b.saldoCofreAno)}`;
+  txt += `🔒 Cofre: ${fmt(b.saldoContaAno.cofre)} · 🏦 Banco 1: ${fmt(b.saldoContaAno.banco1)} · 🏦 Banco 2: ${fmt(b.saldoContaAno.banco2)}`;
 
   if(navigator.share){
     try{ await navigator.share({title:'Balancete MESCE', text:txt}); return; }catch(e){ if(e.name==='AbortError') return; }
@@ -8246,8 +8266,9 @@ window.imprimirBalancete = function(){
     <h2>Ministério Extraordinário da Sagrada Comunhão Eucarística · Basílica Santuário de Nossa Senhora de Nazaré</h2>
     <div class="cards">
       <div class="card"><p class="lbl">Saldo do ano</p><p class="val">${fmt(b.saldoAno)}</p></div>
-      <div class="card"><p class="lbl">🏦 Banco</p><p class="val">${fmt(b.saldoBancoAno)}</p></div>
-      <div class="card"><p class="lbl">🔒 Cofre</p><p class="val">${fmt(b.saldoCofreAno)}</p></div>
+      <div class="card"><p class="lbl">🔒 Cofre</p><p class="val">${fmt(b.saldoContaAno.cofre)}</p></div>
+      <div class="card"><p class="lbl">🏦 Banco 1</p><p class="val">${fmt(b.saldoContaAno.banco1)}</p></div>
+      <div class="card"><p class="lbl">🏦 Banco 2</p><p class="val">${fmt(b.saldoContaAno.banco2)}</p></div>
     </div>
     <table>
       <thead><tr><th>Mês</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th><th style="text-align:right">Saldo</th></tr></thead>
@@ -8270,20 +8291,23 @@ function finRenderDespesas(){
     <p style="font-size:12px;color:#888;margin:0 0 8px">Total de saídas: <strong style="color:#A32D2D">${fmt(total)}</strong></p>
     ${_finDespesas.length ? _finDespesas.map(d=>`
       <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f0f0f0">
-        <div style="flex:1">
-          <p style="font-size:13px;font-weight:600;margin:0">${d.descricao||'Saída'}</p>
-          <p style="font-size:11px;color:#888;margin:2px 0 0">${(d.data||'').split('-').reverse().join('/')} · ${d.local==='banco'?'🏦 Banco':'🔒 Cofre'}</p>
+        <div style="flex:1;cursor:pointer" onclick="abrirNovaDespesa('${d.id}')">
+          <p style="font-size:13px;font-weight:600;margin:0">${d.descricao||'Saída'} <span style="font-size:11px;color:#185FA5;font-weight:400">✏️</span></p>
+          <p style="font-size:11px;color:#888;margin:2px 0 0">${(d.data||'').split('-').reverse().join('/')} · ${finLocalNome(d.local)}</p>
         </div>
         <span style="font-size:14px;font-weight:700;color:#A32D2D">${fmt(d.valor)}</span>
         <button onclick="excluirDespesa('${d.id}')" style="border:none;background:none;color:#ccc;font-size:16px;cursor:pointer;padding:0 4px">×</button>
       </div>`).join('') : '<p style="font-size:12px;color:#aaa;padding:10px 0">Nenhuma saída registrada.</p>'}`;
 }
 
-window.abrirNovaDespesa = function(){
-  document.getElementById('desp-desc').value='';
-  document.getElementById('desp-valor').value='';
-  document.getElementById('desp-data').value=new Date().toISOString().slice(0,10);
-  document.getElementById('desp-local').value='cofre';
+window.abrirNovaDespesa = function(id){
+  const d = id ? _finDespesas.find(x=>x.id===id) : null;
+  document.getElementById('desp-desc').value = d?.descricao||'';
+  document.getElementById('desp-valor').value = d ? String(d.valor).replace('.',',') : '';
+  document.getElementById('desp-data').value = d?.data || new Date().toISOString().slice(0,10);
+  document.getElementById('desp-local').value = d?.local || 'cofre';
+  document.getElementById('modal-despesa').dataset.editId = id||'';
+  document.getElementById('modal-despesa-titulo').textContent = id ? '🧾 Editar Saída' : '🧾 Nova Saída';
   document.getElementById('modal-despesa').style.display='flex';
 };
 
@@ -8292,12 +8316,18 @@ window.salvarDespesa = async function(){
   const valor = parseFloat((document.getElementById('desp-valor').value||'').replace(',','.'));
   const data = document.getElementById('desp-data').value;
   const local = document.getElementById('desp-local').value||'cofre';
+  const editId = document.getElementById('modal-despesa').dataset.editId||'';
   if(!descricao){ toast('Informe a descrição.','warn'); return; }
   if(!valor || valor<=0){ toast('Informe um valor válido.','warn'); return; }
   try{
-    await addDoc(collection(db,'despesas'), {descricao, valor, data, local, criadoEm:serverTimestamp()});
+    if(editId){
+      await setDoc(doc(db,'despesas',editId), {descricao, valor, data, local}, {merge:true});
+      toast('✓ Saída atualizada!');
+    } else {
+      await addDoc(collection(db,'despesas'), {descricao, valor, data, local, criadoEm:serverTimestamp()});
+      toast('✓ Saída registrada!');
+    }
     document.getElementById('modal-despesa').style.display='none';
-    toast('✓ Saída registrada!');
     await carregarFinanceiro();
     renderFinanceiro();
   }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
@@ -8328,20 +8358,23 @@ function finRenderReceitas(){
     <p style="font-size:11px;color:#aaa;margin:0 0 10px">As mensalidades ficam na aba "Mensalidades" — aqui entram doações, ofertas avulsas, eventos etc.</p>
     ${_finReceitas.length ? _finReceitas.map(r=>`
       <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f0f0f0">
-        <div style="flex:1">
-          <p style="font-size:13px;font-weight:600;margin:0">${r.descricao||'Entrada'}</p>
-          <p style="font-size:11px;color:#888;margin:2px 0 0">${(r.data||'').split('-').reverse().join('/')} · ${r.local==='banco'?'🏦 Banco':'🔒 Cofre'}</p>
+        <div style="flex:1;cursor:pointer" onclick="abrirNovaReceita('${r.id}')">
+          <p style="font-size:13px;font-weight:600;margin:0">${r.descricao||'Entrada'} <span style="font-size:11px;color:#185FA5;font-weight:400">✏️</span></p>
+          <p style="font-size:11px;color:#888;margin:2px 0 0">${(r.data||'').split('-').reverse().join('/')} · ${finLocalNome(r.local)}</p>
         </div>
         <span style="font-size:14px;font-weight:700;color:#0A6E58">${fmt(r.valor)}</span>
         <button onclick="excluirReceita('${r.id}')" style="border:none;background:none;color:#ccc;font-size:16px;cursor:pointer;padding:0 4px">×</button>
       </div>`).join('') : '<p style="font-size:12px;color:#aaa;padding:10px 0">Nenhuma entrada avulsa registrada.</p>'}`;
 }
 
-window.abrirNovaReceita = function(){
-  document.getElementById('rec-desc').value='';
-  document.getElementById('rec-valor').value='';
-  document.getElementById('rec-data').value=new Date().toISOString().slice(0,10);
-  document.getElementById('rec-local').value='cofre';
+window.abrirNovaReceita = function(id){
+  const r = id ? _finReceitas.find(x=>x.id===id) : null;
+  document.getElementById('rec-desc').value = r?.descricao||'';
+  document.getElementById('rec-valor').value = r ? String(r.valor).replace('.',',') : '';
+  document.getElementById('rec-data').value = r?.data || new Date().toISOString().slice(0,10);
+  document.getElementById('rec-local').value = r?.local || 'cofre';
+  document.getElementById('modal-receita').dataset.editId = id||'';
+  document.getElementById('modal-receita-titulo').textContent = id ? '➕ Editar Entrada' : '➕ Nova Entrada';
   document.getElementById('modal-receita').style.display='flex';
 };
 
@@ -8350,12 +8383,18 @@ window.salvarReceita = async function(){
   const valor = parseFloat((document.getElementById('rec-valor').value||'').replace(',','.'));
   const data = document.getElementById('rec-data').value;
   const local = document.getElementById('rec-local').value||'cofre';
+  const editId = document.getElementById('modal-receita').dataset.editId||'';
   if(!descricao){ toast('Informe a descrição.','warn'); return; }
   if(!valor || valor<=0){ toast('Informe um valor válido.','warn'); return; }
   try{
-    await addDoc(collection(db,'receitas'), {descricao, valor, data, local, criadoEm:serverTimestamp()});
+    if(editId){
+      await setDoc(doc(db,'receitas',editId), {descricao, valor, data, local}, {merge:true});
+      toast('✓ Entrada atualizada!');
+    } else {
+      await addDoc(collection(db,'receitas'), {descricao, valor, data, local, criadoEm:serverTimestamp()});
+      toast('✓ Entrada registrada!');
+    }
     document.getElementById('modal-receita').style.display='none';
-    toast('✓ Entrada registrada!');
     await carregarFinanceiro();
     renderFinanceiro();
   }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
@@ -8371,6 +8410,42 @@ window.excluirReceita = async function(id){
     await carregarFinanceiro();
     renderFinanceiro();
   }catch(e){ toast('Erro ao excluir: '+e.message,'err'); }
+};
+
+// ===== AJUSTE/LANÇAMENTO DIRETO DE SALDO =====
+window.abrirAjusteSaldo = function(){
+  document.getElementById('ajs-conta').value = 'cofre';
+  document.getElementById('ajs-valor').value = '';
+  atualizarSaldoAtualAjuste();
+  document.getElementById('modal-ajuste-saldo').style.display='flex';
+};
+
+window.atualizarSaldoAtualAjuste = function(){
+  const conta = document.getElementById('ajs-conta').value;
+  const b = window._saldoPorContaAtual || {cofre:0,banco1:0,banco2:0};
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  document.getElementById('ajs-saldo-atual').textContent = `Saldo calculado hoje: ${fmt(b[conta]||0)}`;
+};
+
+window.salvarAjusteSaldo = async function(){
+  const conta = document.getElementById('ajs-conta').value;
+  const novoSaldo = parseFloat((document.getElementById('ajs-valor').value||'').replace(',','.'));
+  if(isNaN(novoSaldo)){ toast('Informe o saldo real dessa conta.','warn'); return; }
+  const atual = (window._saldoPorContaAtual||{})[conta] || 0;
+  const diff = novoSaldo - atual;
+  if(Math.abs(diff) < 0.005){ toast('Esse já é o saldo atual — nada para ajustar.','warn'); return; }
+  const hoje = new Date().toISOString().slice(0,10);
+  try{
+    if(diff > 0){
+      await addDoc(collection(db,'receitas'), {descricao:'Ajuste de saldo', valor:diff, data:hoje, local:conta, ajuste:true, criadoEm:serverTimestamp()});
+    } else {
+      await addDoc(collection(db,'despesas'), {descricao:'Ajuste de saldo', valor:Math.abs(diff), data:hoje, local:conta, ajuste:true, criadoEm:serverTimestamp()});
+    }
+    document.getElementById('modal-ajuste-saldo').style.display='none';
+    toast('✓ Saldo ajustado!');
+    await carregarFinanceiro();
+    renderFinanceiro();
+  }catch(e){ toast('Erro ao ajustar: '+e.message,'err'); }
 };
 
 window.abrirConfigFin = function(){
@@ -9721,7 +9796,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="modal-despesa" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-despesa')">
   <div class="modal-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <p style="font-size:16px;font-weight:700">🧾 Nova Saída</p>
+      <p id="modal-despesa-titulo" style="font-size:16px;font-weight:700">🧾 Nova Saída</p>
       <button onclick="fecharModal('modal-despesa')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Descrição</label>
@@ -9739,7 +9814,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Saiu de onde?</label>
     <select id="desp-local" style="margin-bottom:10px;width:100%;box-sizing:border-box">
       <option value="cofre">🔒 Cofre (dinheiro)</option>
-      <option value="banco">🏦 Banco</option>
+      <option value="banco1">🏦 Banco 1</option>
+      <option value="banco2">🏦 Banco 2</option>
     </select>
     <button style="padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-top:4px" onclick="salvarDespesa()">💾 Salvar saída</button>
   </div>
@@ -9748,7 +9824,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="modal-receita" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-receita')">
   <div class="modal-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <p style="font-size:16px;font-weight:700">➕ Nova Entrada</p>
+      <p id="modal-receita-titulo" style="font-size:16px;font-weight:700">➕ Nova Entrada</p>
       <button onclick="fecharModal('modal-receita')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Descrição</label>
@@ -9766,9 +9842,30 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Entrou onde?</label>
     <select id="rec-local" style="margin-bottom:10px;width:100%;box-sizing:border-box">
       <option value="cofre">🔒 Cofre (dinheiro)</option>
-      <option value="banco">🏦 Banco</option>
+      <option value="banco1">🏦 Banco 1</option>
+      <option value="banco2">🏦 Banco 2</option>
     </select>
     <button style="padding:12px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-top:4px" onclick="salvarReceita()">💾 Salvar entrada</button>
+  </div>
+</div>
+
+<div id="modal-ajuste-saldo" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-ajuste-saldo')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">✏️ Corrigir/Lançar Saldo</p>
+      <button onclick="fecharModal('modal-ajuste-saldo')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#666;line-height:1.5;margin:0 0 12px">Use isso quando o saldo real da conta (extrato do banco ou contagem do cofre) for diferente do que o app calculou. O sistema lança um ajuste automático para acertar.</p>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Conta</label>
+    <select id="ajs-conta" onchange="atualizarSaldoAtualAjuste()" style="margin-bottom:6px;width:100%;box-sizing:border-box">
+      <option value="cofre">🔒 Cofre (dinheiro)</option>
+      <option value="banco1">🏦 Banco 1</option>
+      <option value="banco2">🏦 Banco 2</option>
+    </select>
+    <p id="ajs-saldo-atual" style="font-size:11px;color:#888;margin:0 0 12px"></p>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Saldo real dessa conta agora (R$)</label>
+    <input type="text" id="ajs-valor" inputmode="decimal" placeholder="0,00" style="margin-bottom:14px;width:100%;box-sizing:border-box">
+    <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarAjusteSaldo()">💾 Ajustar saldo</button>
   </div>
 </div>
 
@@ -9784,7 +9881,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Onde entram as mensalidades quando marcadas como pagas?</label>
     <select id="fin-local-cfg" style="margin-bottom:14px;width:100%;box-sizing:border-box">
       <option value="cofre">🔒 Cofre (dinheiro)</option>
-      <option value="banco">🏦 Banco</option>
+      <option value="banco1">🏦 Banco 1</option>
+      <option value="banco2">🏦 Banco 2</option>
     </select>
     <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarConfigFin()">💾 Salvar configurações</button>
   </div>
