@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.15.1';
+const APP_VERSAO = '19.15.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -8251,8 +8251,14 @@ window.imprimirBalancete = function(){
     <style>
       @page{ size:portrait; margin:12mm }
       body{font-family:Arial,sans-serif;color:#222;padding:0}
-      h1{font-size:18px;color:#085041;margin:0 0 2px}
-      h2{font-size:12px;color:#666;font-weight:400;margin:0 0 18px}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:18px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      h2{font-size:12px;color:#666;font-weight:400;margin:0 0 18px;text-align:center}
       table{width:100%;border-collapse:collapse;font-size:13px}
       th{text-align:left;padding:6px 4px;border-bottom:2px solid #333}
       tfoot td{border-top:2px solid #333;font-weight:700;padding:8px 4px}
@@ -8261,9 +8267,17 @@ window.imprimirBalancete = function(){
       .card p{margin:0}
       .lbl{font-size:10px;color:#666}
       .val{font-size:16px;font-weight:700;margin-top:2px}
+      .rodape{margin-top:24px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
     </style></head><body>
-    <h1>💰 Balancete Financeiro — ${b.anoRef}</h1>
-    <h2>Ministério Extraordinário da Sagrada Comunhão Eucarística · Basílica Santuário de Nossa Senhora de Nazaré</h2>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">💰 Balancete Financeiro — ${b.anoRef}</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
     <div class="cards">
       <div class="card"><p class="lbl">Saldo do ano</p><p class="val">${fmt(b.saldoAno)}</p></div>
       <div class="card"><p class="lbl">🔒 Cofre</p><p class="val">${fmt(b.saldoContaAno.cofre)}</p></div>
@@ -8275,6 +8289,7 @@ window.imprimirBalancete = function(){
       <tbody>${linhasHtml}</tbody>
       <tfoot><tr><td>Total ${b.anoRef}</td><td style="text-align:right">${fmt(b.entradasAno)}</td><td style="text-align:right">${fmt(b.saidasAno)}</td><td style="text-align:right">${fmt(b.saldoAno)}</td></tr></tfoot>
     </table>
+    <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')} · Prestação de contas do Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
     <script>window.onload=()=>window.print();<\/script>
     </body></html>`);
   w.document.close();
