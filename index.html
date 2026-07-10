@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.12.0';
+const APP_VERSAO = '19.13.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -332,12 +332,56 @@ const PAPEIS = {
   secretaria:  { nome:'Secretária',  cor:'#BA7517', secoes:['inicio','secretaria'] }
 };
 
-// Hash simples (não é criptografia forte, mas evita senha em texto puro)
-function hashSenha(txt){
+// Hash antigo (DJB2) — mantido só para CONFERIR contas criadas antes da v19.13, nunca mais usado para criar senha nova
+function hashSenhaFraco(txt){
   let h = 5381;
   for(let i=0;i<txt.length;i++){ h = ((h<<5)+h) + txt.charCodeAt(i); h = h & 0xffffffff; }
   return 'h'+(h>>>0).toString(16);
 }
+
+// Salt aleatório por usuário (16 bytes)
+function gerarSalt(){
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// Hash forte: SHA-256(salt+senha) via Web Crypto — usado para TODA senha nova/trocada
+async function hashSenhaForte(txt, salt){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt+txt));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// Gera o par salt+hash para gravar uma senha nova (sempre forte)
+async function novoRegistroSenha(senhaTxt){
+  const salt = gerarSalt();
+  return { salt, senhaHash: await hashSenhaForte(senhaTxt, salt) };
+}
+
+// Confere a senha digitada contra o registro do usuário — aceita os dois formatos (migração transparente)
+async function conferirSenha(user, senhaTxt){
+  if(user.salt) return (await hashSenhaForte(senhaTxt, user.salt)) === user.senhaHash;
+  return hashSenhaFraco(senhaTxt) === user.senhaHash; // conta antiga, ainda não migrada
+}
+
+// ===== BLINDAGEM: bloqueio de login após tentativas erradas (força bruta no próprio aparelho) =====
+const LOGIN_MAX_TENTATIVAS = 5;
+const LOGIN_BLOQUEIO_MIN = 5;
+function loginLerBloqueio(){
+  try{ return JSON.parse(localStorage.getItem('sogi_login_tent')||'{"n":0,"ate":0}'); }catch(e){ return {n:0,ate:0}; }
+}
+function loginSalvarBloqueio(obj){ try{ localStorage.setItem('sogi_login_tent', JSON.stringify(obj)); }catch(e){} }
+function loginBloqueadoAte(){
+  const st = loginLerBloqueio();
+  return st.ate && st.ate > Date.now() ? st.ate : 0;
+}
+function loginRegistrarFalha(){
+  const st = loginLerBloqueio();
+  st.n = (st.n||0) + 1;
+  if(st.n >= LOGIN_MAX_TENTATIVAS){ st.ate = Date.now() + LOGIN_BLOQUEIO_MIN*60000; st.n = 0; }
+  loginSalvarBloqueio(st);
+}
+function loginLimparFalhas(){ loginSalvarBloqueio({n:0,ate:0}); }
 
 async function carregarConfigAcesso(){
   try{
@@ -349,12 +393,12 @@ async function carregarConfigAcesso(){
       _acessoUsuarios = [{ usuario:d.data().usuario, senhaHash:d.data().senhaHash, papel:'coordenador', nome:'Coordenação', trocarSenha:!!d.data().trocarSenha }];
       await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
     } else {
-      // Primeiro acesso: cria admin/admin coordenador
-      _acessoUsuarios = [{ usuario:'admin', senhaHash:hashSenha('admin'), papel:'coordenador', nome:'Coordenação', trocarSenha:true }];
+      // Primeiro acesso: cria admin/admin coordenador (já com hash forte)
+      _acessoUsuarios = [{ usuario:'admin', ...(await novoRegistroSenha('admin')), papel:'coordenador', nome:'Coordenação', trocarSenha:true }];
       await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
     }
   }catch(e){
-    _acessoUsuarios = [{ usuario:'admin', senhaHash:hashSenha('admin'), papel:'coordenador', nome:'Coordenação', trocarSenha:true }];
+    _acessoUsuarios = [{ usuario:'admin', ...(await novoRegistroSenha('admin')), papel:'coordenador', nome:'Coordenação', trocarSenha:true }];
   }
 }
 
@@ -404,17 +448,39 @@ function mostrarLogin(){
     dica.innerHTML = '⚠️ Primeiro acesso: use <strong>admin</strong> / <strong>admin</strong><br>e troque a senha em Mais → Configurações.';
   }
   document.getElementById('tela-login').style.display='flex';
+  const bloqueadoAte = loginBloqueadoAte();
+  const erro = document.getElementById('login-erro');
+  if(bloqueadoAte && erro){
+    const min = Math.ceil((bloqueadoAte-Date.now())/60000);
+    erro.textContent = `🔒 Muitas tentativas erradas. Tente novamente em ${min} min.`;
+    erro.style.display='block';
+  }
   setTimeout(()=>{ const u=document.getElementById('login-user'); if(u) u.focus(); },200);
 }
 
-window.fazerLogin = function(){
+window.fazerLogin = async function(){
+  const bloqueadoAte = loginBloqueadoAte();
+  const erro = document.getElementById('login-erro');
+  if(bloqueadoAte){
+    const min = Math.ceil((bloqueadoAte-Date.now())/60000);
+    if(erro){ erro.textContent = `🔒 Muitas tentativas erradas. Tente novamente em ${min} min.`; erro.style.display='block'; }
+    return;
+  }
   const u = (document.getElementById('login-user').value||'').trim();
   const p = document.getElementById('login-pass').value||'';
-  const erro = document.getElementById('login-erro');
-  const encontrado = _acessoUsuarios.find(x =>
-    x.usuario.toLowerCase() === u.toLowerCase() && x.senhaHash === hashSenha(p)
-  );
-  if(encontrado){
+  const candidato = _acessoUsuarios.find(x => x.usuario.toLowerCase() === u.toLowerCase());
+  const ok = candidato ? await conferirSenha(candidato, p) : false;
+  if(ok){
+    loginLimparFalhas();
+    // Migração silenciosa: se a conta ainda usa o hash antigo, atualiza pro forte agora que temos a senha em mãos
+    if(!candidato.salt){
+      try{
+        const idx = _acessoUsuarios.findIndex(x=>x.usuario===candidato.usuario);
+        _acessoUsuarios[idx] = { ..._acessoUsuarios[idx], ...(await novoRegistroSenha(p)) };
+        await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
+      }catch(e){}
+    }
+    const encontrado = candidato;
     _usuarioLogado = { usuario:encontrado.usuario, papel:encontrado.papel||'coordenador', nome:encontrado.nome||encontrado.usuario };
     // Lembra a sessão neste aparelho (até clicar em Sair)
     try{ localStorage.setItem('sogi_sessao', JSON.stringify(_usuarioLogado)); }catch(e){}
@@ -444,7 +510,12 @@ window.fazerLogin = function(){
       setTimeout(()=>toast('🔒 Recomendado: troque a senha padrão em "Mais → Configurações"','warn'), 1500);
     }
   } else {
-    if(erro) erro.style.display='block';
+    loginRegistrarFalha();
+    const restantes = LOGIN_MAX_TENTATIVAS - (loginLerBloqueio().n||0);
+    if(erro){
+      erro.textContent = loginBloqueadoAte() ? `🔒 Muitas tentativas erradas. Tente novamente em ${LOGIN_BLOQUEIO_MIN} min.` : 'Usuário ou senha incorretos.';
+      erro.style.display='block';
+    }
     document.getElementById('login-pass').value='';
   }
 };
@@ -666,11 +737,11 @@ window.salvarAcesso = async function(){
   if(!u){ toast('Informe o usuário.','warn'); return; }
   const meuIdx = _acessoUsuarios.findIndex(x=>x.usuario.toLowerCase()===(_usuarioLogado?.usuario||'').toLowerCase());
   if(meuIdx<0){ toast('Usuário logado não encontrado.','err'); return; }
-  if(hashSenha(atual) !== _acessoUsuarios[meuIdx].senhaHash){ toast('Senha atual incorreta.','err'); return; }
+  if(!(await conferirSenha(_acessoUsuarios[meuIdx], atual))){ toast('Senha atual incorreta.','err'); return; }
   if(p1.length < 4){ toast('A nova senha precisa ter ao menos 4 caracteres.','warn'); return; }
   if(p1 !== p2){ toast('A confirmação de senha não confere.','warn'); return; }
   try{
-    _acessoUsuarios[meuIdx] = { ..._acessoUsuarios[meuIdx], usuario:u, senhaHash:hashSenha(p1), trocarSenha:false };
+    _acessoUsuarios[meuIdx] = { ..._acessoUsuarios[meuIdx], usuario:u, ...(await novoRegistroSenha(p1)), trocarSenha:false };
     _usuarioLogado.usuario = u;
     try{ localStorage.setItem('sogi_sessao', JSON.stringify(_usuarioLogado)); }catch(e){}
     await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
@@ -714,7 +785,7 @@ window.salvarNovoUsuario = async function(){
   if(senha.length<4){ toast('A senha precisa ter ao menos 4 caracteres.','warn'); return; }
   if(_acessoUsuarios.some(x=>x.usuario.toLowerCase()===usuario.toLowerCase())){ toast('Já existe um usuário com esse nome.','warn'); return; }
   try{
-    _acessoUsuarios.push({ usuario, senhaHash:hashSenha(senha), papel, nome:PAPEIS[papel].nome });
+    _acessoUsuarios.push({ usuario, ...(await novoRegistroSenha(senha)), papel, nome:PAPEIS[papel].nome });
     await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
     document.getElementById('modal-novo-usuario').style.display='none';
     toast('✓ Acesso criado para '+usuario+' ('+PAPEIS[papel].nome+')');
@@ -8526,25 +8597,31 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 </div>
 
 <!-- TELA DE LOGIN -->
-<div id="tela-login" style="display:none;position:fixed;inset:0;z-index:9000;background:linear-gradient(160deg,#085041 0%,#0a3d33 100%);flex-direction:column;align-items:center;justify-content:center;padding:24px">
-  <div style="display:flex;gap:14px;align-items:center;margin-bottom:18px">
-    <img id="logo-basilica-login" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.4)">
-    <img id="logo-mesce-login" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.4)">
+<div id="tela-login" style="display:none;position:fixed;inset:0;z-index:9000;background:radial-gradient(circle at 30% 20%,#0d6650 0%,#085041 45%,#062e26 100%);flex-direction:column;align-items:center;justify-content:center;padding:24px">
+  <div style="display:flex;gap:14px;align-items:center;margin-bottom:16px">
+    <img id="logo-basilica-login" alt="" style="width:58px;height:58px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.35);box-shadow:0 4px 14px rgba(0,0,0,.25)">
+    <img id="logo-mesce-login" alt="" style="width:58px;height:58px;border-radius:50%;object-fit:cover;background:white;border:2px solid rgba(255,255,255,.35);box-shadow:0 4px 14px rgba(0,0,0,.25)">
   </div>
-  <p style="color:white;font-size:20px;font-weight:700;text-align:center;margin:0">Coordenação MESCE</p>
-  <p style="color:rgba(255,255,255,.6);font-size:12px;text-align:center;margin:4px 0 24px">Basílica Santuário de Nossa Senhora de Nazaré</p>
+  <p style="color:white;font-size:21px;font-weight:800;text-align:center;margin:0;letter-spacing:.2px">Coordenação MESCE</p>
+  <p style="color:rgba(255,255,255,.55);font-size:12px;text-align:center;margin:5px 0 26px;letter-spacing:.3px">Basílica Santuário de Nossa Senhora de Nazaré</p>
 
-  <div style="background:white;border-radius:18px;padding:24px 20px;width:100%;max-width:340px;box-shadow:0 8px 30px rgba(0,0,0,.25)">
-    <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0 0 16px;text-align:center">🔒 Acesso à Coordenação</p>
-    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Usuário</label>
-    <input type="text" id="login-user" autocomplete="username" placeholder="Seu usuário" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
-    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha</label>
-    <input type="password" id="login-pass" autocomplete="current-password" placeholder="Sua senha" onkeydown="if(event.key==='Enter')fazerLogin()" style="width:100%;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:8px;box-sizing:border-box">
-    <p id="login-erro" style="font-size:12px;color:#A32D2D;margin:0 0 10px;display:none">Usuário ou senha incorretos.</p>
-    <button onclick="fazerLogin()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px">Entrar</button>
-    <p id="login-dica" style="font-size:10px;color:#aaa;text-align:center;margin:12px 0 0;line-height:1.5"></p>
+  <div style="background:white;border-radius:20px;padding:26px 22px;width:100%;max-width:340px;box-shadow:0 16px 40px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:18px">
+      <span style="width:30px;height:30px;border-radius:50%;background:#e1f5ee;display:flex;align-items:center;justify-content:center;font-size:15px">🔒</span>
+      <p style="font-size:14px;font-weight:700;color:#1a1a1a;margin:0">Acesso à Coordenação</p>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:700;display:block;margin-bottom:4px;letter-spacing:.3px">USUÁRIO</label>
+    <input type="text" id="login-user" autocomplete="username" placeholder="Seu usuário" style="width:100%;padding:12px;border:1.5px solid #e5e5e5;border-radius:10px;font-size:14px;margin-bottom:14px;box-sizing:border-box;transition:border-color .15s" onfocus="this.style.borderColor='#0A6E58'" onblur="this.style.borderColor='#e5e5e5'">
+    <label style="font-size:11px;color:#888;font-weight:700;display:block;margin-bottom:4px;letter-spacing:.3px">SENHA</label>
+    <input type="password" id="login-pass" autocomplete="current-password" placeholder="Sua senha" onkeydown="if(event.key==='Enter')fazerLogin()" style="width:100%;padding:12px;border:1.5px solid #e5e5e5;border-radius:10px;font-size:14px;margin-bottom:10px;box-sizing:border-box;transition:border-color .15s" onfocus="this.style.borderColor='#0A6E58'" onblur="this.style.borderColor='#e5e5e5'">
+    <p id="login-erro" style="font-size:12px;color:#A32D2D;margin:0 0 10px;display:none;font-weight:600">Usuário ou senha incorretos.</p>
+    <button onclick="fazerLogin()" style="width:100%;padding:14px;border:none;border-radius:11px;background:linear-gradient(135deg,#0A6E58,#085041);color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;box-shadow:0 4px 12px rgba(8,80,65,.35)">Entrar</button>
+    <p id="login-dica" style="font-size:10px;color:#aaa;text-align:center;margin:14px 0 0;line-height:1.5"></p>
   </div>
-  <p style="color:rgba(255,255,255,.4);font-size:10px;margin-top:20px">Sistema S.O.G.I. · Acesso restrito</p>
+  <div style="display:flex;align-items:center;gap:5px;margin-top:22px;opacity:.55">
+    <span style="font-size:11px">🔐</span>
+    <p style="color:white;font-size:10px;margin:0">Sistema S.O.G.I. · Acesso restrito e protegido</p>
+  </div>
 </div>
 <div id="app">
 <div class="header">
