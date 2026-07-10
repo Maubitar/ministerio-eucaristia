@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.13.0';
+const APP_VERSAO = '19.14.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7855,7 +7855,8 @@ window.excluirEvento = async function(){
 // ====================== MÓDULO FINANCEIRO (mensalidades, despesas, saldo) ======================
 let _finConfig = { valorMensalidade: 15 };
 let _finPagosMes = {};       // {ministroId:{pago:true,data}} do mês selecionado
-let _finDespesas = [];       // todas as despesas
+let _finDespesas = [];       // todas as saídas
+let _finReceitas = [];       // todas as entradas avulsas (fora da mensalidade)
 let _finMesSel = null;       // mesKey selecionado (ex: 'jun2026')
 
 const FIN_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -7873,13 +7874,18 @@ function finMesKeyAtual(){
 async function carregarFinanceiro(){
   try{
     const cfg = await getDoc(doc(db,'financeiro','config'));
-    if(cfg.exists()) _finConfig = {valorMensalidade:15, ...cfg.data()};
+    if(cfg.exists()) _finConfig = {valorMensalidade:15, localMensalidade:'cofre', ...cfg.data()};
   }catch(e){}
-  // despesas
+  // saídas
   try{
     const snap = await getDocs(collection(db,'despesas'));
-    _finDespesas = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+    _finDespesas = snap.docs.map(d=>({id:d.id, local:'cofre', ...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   }catch(e){ _finDespesas=[]; }
+  // entradas avulsas
+  try{
+    const snapR = await getDocs(collection(db,'receitas'));
+    _finReceitas = snapR.docs.map(d=>({id:d.id, local:'cofre', ...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+  }catch(e){ _finReceitas=[]; }
 }
 
 async function carregarPagamentosMes(mesKey){
@@ -7903,20 +7909,35 @@ window.renderFinanceiro = async function(){
   const arrecadadoMes = pagosCount * valor;
   const pendentesCount = ativos.length - pagosCount;
 
-  // Saldo geral: soma de TODOS os pagamentos de todos os meses - despesas
-  // (precisa varrer todos os meses de pagamento)
-  let totalArrecadadoGeral = 0;
+  // Saldo geral por local: mensalidades (local configurável) + receitas avulsas - despesas, cada uma no seu local
+  const localMensalidade = _finConfig.localMensalidade || 'cofre';
+  let totalArrecadadoGeral = 0, mensalidadesBanco = 0, mensalidadesCofre = 0;
   try{
     const snapPag = await getDocs(collection(db,'financeiro'));
     snapPag.docs.forEach(d=>{
       if(d.id.startsWith('pag_')){
         const pagos = d.data().pagos||{};
-        totalArrecadadoGeral += Object.values(pagos).filter(p=>p.pago).length * valor;
+        const qtd = Object.values(pagos).filter(p=>p.pago).length;
+        const valorMes = qtd * valor;
+        totalArrecadadoGeral += valorMes;
+        if(localMensalidade==='banco') mensalidadesBanco += valorMes; else mensalidadesCofre += valorMes;
       }
     });
   }catch(e){}
+
+  const receitasBanco = _finReceitas.filter(r=>r.local==='banco').reduce((s,r)=>s+(Number(r.valor)||0),0);
+  const receitasCofre = _finReceitas.filter(r=>r.local!=='banco').reduce((s,r)=>s+(Number(r.valor)||0),0);
+  const totalReceitasAvulsas = receitasBanco + receitasCofre;
   const totalDespesas = _finDespesas.reduce((s,d)=>s+(Number(d.valor)||0),0);
-  const saldo = totalArrecadadoGeral - totalDespesas;
+  const despesasBanco = _finDespesas.filter(d=>d.local==='banco').reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const despesasCofre = _finDespesas.filter(d=>d.local!=='banco').reduce((s,d)=>s+(Number(d.valor)||0),0);
+
+  const entradasBanco = mensalidadesBanco + receitasBanco;
+  const entradasCofre = mensalidadesCofre + receitasCofre;
+  const saldoBanco = entradasBanco - despesasBanco;
+  const saldoCofre = entradasCofre - despesasCofre;
+  const saldo = saldoBanco + saldoCofre;
+  const totalEntradasGeral = totalArrecadadoGeral + totalReceitasAvulsas;
 
   // Opções de mês (12 meses do ano atual + permite navegar)
   const anoAtual = new Date().getFullYear();
@@ -7932,19 +7953,31 @@ window.renderFinanceiro = async function(){
 
   cont.innerHTML = `
     <!-- SALDO GERAL -->
-    <div style="background:linear-gradient(135deg,${saldo>=0?'#085041,#0a6e57':'#A32D2D,#c0392b'});border-radius:16px;padding:18px;margin-bottom:14px;color:white">
-      <p style="font-size:12px;opacity:.85;margin:0">💰 Saldo em caixa</p>
+    <div style="background:linear-gradient(135deg,${saldo>=0?'#085041,#0a6e57':'#A32D2D,#c0392b'});border-radius:16px;padding:18px;margin-bottom:10px;color:white">
+      <p style="font-size:12px;opacity:.85;margin:0">💰 Saldo total</p>
       <p style="font-size:30px;font-weight:700;margin:4px 0 0">${fmt(saldo)}</p>
       <div style="display:flex;gap:16px;margin-top:10px;font-size:11px;opacity:.9">
-        <span>↑ Arrecadado: ${fmt(totalArrecadadoGeral)}</span>
-        <span>↓ Despesas: ${fmt(totalDespesas)}</span>
+        <span>↑ Entradas: ${fmt(totalEntradasGeral)}</span>
+        <span>↓ Saídas: ${fmt(totalDespesas)}</span>
+      </div>
+    </div>
+
+    <!-- SALDO POR LOCAL -->
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div style="flex:1;background:#e6f1fb;border-radius:12px;padding:12px">
+        <p style="font-size:11px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Saldo Banco</p>
+        <p style="font-size:18px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoBanco)}</p>
+      </div>
+      <div style="flex:1;background:#faeeda;border-radius:12px;padding:12px">
+        <p style="font-size:11px;color:#BA7517;font-weight:700;margin:0 0 2px">🔒 Saldo Cofre</p>
+        <p style="font-size:18px;font-weight:700;margin:0;color:#BA7517">${fmt(saldoCofre)}</p>
       </div>
     </div>
 
     <!-- SELETOR DE MÊS -->
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
       <select id="fin-mes" onchange="finTrocarMes(this.value)" style="flex:1;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;font-weight:600;color:#085041">${mesesOpts}</select>
-      <button onclick="abrirConfigFin()" style="padding:10px 12px;border:1.5px solid #e0e0e0;border-radius:9px;background:white;font-size:13px;cursor:pointer" title="Configurar valor">⚙️</button>
+      <button onclick="abrirConfigFin()" style="padding:10px 12px;border:1.5px solid #e0e0e0;border-radius:9px;background:white;font-size:13px;cursor:pointer" title="Configurar valor e local padrão">⚙️</button>
     </div>
 
     <!-- RESUMO DO MÊS -->
@@ -7964,10 +7997,11 @@ window.renderFinanceiro = async function(){
     </div>
 
     <!-- ABAS -->
-    <div style="display:flex;gap:6px;margin-bottom:12px">
-      <button id="fin-tab-pag" onclick="finTab('pag')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:600;cursor:pointer">💵 Mensalidades</button>
-      <button id="fin-tab-bal" onclick="finTab('bal')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#eee;color:#888;font-size:13px;font-weight:600;cursor:pointer">📊 Balancete</button>
-      <button id="fin-tab-desp" onclick="finTab('desp')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#eee;color:#888;font-size:13px;font-weight:600;cursor:pointer">🧾 Despesas</button>
+    <div style="display:flex;gap:5px;margin-bottom:12px;flex-wrap:wrap">
+      <button id="fin-tab-pag" onclick="finTab('pag')" style="flex:1;min-width:80px;padding:9px;border:none;border-radius:8px;background:#085041;color:white;font-size:12px;font-weight:600;cursor:pointer">💵 Mensalidades</button>
+      <button id="fin-tab-rec" onclick="finTab('rec')" style="flex:1;min-width:80px;padding:9px;border:none;border-radius:8px;background:#eee;color:#888;font-size:12px;font-weight:600;cursor:pointer">➕ Entradas</button>
+      <button id="fin-tab-desp" onclick="finTab('desp')" style="flex:1;min-width:80px;padding:9px;border:none;border-radius:8px;background:#eee;color:#888;font-size:12px;font-weight:600;cursor:pointer">🧾 Saídas</button>
+      <button id="fin-tab-bal" onclick="finTab('bal')" style="flex:1;min-width:80px;padding:9px;border:none;border-radius:8px;background:#eee;color:#888;font-size:12px;font-weight:600;cursor:pointer">📊 Balancete</button>
     </div>
 
     <div id="fin-conteudo"></div>`;
@@ -7983,11 +8017,13 @@ window.finTrocarMes = async function(mk){
 
 window.finTab = function(qual){
   window._finTabAtual = qual;
-  const tp=document.getElementById('fin-tab-pag'), td=document.getElementById('fin-tab-desp'), tb=document.getElementById('fin-tab-bal');
-  [tp,tb,td].forEach(b=>{ if(b){ b.style.background='#eee'; b.style.color='#888'; } });
-  const ativo = qual==='pag'?tp:(qual==='bal'?tb:td);
+  const tp=document.getElementById('fin-tab-pag'), td=document.getElementById('fin-tab-desp'), tb=document.getElementById('fin-tab-bal'), tr=document.getElementById('fin-tab-rec');
+  [tp,tr,tb,td].forEach(b=>{ if(b){ b.style.background='#eee'; b.style.color='#888'; } });
+  const mapa = {pag:tp, rec:tr, bal:tb, desp:td};
+  const ativo = mapa[qual] || tp;
   if(ativo){ ativo.style.background='#085041'; ativo.style.color='white'; }
   if(qual==='pag') finRenderPagamentos();
+  else if(qual==='rec') finRenderReceitas();
   else if(qual==='bal') finRenderBalancete();
   else finRenderDespesas();
 };
@@ -8050,6 +8086,7 @@ async function finRenderBalancete(){
   if(!cont) return;
   cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Calculando balancete...</p>';
   const valor = Number(_finConfig.valorMensalidade)||15;
+  const localMensalidade = _finConfig.localMensalidade || 'cofre';
   const anoRef = parseInt((_finMesSel.match(/(\d{4})$/)||[])[1]) || new Date().getFullYear();
   const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
 
@@ -8064,66 +8101,163 @@ async function finRenderBalancete(){
     }
   });
 
-  const despesasPorMes = {};
-  _finDespesas.forEach(d=>{
-    const ano = (d.data||'').slice(0,4);
-    const mesNum = parseInt((d.data||'').slice(5,7));
-    if(String(ano)===String(anoRef) && mesNum>=1 && mesNum<=12){
-      const mk = FIN_MESES[mesNum-1]+anoRef;
-      despesasPorMes[mk] = (despesasPorMes[mk]||0) + (Number(d.valor)||0);
-    }
-  });
+  function agruparPorMes(lista){
+    const porMes = {};
+    lista.forEach(item=>{
+      const ano = (item.data||'').slice(0,4);
+      const mesNum = parseInt((item.data||'').slice(5,7));
+      if(String(ano)===String(anoRef) && mesNum>=1 && mesNum<=12){
+        const mk = FIN_MESES[mesNum-1]+anoRef;
+        if(!porMes[mk]) porMes[mk] = {banco:0, cofre:0};
+        porMes[mk][item.local==='banco'?'banco':'cofre'] += (Number(item.valor)||0);
+      }
+    });
+    return porMes;
+  }
+  const despesasPorMes = agruparPorMes(_finDespesas);
+  const receitasPorMes = agruparPorMes(_finReceitas);
 
-  let arrecadadoAno=0, despesaAno=0;
+  let entradasAno=0, saidasAno=0, entradasBancoAno=0, entradasCofreAno=0, saidasBancoAno=0, saidasCofreAno=0;
   const linhas = FIN_MESES.map((m,i)=>{
     const mk = m+anoRef;
     const pagos = pagosPorMes[mk]||0;
-    const arrecadado = pagos*valor;
-    const despesa = despesasPorMes[mk]||0;
-    arrecadadoAno += arrecadado; despesaAno += despesa;
-    return { mk, nome:FIN_MESES_NOME[m], pagos, arrecadado, despesa, saldoMes: arrecadado-despesa };
+    const valorMensalidades = pagos*valor;
+    const rec = receitasPorMes[mk]||{banco:0,cofre:0};
+    const desp = despesasPorMes[mk]||{banco:0,cofre:0};
+    const entradasBanco = rec.banco + (localMensalidade==='banco'?valorMensalidades:0);
+    const entradasCofre = rec.cofre + (localMensalidade==='banco'?0:valorMensalidades);
+    const entradas = entradasBanco + entradasCofre;
+    const saidas = desp.banco + desp.cofre;
+    entradasAno += entradas; saidasAno += saidas;
+    entradasBancoAno += entradasBanco; entradasCofreAno += entradasCofre;
+    saidasBancoAno += desp.banco; saidasCofreAno += desp.cofre;
+    return { mk, nome:FIN_MESES_NOME[m], pagos, entradas, saidas, saldoMes: entradas-saidas, entradasBanco, entradasCofre, saidasBanco:desp.banco, saidasCofre:desp.cofre };
   });
-  const saldoAno = arrecadadoAno - despesaAno;
-  const mesSelInfo = linhas.find(l=>l.mk===_finMesSel) || {arrecadado:0,despesa:0,saldoMes:0};
+  const saldoAno = entradasAno - saidasAno;
+  const saldoBancoAno = entradasBancoAno - saidasBancoAno;
+  const saldoCofreAno = entradasCofreAno - saidasCofreAno;
+  const mesSelInfo = linhas.find(l=>l.mk===_finMesSel) || {entradas:0,saidas:0,saldoMes:0};
+
+  // guarda pra usar em imprimir/compartilhar sem recalcular
+  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoBancoAno, saldoCofreAno, mesSel:_finMesSel, mesSelInfo };
 
   cont.innerHTML = `
-    <div style="display:flex;gap:8px;margin-bottom:12px">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
       <div style="flex:1;background:#e1f5ee;border-radius:10px;padding:12px;text-align:center">
         <p style="font-size:10px;color:#666;margin:0 0 2px">Balancete — ${finMesKeyLegivel(_finMesSel)}</p>
         <p style="font-size:17px;font-weight:700;margin:0;color:#085041">${fmt(mesSelInfo.saldoMes)}</p>
-        <p style="font-size:10px;color:#888;margin:4px 0 0">↑${fmt(mesSelInfo.arrecadado)} · ↓${fmt(mesSelInfo.despesa)}</p>
+        <p style="font-size:10px;color:#888;margin:4px 0 0">↑${fmt(mesSelInfo.entradas)} · ↓${fmt(mesSelInfo.saidas)}</p>
       </div>
       <div style="flex:1;background:#e6f1fb;border-radius:10px;padding:12px;text-align:center">
         <p style="font-size:10px;color:#666;margin:0 0 2px">Balancete de ${anoRef}</p>
         <p style="font-size:17px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoAno)}</p>
-        <p style="font-size:10px;color:#888;margin:4px 0 0">↑${fmt(arrecadadoAno)} · ↓${fmt(despesaAno)}</p>
+        <p style="font-size:10px;color:#888;margin:4px 0 0">↑${fmt(entradasAno)} · ↓${fmt(saidasAno)}</p>
       </div>
     </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div style="flex:1;background:#f5f9fb;border:1.5px solid #e6f1fb;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:10px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Banco em ${anoRef}</p>
+        <p style="font-size:14px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoBancoAno)}</p>
+      </div>
+      <div style="flex:1;background:#fdf8f0;border:1.5px solid #faeeda;border-radius:10px;padding:10px;text-align:center">
+        <p style="font-size:10px;color:#BA7517;font-weight:700;margin:0 0 2px">🔒 Cofre em ${anoRef}</p>
+        <p style="font-size:14px;font-weight:700;margin:0;color:#BA7517">${fmt(saldoCofreAno)}</p>
+      </div>
+    </div>
+
     <p style="font-size:12px;font-weight:700;color:#333;margin-bottom:8px">Mês a mês — ${anoRef}</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:6px 4px">Mês</th>
-        <th style="text-align:center;padding:6px 4px">Pagaram</th>
-        <th style="text-align:right;padding:6px 4px;color:#1D9E75">Arrecadado</th>
-        <th style="text-align:right;padding:6px 4px;color:#A32D2D">Despesas</th>
+        <th style="text-align:right;padding:6px 4px;color:#1D9E75">Entradas</th>
+        <th style="text-align:right;padding:6px 4px;color:#A32D2D">Saídas</th>
         <th style="text-align:right;padding:6px 4px">Saldo</th>
       </tr></thead>
       <tbody>${linhas.map(l=>`<tr style="border-bottom:1px solid #eee;${l.mk===_finMesSel?'background:#fafdfb':''}">
         <td style="padding:6px 4px;font-weight:${l.mk===_finMesSel?'700':'400'}">${l.nome}</td>
-        <td style="text-align:center;padding:6px 4px">${l.pagos}</td>
-        <td style="text-align:right;padding:6px 4px;color:#1D9E75">${fmt(l.arrecadado)}</td>
-        <td style="text-align:right;padding:6px 4px;color:#A32D2D">${fmt(l.despesa)}</td>
+        <td style="text-align:right;padding:6px 4px;color:#1D9E75">${fmt(l.entradas)}</td>
+        <td style="text-align:right;padding:6px 4px;color:#A32D2D">${fmt(l.saidas)}</td>
         <td style="text-align:right;padding:6px 4px;font-weight:600">${fmt(l.saldoMes)}</td>
       </tr>`).join('')}</tbody>
       <tfoot><tr style="border-top:2px solid #333">
         <td style="padding:8px 4px;font-weight:700">Total ${anoRef}</td>
-        <td></td>
-        <td style="text-align:right;padding:8px 4px;font-weight:700;color:#1D9E75">${fmt(arrecadadoAno)}</td>
-        <td style="text-align:right;padding:8px 4px;font-weight:700;color:#A32D2D">${fmt(despesaAno)}</td>
+        <td style="text-align:right;padding:8px 4px;font-weight:700;color:#1D9E75">${fmt(entradasAno)}</td>
+        <td style="text-align:right;padding:8px 4px;font-weight:700;color:#A32D2D">${fmt(saidasAno)}</td>
         <td style="text-align:right;padding:8px 4px;font-weight:700">${fmt(saldoAno)}</td>
       </tr></tfoot>
-    </table>`;
+    </table>
+    <div style="display:flex;gap:6px;margin-top:14px">
+      <button onclick="imprimirBalancete()" style="flex:1;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir</button>
+      <button onclick="compartilharBalancete()" style="flex:1;padding:11px;border:1.5px solid #0A6E58;border-radius:8px;background:white;color:#0A6E58;font-size:13px;font-weight:700;cursor:pointer">📤 Compartilhar</button>
+    </div>`;
 }
+
+window.compartilharBalancete = async function(){
+  const b = window._balanceteAtual;
+  if(!b){ toast('Abra o balancete primeiro.','warn'); return; }
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  let txt = `💰 *BALANCETE FINANCEIRO — ${b.anoRef}*\n_Ministério Extraordinário da Sagrada Comunhão Eucarística_\n_Basílica Santuário de Nossa Senhora de Nazaré_\n\n`;
+  txt += `📌 Mês de referência: *${finMesKeyLegivel(b.mesSel)}*\nEntradas: ${fmt(b.mesSelInfo.entradas)} · Saídas: ${fmt(b.mesSelInfo.saidas)} · Saldo: ${fmt(b.mesSelInfo.saldoMes)}\n\n`;
+  txt += `🗓️ *Mês a mês:*\n`;
+  b.linhas.filter(l=>l.entradas||l.saidas).forEach(l=>{
+    txt += `${l.nome}: entradas ${fmt(l.entradas)} · saídas ${fmt(l.saidas)} · saldo ${fmt(l.saldoMes)}\n`;
+  });
+  txt += `\n*TOTAL ${b.anoRef}:* entradas ${fmt(b.entradasAno)} · saídas ${fmt(b.saidasAno)} · saldo *${fmt(b.saldoAno)}*\n`;
+  txt += `🏦 Banco: ${fmt(b.saldoBancoAno)} · 🔒 Cofre: ${fmt(b.saldoCofreAno)}`;
+
+  if(navigator.share){
+    try{ await navigator.share({title:'Balancete MESCE', text:txt}); return; }catch(e){ if(e.name==='AbortError') return; }
+  }
+  try{
+    await navigator.clipboard.writeText(txt);
+    toast('✓ Balancete copiado! Cole no WhatsApp ou onde precisar.');
+  }catch(e){ toast('Não foi possível copiar automaticamente.','warn'); }
+};
+
+window.imprimirBalancete = function(){
+  const b = window._balanceteAtual;
+  if(!b){ toast('Abra o balancete primeiro.','warn'); return; }
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  const linhasHtml = b.linhas.map(l=>`<tr style="border-bottom:1px solid #eee">
+    <td style="padding:6px 4px">${l.nome}</td>
+    <td style="text-align:right;padding:6px 4px;color:#1D9E75">${fmt(l.entradas)}</td>
+    <td style="text-align:right;padding:6px 4px;color:#A32D2D">${fmt(l.saidas)}</td>
+    <td style="text-align:right;padding:6px 4px;font-weight:600">${fmt(l.saldoMes)}</td>
+  </tr>`).join('');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Balancete ${b.anoRef}</title>
+    <style>
+      @page{ size:portrait; margin:12mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      h1{font-size:18px;color:#085041;margin:0 0 2px}
+      h2{font-size:12px;color:#666;font-weight:400;margin:0 0 18px}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      th{text-align:left;padding:6px 4px;border-bottom:2px solid #333}
+      tfoot td{border-top:2px solid #333;font-weight:700;padding:8px 4px}
+      .cards{display:flex;gap:12px;margin-bottom:18px}
+      .card{flex:1;border:1.5px solid #ddd;border-radius:8px;padding:10px 12px}
+      .card p{margin:0}
+      .lbl{font-size:10px;color:#666}
+      .val{font-size:16px;font-weight:700;margin-top:2px}
+    </style></head><body>
+    <h1>💰 Balancete Financeiro — ${b.anoRef}</h1>
+    <h2>Ministério Extraordinário da Sagrada Comunhão Eucarística · Basílica Santuário de Nossa Senhora de Nazaré</h2>
+    <div class="cards">
+      <div class="card"><p class="lbl">Saldo do ano</p><p class="val">${fmt(b.saldoAno)}</p></div>
+      <div class="card"><p class="lbl">🏦 Banco</p><p class="val">${fmt(b.saldoBancoAno)}</p></div>
+      <div class="card"><p class="lbl">🔒 Cofre</p><p class="val">${fmt(b.saldoCofreAno)}</p></div>
+    </div>
+    <table>
+      <thead><tr><th>Mês</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th><th style="text-align:right">Saldo</th></tr></thead>
+      <tbody>${linhasHtml}</tbody>
+      <tfoot><tr><td>Total ${b.anoRef}</td><td style="text-align:right">${fmt(b.entradasAno)}</td><td style="text-align:right">${fmt(b.saidasAno)}</td><td style="text-align:right">${fmt(b.saldoAno)}</td></tr></tfoot>
+    </table>
+    <script>window.onload=()=>window.print();<\/script>
+    </body></html>`);
+  w.document.close();
+};
 
 function finRenderDespesas(){
   const cont = document.getElementById('fin-conteudo');
@@ -8132,23 +8266,24 @@ function finRenderDespesas(){
   const total = _finDespesas.reduce((s,d)=>s+(Number(d.valor)||0),0);
 
   cont.innerHTML = `
-    <button onclick="abrirNovaDespesa()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">+ Registrar despesa</button>
-    <p style="font-size:12px;color:#888;margin:0 0 8px">Total de despesas: <strong style="color:#A32D2D">${fmt(total)}</strong></p>
+    <button onclick="abrirNovaDespesa()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">+ Registrar saída</button>
+    <p style="font-size:12px;color:#888;margin:0 0 8px">Total de saídas: <strong style="color:#A32D2D">${fmt(total)}</strong></p>
     ${_finDespesas.length ? _finDespesas.map(d=>`
       <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f0f0f0">
         <div style="flex:1">
-          <p style="font-size:13px;font-weight:600;margin:0">${d.descricao||'Despesa'}</p>
-          <p style="font-size:11px;color:#888;margin:2px 0 0">${(d.data||'').split('-').reverse().join('/')}</p>
+          <p style="font-size:13px;font-weight:600;margin:0">${d.descricao||'Saída'}</p>
+          <p style="font-size:11px;color:#888;margin:2px 0 0">${(d.data||'').split('-').reverse().join('/')} · ${d.local==='banco'?'🏦 Banco':'🔒 Cofre'}</p>
         </div>
         <span style="font-size:14px;font-weight:700;color:#A32D2D">${fmt(d.valor)}</span>
         <button onclick="excluirDespesa('${d.id}')" style="border:none;background:none;color:#ccc;font-size:16px;cursor:pointer;padding:0 4px">×</button>
-      </div>`).join('') : '<p style="font-size:12px;color:#aaa;padding:10px 0">Nenhuma despesa registrada.</p>'}`;
+      </div>`).join('') : '<p style="font-size:12px;color:#aaa;padding:10px 0">Nenhuma saída registrada.</p>'}`;
 }
 
 window.abrirNovaDespesa = function(){
   document.getElementById('desp-desc').value='';
   document.getElementById('desp-valor').value='';
   document.getElementById('desp-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('desp-local').value='cofre';
   document.getElementById('modal-despesa').style.display='flex';
 };
 
@@ -8156,12 +8291,13 @@ window.salvarDespesa = async function(){
   const descricao = document.getElementById('desp-desc').value.trim();
   const valor = parseFloat((document.getElementById('desp-valor').value||'').replace(',','.'));
   const data = document.getElementById('desp-data').value;
+  const local = document.getElementById('desp-local').value||'cofre';
   if(!descricao){ toast('Informe a descrição.','warn'); return; }
   if(!valor || valor<=0){ toast('Informe um valor válido.','warn'); return; }
   try{
-    await addDoc(collection(db,'despesas'), {descricao, valor, data, criadoEm:serverTimestamp()});
+    await addDoc(collection(db,'despesas'), {descricao, valor, data, local, criadoEm:serverTimestamp()});
     document.getElementById('modal-despesa').style.display='none';
-    toast('✓ Despesa registrada!');
+    toast('✓ Saída registrada!');
     await carregarFinanceiro();
     renderFinanceiro();
   }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
@@ -8170,10 +8306,68 @@ window.salvarDespesa = async function(){
 window.excluirDespesa = async function(id){
   const d = _finDespesas.find(x=>x.id===id);
   if(!d) return;
-  if(!confirm(`Excluir a despesa "${d.descricao}" (R$ ${(Number(d.valor)||0).toFixed(2)})?`)) return;
+  if(!confirm(`Excluir a saída "${d.descricao}" (R$ ${(Number(d.valor)||0).toFixed(2)})?`)) return;
   try{
     await deleteDoc(doc(db,'despesas',id));
-    toast('✓ Despesa excluída.');
+    toast('✓ Saída excluída.');
+    await carregarFinanceiro();
+    renderFinanceiro();
+  }catch(e){ toast('Erro ao excluir: '+e.message,'err'); }
+};
+
+// ===== ENTRADAS AVULSAS (doações, ofertas, eventos — fora da mensalidade) =====
+function finRenderReceitas(){
+  const cont = document.getElementById('fin-conteudo');
+  if(!cont) return;
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const total = _finReceitas.reduce((s,r)=>s+(Number(r.valor)||0),0);
+
+  cont.innerHTML = `
+    <button onclick="abrirNovaReceita()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">+ Registrar entrada</button>
+    <p style="font-size:12px;color:#888;margin:0 0 8px">Total de entradas avulsas: <strong style="color:#0A6E58">${fmt(total)}</strong></p>
+    <p style="font-size:11px;color:#aaa;margin:0 0 10px">As mensalidades ficam na aba "Mensalidades" — aqui entram doações, ofertas avulsas, eventos etc.</p>
+    ${_finReceitas.length ? _finReceitas.map(r=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f0f0f0">
+        <div style="flex:1">
+          <p style="font-size:13px;font-weight:600;margin:0">${r.descricao||'Entrada'}</p>
+          <p style="font-size:11px;color:#888;margin:2px 0 0">${(r.data||'').split('-').reverse().join('/')} · ${r.local==='banco'?'🏦 Banco':'🔒 Cofre'}</p>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#0A6E58">${fmt(r.valor)}</span>
+        <button onclick="excluirReceita('${r.id}')" style="border:none;background:none;color:#ccc;font-size:16px;cursor:pointer;padding:0 4px">×</button>
+      </div>`).join('') : '<p style="font-size:12px;color:#aaa;padding:10px 0">Nenhuma entrada avulsa registrada.</p>'}`;
+}
+
+window.abrirNovaReceita = function(){
+  document.getElementById('rec-desc').value='';
+  document.getElementById('rec-valor').value='';
+  document.getElementById('rec-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('rec-local').value='cofre';
+  document.getElementById('modal-receita').style.display='flex';
+};
+
+window.salvarReceita = async function(){
+  const descricao = document.getElementById('rec-desc').value.trim();
+  const valor = parseFloat((document.getElementById('rec-valor').value||'').replace(',','.'));
+  const data = document.getElementById('rec-data').value;
+  const local = document.getElementById('rec-local').value||'cofre';
+  if(!descricao){ toast('Informe a descrição.','warn'); return; }
+  if(!valor || valor<=0){ toast('Informe um valor válido.','warn'); return; }
+  try{
+    await addDoc(collection(db,'receitas'), {descricao, valor, data, local, criadoEm:serverTimestamp()});
+    document.getElementById('modal-receita').style.display='none';
+    toast('✓ Entrada registrada!');
+    await carregarFinanceiro();
+    renderFinanceiro();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+window.excluirReceita = async function(id){
+  const r = _finReceitas.find(x=>x.id===id);
+  if(!r) return;
+  if(!confirm(`Excluir a entrada "${r.descricao}" (R$ ${(Number(r.valor)||0).toFixed(2)})?`)) return;
+  try{
+    await deleteDoc(doc(db,'receitas',id));
+    toast('✓ Entrada excluída.');
     await carregarFinanceiro();
     renderFinanceiro();
   }catch(e){ toast('Erro ao excluir: '+e.message,'err'); }
@@ -8181,17 +8375,20 @@ window.excluirDespesa = async function(id){
 
 window.abrirConfigFin = function(){
   document.getElementById('fin-valor-cfg').value = _finConfig.valorMensalidade||15;
+  document.getElementById('fin-local-cfg').value = _finConfig.localMensalidade||'cofre';
   document.getElementById('modal-fin-config').style.display='flex';
 };
 
 window.salvarConfigFin = async function(){
   const v = parseFloat((document.getElementById('fin-valor-cfg').value||'').replace(',','.'));
+  const localMensalidade = document.getElementById('fin-local-cfg').value||'cofre';
   if(!v || v<=0){ toast('Informe um valor válido.','warn'); return; }
   try{
     _finConfig.valorMensalidade = v;
+    _finConfig.localMensalidade = localMensalidade;
     await setDoc(doc(db,'financeiro','config'), _finConfig);
     document.getElementById('modal-fin-config').style.display='none';
-    toast('✓ Valor da mensalidade atualizado!');
+    toast('✓ Configurações atualizadas!');
     renderFinanceiro();
   }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
 };
@@ -9524,7 +9721,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="modal-despesa" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-despesa')">
   <div class="modal-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <p style="font-size:16px;font-weight:700">🧾 Nova Despesa</p>
+      <p style="font-size:16px;font-weight:700">🧾 Nova Saída</p>
       <button onclick="fecharModal('modal-despesa')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Descrição</label>
@@ -9539,7 +9736,39 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <input type="date" id="desp-data" style="margin-bottom:10px;width:100%;box-sizing:border-box">
       </div>
     </div>
-    <button style="padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-top:4px" onclick="salvarDespesa()">💾 Salvar despesa</button>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Saiu de onde?</label>
+    <select id="desp-local" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      <option value="cofre">🔒 Cofre (dinheiro)</option>
+      <option value="banco">🏦 Banco</option>
+    </select>
+    <button style="padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-top:4px" onclick="salvarDespesa()">💾 Salvar saída</button>
+  </div>
+</div>
+
+<div id="modal-receita" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-receita')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">➕ Nova Entrada</p>
+      <button onclick="fecharModal('modal-receita')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Descrição</label>
+    <input type="text" id="rec-desc" placeholder="Ex: Doação, oferta avulsa, evento" style="margin-bottom:10px">
+    <div style="display:flex;gap:8px">
+      <div style="flex:1">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Valor (R$)</label>
+        <input type="text" id="rec-valor" inputmode="decimal" placeholder="0,00" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Data</label>
+        <input type="date" id="rec-data" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      </div>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Entrou onde?</label>
+    <select id="rec-local" style="margin-bottom:10px;width:100%;box-sizing:border-box">
+      <option value="cofre">🔒 Cofre (dinheiro)</option>
+      <option value="banco">🏦 Banco</option>
+    </select>
+    <button style="padding:12px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-top:4px" onclick="salvarReceita()">💾 Salvar entrada</button>
   </div>
 </div>
 
@@ -9547,12 +9776,17 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="modal-fin-config" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-fin-config')">
   <div class="modal-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <p style="font-size:16px;font-weight:700">⚙️ Valor da Mensalidade</p>
+      <p style="font-size:16px;font-weight:700">⚙️ Configurações do Financeiro</p>
       <button onclick="fecharModal('modal-fin-config')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Valor mensal por ministro (R$)</label>
     <input type="text" id="fin-valor-cfg" inputmode="decimal" placeholder="15,00" style="margin-bottom:14px">
-    <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarConfigFin()">💾 Salvar valor</button>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Onde entram as mensalidades quando marcadas como pagas?</label>
+    <select id="fin-local-cfg" style="margin-bottom:14px;width:100%;box-sizing:border-box">
+      <option value="cofre">🔒 Cofre (dinheiro)</option>
+      <option value="banco">🏦 Banco</option>
+    </select>
+    <button style="padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarConfigFin()">💾 Salvar configurações</button>
   </div>
 </div>
 
