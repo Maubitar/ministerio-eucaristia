@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.16.2';
+const APP_VERSAO = '19.17.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4437,25 +4437,40 @@ window.finalizarEscalaAtual = function(){
   if(t==='dom') finalizarEscalaDominical(); else finalizarEscalaSemanal();
 };
 
+async function montarDadosEscalaFinalizada(docId){
+  const d = await getDoc(doc(db,'escalas_finalizadas',docId));
+  if(!d.exists()) return null;
+  const dados = d.data();
+  // Fotos não ficam salvas no snapshot (estouraria o limite de 1MB do Firestore) — reanexa do cadastro atual
+  const semanasComFoto = (dados.semanas||[]).map(sem=>({
+    ...sem,
+    horarios: (sem.horarios||[]).map(h=>({
+      ...h,
+      ministros: (h.ministros||[]).map(m=>{
+        const minObj = ministros.find(x=>x.nome===m.nome);
+        return { ...m, foto:(minObj?.foto||null) };
+      })
+    }))
+  }));
+  const rotulo = (dados.tipo==='dom'?'Escala Dominical':'Escala Semanal') + ' — ' + dados.mesNome + '/' + dados.ano + ' (finalizada)';
+  return { semanasComFoto, rotulo };
+}
+
 window.imprimirEscalaFinalizada = async function(docId){
   try{
-    const d = await getDoc(doc(db,'escalas_finalizadas',docId));
-    if(!d.exists()){ toast('Escala finalizada não encontrada.','warn'); return; }
-    const dados = d.data();
-    // Fotos não ficam salvas no snapshot (estouraria o limite de 1MB do Firestore) — reanexa do cadastro atual
-    const semanasComFoto = (dados.semanas||[]).map(sem=>({
-      ...sem,
-      horarios: (sem.horarios||[]).map(h=>({
-        ...h,
-        ministros: (h.ministros||[]).map(m=>{
-          const minObj = ministros.find(x=>x.nome===m.nome);
-          return { ...m, foto:(minObj?.foto||null) };
-        })
-      }))
-    }));
-    const rotulo = (dados.tipo==='dom'?'Escala Dominical':'Escala Semanal') + ' — ' + dados.mesNome + '/' + dados.ano + ' (finalizada)';
-    await gerarPDFPresenca(semanasComFoto, rotulo);
+    const info = await montarDadosEscalaFinalizada(docId);
+    if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
+    await gerarPDFPresenca(info.semanasComFoto, info.rotulo);
   }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
+};
+
+window.compartilharEscalaFinalizada = async function(docId){
+  try{
+    const info = await montarDadosEscalaFinalizada(docId);
+    if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
+    toast('Gerando PDF para compartilhar...','ok');
+    await gerarPDFPresenca(info.semanasComFoto, info.rotulo, 'compartilhar');
+  }catch(e){ toast('Erro ao compartilhar: '+e.message,'warn'); }
 };
 
 window.excluirEscalaFinalizada = async function(docId){
@@ -4485,10 +4500,11 @@ window.renderEscalasFinalizadas = async function(){
       return `<div class="card" style="border:1.5px solid #e1f5ee;margin-bottom:10px">
         <p class="ct">${icone} ${titulo}</p>
         <p style="font-size:12px;color:#666;margin:0 0 10px">${qtdHorarios} horário(s) travado(s) para impressão</p>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
           <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir PDF</button>
           <button onclick="excluirEscalaFinalizada('${it.id}')" style="padding:10px 14px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer">🗑️</button>
         </div>
+        <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Transmitir via WhatsApp</button>
       </div>`;
     }).join('');
   }catch(e){
@@ -4513,7 +4529,8 @@ function desenharEstrela(pdf, cx, cy, r){
   pdf.lines(lines, pts[0][0], pts[0][1], [1,1], 'F', true);
 }
 
-async function gerarPDFPresenca(semanas, tipoLabel){
+async function gerarPDFPresenca(semanas, tipoLabel, acao){
+  acao = acao || 'abrir';
   if(!window.jspdf || !window.jspdf.jsPDF){
     toast('Biblioteca de PDF ainda carregando, tente de novo em instantes.','warn');
     return;
@@ -4733,12 +4750,34 @@ async function gerarPDFPresenca(semanas, tipoLabel){
       pageW/2, pageH-3, {align:'center'});
   }
 
-  // Abre o PDF em nova aba para visualizar/imprimir/salvar
+  // Abre o PDF em nova aba para visualizar/imprimir/salvar — ou compartilha direto, conforme a ação pedida
   const blob = pdf.output('blob');
+  if(acao === 'compartilhar'){
+    await compartilharPDFBlob(blob, tipoLabel);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const win = window.open(url, '_blank');
   if(!win){ toast('Permita pop-ups para abrir o PDF.','warn'); }
   else { toast('✓ PDF gerado! Use o botão de impressão do PDF.','ok'); }
+}
+
+// Compartilha um PDF via WhatsApp/apps do aparelho (Web Share API); se não suportar, baixa o arquivo
+async function compartilharPDFBlob(blob, nomeBase){
+  const nomeArq = (nomeBase||'Documento').replace(/[^\w\- ]/g,'').trim().replace(/\s+/g,'_') + '.pdf';
+  if(navigator.canShare && navigator.share){
+    try{
+      const file = new File([blob], nomeArq, {type:'application/pdf'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({ files:[file], title:nomeBase, text:nomeBase });
+        return;
+      }
+    }catch(e){ if(e.name==='AbortError') return; }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nomeArq; a.click();
+  toast('📄 PDF baixado — anexe manualmente no WhatsApp.','ok');
 }
 
 window.imprimirPresenca = async function(){
@@ -8158,19 +8197,97 @@ window.finTab = function(qual){
   else finRenderDespesas();
 };
 
+function finDonutSVG(pctPago, tamanho){
+  const r = 50, c = 2*Math.PI*r;
+  const off = c * (1 - (pctPago||0)/100);
+  const t = tamanho||120;
+  return `<svg width="${t}" height="${t}" viewBox="0 0 120 120">
+    <circle cx="60" cy="60" r="${r}" fill="none" stroke="#fcebeb" stroke-width="16"/>
+    <circle cx="60" cy="60" r="${r}" fill="none" stroke="#1D9E75" stroke-width="16"
+      stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+      transform="rotate(-90 60 60)" stroke-linecap="round"/>
+    <text x="60" y="68" text-anchor="middle" font-size="26" font-weight="700" fill="#085041">${Math.round(pctPago||0)}%</text>
+  </svg>`;
+}
+
 function finRenderPagamentos(){
   const cont = document.getElementById('fin-conteudo');
   if(!cont) return;
   const valor = Number(_finConfig.valorMensalidade)||15;
   const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const pagosCount = ativos.filter(m=>_finPagosMes[m.id]?.pago).length;
+  const pendentesCount = ativos.length - pagosCount;
+  const pct = ativos.length ? (pagosCount/ativos.length*100) : 0;
   const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
 
   cont.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;background:#fafdfb;border-radius:14px;padding:14px;margin-bottom:12px">
+      ${finDonutSVG(pct, 100)}
+      <div style="flex:1">
+        <p style="font-size:12px;color:#888;margin:0 0 6px">${finMesKeyLegivel(_finMesSel)}</p>
+        <p style="font-size:13px;margin:0 0 3px"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#1D9E75;margin-right:6px"></span>${pagosCount} pagaram</p>
+        <p style="font-size:13px;margin:0"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#fcebeb;border:1px solid #e8b4b4;margin-right:6px"></span>${pendentesCount} faltam</p>
+      </div>
+    </div>
+    <button onclick="imprimirRelatorioPagamentos()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">🖨️ Relatório de Pagamentos (quem pagou/falta)</button>
     <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:10px;box-sizing:border-box">
     <p style="font-size:11px;color:#888;margin:0 0 8px">Mensalidade: <strong>${fmt(valor)}</strong> · Toque para marcar/desmarcar quem pagou em ${finMesKeyLegivel(_finMesSel)}.</p>
     <div id="fin-lista-pag"></div>`;
   finRenderPagamentos2('');
 }
+
+window.imprimirRelatorioPagamentos = function(){
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const pagaram = ativos.filter(m=>_finPagosMes[m.id]?.pago);
+  const faltam = ativos.filter(m=>!_finPagosMes[m.id]?.pago);
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Pagamentos</title>
+    <style>
+      @page{ size:portrait; margin:12mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:18px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      .resumo{display:flex;gap:12px;margin-bottom:20px}
+      .card{flex:1;border:1.5px solid #ddd;border-radius:8px;padding:10px 12px;text-align:center}
+      .card p{margin:0}
+      .lbl{font-size:10px;color:#666}
+      .val{font-size:20px;font-weight:700;margin-top:2px}
+      h3{font-size:13px;margin:18px 0 8px;padding-bottom:4px;border-bottom:2px solid #333}
+      ul{list-style:none;padding:0;margin:0;column-count:2;column-gap:20px}
+      li{font-size:12px;padding:3px 0;break-inside:avoid}
+      .rodape{margin-top:24px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+    </style></head><body>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">💵 Relatório de Pagamentos — ${finMesKeyLegivel(_finMesSel)}</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+    <div class="resumo">
+      <div class="card"><p class="lbl">Mensalidade</p><p class="val">${fmt(valor)}</p></div>
+      <div class="card" style="border-color:#1D9E75"><p class="lbl" style="color:#1D9E75">Pagaram</p><p class="val" style="color:#1D9E75">${pagaram.length}</p></div>
+      <div class="card" style="border-color:#A32D2D"><p class="lbl" style="color:#A32D2D">Faltam</p><p class="val" style="color:#A32D2D">${faltam.length}</p></div>
+    </div>
+    <h3 style="color:#1D9E75">✓ Pagaram (${pagaram.length})</h3>
+    <ul>${pagaram.map(m=>`<li>✓ ${m.nome}</li>`).join('') || '<li>Nenhum</li>'}</ul>
+    <h3 style="color:#A32D2D">✗ Ainda faltam pagar (${faltam.length})</h3>
+    <ul>${faltam.map(m=>`<li>· ${m.nome}</li>`).join('') || '<li>Nenhum — todos pagaram!</li>'}</ul>
+    <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
+    <script>window.onload=()=>window.print();<\/script>
+    </body></html>`);
+  w.document.close();
+};
 
 window.finRenderPagamentos2 = function(filtro){
   const lista = document.getElementById('fin-lista-pag');
@@ -8247,7 +8364,7 @@ async function finRenderBalancete(){
   const despesasPorMes = agruparPorMes(_finDespesas);
   const receitasPorMes = agruparPorMes(_finReceitas);
 
-  let entradasAno=0, saidasAno=0;
+  let entradasAno=0, saidasAno=0, mensalidadesArrecadadasAno=0;
   const saldoContaAno = {cofre:0, banco1:0, banco2:0};
   const entradasContaAno = {cofre:0, banco1:0, banco2:0};
   const saidasContaAno = {cofre:0, banco1:0, banco2:0};
@@ -8255,6 +8372,7 @@ async function finRenderBalancete(){
     const mk = m+anoRef;
     const pagos = pagosPorMes[mk]||0;
     const valorMensalidades = pagos*valor;
+    mensalidadesArrecadadasAno += valorMensalidades;
     const rec = receitasPorMes[mk]||{cofre:0,banco1:0,banco2:0};
     const desp = despesasPorMes[mk]||{cofre:0,banco1:0,banco2:0};
     let entradas=0, saidas=0;
@@ -8271,8 +8389,14 @@ async function finRenderBalancete(){
   const saldoAno = entradasAno - saidasAno;
   const mesSelInfo = linhas.find(l=>l.mk===_finMesSel) || {entradas:0,saidas:0,saldoMes:0};
 
+  // Projeção anual de mensalidades: quanto se espera arrecadar no ano (todo mundo pagando todo mês) vs o que já entrou
+  const totalMinistrosAtivos = ministros.filter(mn=>mn.ativo!==false).length;
+  const metaAnualMensalidades = totalMinistrosAtivos * valor * 12;
+  const faltaAteDezembro = Math.max(0, metaAnualMensalidades - mensalidadesArrecadadasAno);
+  const pctMetaAno = metaAnualMensalidades>0 ? Math.min(100, (mensalidadesArrecadadasAno/metaAnualMensalidades*100)) : 0;
+
   // guarda pra usar em imprimir/compartilhar sem recalcular
-  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoContaAno, mesSel:_finMesSel, mesSelInfo };
+  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoContaAno, mesSel:_finMesSel, mesSelInfo, mensalidadesArrecadadasAno, metaAnualMensalidades, faltaAteDezembro, pctMetaAno, totalMinistrosAtivos };
 
   cont.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -8301,6 +8425,18 @@ async function finRenderBalancete(){
         <p style="font-size:9px;color:#185FA5;font-weight:700;margin:0 0 2px">🏦 Banco 2 ${anoRef}</p>
         <p style="font-size:13px;font-weight:700;margin:0;color:#185FA5">${fmt(saldoContaAno.banco2)}</p>
       </div>
+    </div>
+
+    <p style="font-size:12px;font-weight:700;color:#333;margin:16px 0 8px">📈 Projeção de Mensalidades — ${anoRef}</p>
+    <div style="background:#fafdfb;border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:6px">
+        <span>Arrecadado até hoje: <strong style="color:#1D9E75">${fmt(mensalidadesArrecadadasAno)}</strong></span>
+        <span>Meta do ano: <strong>${fmt(metaAnualMensalidades)}</strong></span>
+      </div>
+      <div style="height:14px;background:#eee;border-radius:20px;overflow:hidden">
+        <div style="height:100%;width:${pctMetaAno.toFixed(1)}%;background:linear-gradient(90deg,#1D9E75,#0A6E58);border-radius:20px"></div>
+      </div>
+      <p style="font-size:11px;color:#888;margin:8px 0 0;text-align:center">${pctMetaAno.toFixed(0)}% da meta · Faltam <strong style="color:#BA7517">${fmt(faltaAteDezembro)}</strong> até dezembro (${totalMinistrosAtivos} ministros ativos × ${fmt(valor)})</p>
     </div>
 
     <p style="font-size:12px;font-weight:700;color:#333;margin-bottom:8px">Mês a mês — ${anoRef}</p>
@@ -8341,7 +8477,8 @@ window.compartilharBalancete = async function(){
     txt += `${l.nome}: entradas ${fmt(l.entradas)} · saídas ${fmt(l.saidas)} · saldo ${fmt(l.saldoMes)}\n`;
   });
   txt += `\n*TOTAL ${b.anoRef}:* entradas ${fmt(b.entradasAno)} · saídas ${fmt(b.saidasAno)} · saldo *${fmt(b.saldoAno)}*\n`;
-  txt += `🔒 Cofre: ${fmt(b.saldoContaAno.cofre)} · 🏦 Banco 1: ${fmt(b.saldoContaAno.banco1)} · 🏦 Banco 2: ${fmt(b.saldoContaAno.banco2)}`;
+  txt += `🔒 Cofre: ${fmt(b.saldoContaAno.cofre)} · 🏦 Banco 1: ${fmt(b.saldoContaAno.banco1)} · 🏦 Banco 2: ${fmt(b.saldoContaAno.banco2)}\n\n`;
+  txt += `📈 *Projeção de mensalidades ${b.anoRef}:*\nArrecadado até hoje: ${fmt(b.mensalidadesArrecadadasAno)} (${b.pctMetaAno.toFixed(0)}% da meta)\nMeta do ano: ${fmt(b.metaAnualMensalidades)}\nFaltam até dezembro: *${fmt(b.faltaAteDezembro)}*`;
 
   if(navigator.share){
     try{ await navigator.share({title:'Balancete MESCE', text:txt}); return; }catch(e){ if(e.name==='AbortError') return; }
@@ -8400,6 +8537,17 @@ window.imprimirBalancete = function(){
       <div class="card"><p class="lbl">🔒 Cofre</p><p class="val">${fmt(b.saldoContaAno.cofre)}</p></div>
       <div class="card"><p class="lbl">🏦 Banco 1</p><p class="val">${fmt(b.saldoContaAno.banco1)}</p></div>
       <div class="card"><p class="lbl">🏦 Banco 2</p><p class="val">${fmt(b.saldoContaAno.banco2)}</p></div>
+    </div>
+    <div style="background:#fafdfb;border:1.5px solid #e1f5ee;border-radius:8px;padding:12px 14px;margin-bottom:20px">
+      <p style="font-size:12px;font-weight:700;margin:0 0 8px">📈 Projeção de Mensalidades — ${b.anoRef}</p>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:6px">
+        <span>Arrecadado até hoje: <strong style="color:#1D9E75">${fmt(b.mensalidadesArrecadadasAno)}</strong></span>
+        <span>Meta do ano: <strong>${fmt(b.metaAnualMensalidades)}</strong></span>
+      </div>
+      <div style="height:12px;background:#eee;border-radius:20px;overflow:hidden">
+        <div style="height:100%;width:${b.pctMetaAno.toFixed(1)}%;background:#1D9E75;border-radius:20px"></div>
+      </div>
+      <p style="font-size:11px;color:#777;margin:8px 0 0;text-align:center">${b.pctMetaAno.toFixed(0)}% da meta · Faltam <strong style="color:#BA7517">${fmt(b.faltaAteDezembro)}</strong> até dezembro (${b.totalMinistrosAtivos} ministros ativos)</p>
     </div>
     <table>
       <thead><tr><th>Mês</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th><th style="text-align:right">Saldo</th></tr></thead>
