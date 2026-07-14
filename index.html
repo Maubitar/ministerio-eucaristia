@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.19.0';
+const APP_VERSAO = '19.19.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5623,6 +5623,7 @@ async function relFrequencia(){
   }).sort((a,b)=>b.pct-a.pct);
 
   document.getElementById('rel-body').innerHTML=`
+    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque no nome para editar o cadastro.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:6px 4px">Ministro</th>
@@ -5630,13 +5631,15 @@ async function relFrequencia(){
         <th style="text-align:center;padding:6px 4px;color:#A32D2D">F</th>
         <th style="text-align:center;padding:6px 4px;color:#BA7517">S</th>
         <th style="text-align:center;padding:6px 4px">%</th>
+        <th></th>
       </tr></thead>
       <tbody>${dados.slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
-        <td style="padding:6px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="padding:6px 4px;font-size:12px;cursor:pointer" onclick="abrirPerfil('${m.id}')">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;padding:6px 4px;color:#1D9E75;font-weight:600">${m.c.p}</td>
         <td style="text-align:center;padding:6px 4px;color:#A32D2D;font-weight:600">${m.c.f}</td>
         <td style="text-align:center;padding:6px 4px;color:#BA7517;font-weight:600">${m.c.s}</td>
         <td style="text-align:center;padding:6px 4px"><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.tot>0?m.pct+'%':'—'}</span></td>
+        <td style="text-align:center;padding:6px 2px"><button onclick="excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:14px;cursor:pointer" title="Excluir ministro">🗑️</button></td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
@@ -5991,7 +5994,8 @@ async function relReunioes(){
         </div>`;
       }).join('')}
     </div>
-    <p style="font-size:12px;font-weight:600;color:#333;margin-bottom:8px">Frequência por ministro</p>
+    <p style="font-size:12px;font-weight:600;color:#333;margin-bottom:4px">Frequência por ministro</p>
+    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque no nome para editar o cadastro.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:5px 4px">Ministro</th>
@@ -5999,13 +6003,15 @@ async function relReunioes(){
         <th style="text-align:center;padding:5px 4px;color:#A32D2D">F</th>
         <th style="text-align:center;padding:5px 4px;color:#BA7517">FJ</th>
         <th style="text-align:center;padding:5px 4px">%</th>
+        <th></th>
       </tr></thead>
       <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
-        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="padding:5px 4px;font-size:12px;cursor:pointer" onclick="abrirPerfil('${m.id}')">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;padding:5px 4px;color:#1D9E75;font-weight:600">${m.c.presentes}</td>
         <td style="text-align:center;padding:5px 4px;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
         <td style="text-align:center;padding:5px 4px;color:#BA7517">${m.c.justificadas}</td>
         <td style="text-align:center;padding:5px 4px"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
+        <td style="text-align:center;padding:5px 2px"><button onclick="excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:14px;cursor:pointer" title="Excluir ministro">🗑️</button></td>
       </tr>`).join('')}</tbody>
     </table>
     <p style="font-size:10px;color:#888;margin-top:6px">P=Presente · F=Falta · FJ=Justificada</p>`;
@@ -6032,7 +6038,8 @@ async function relAdoracoes(){
   }).sort((a,b)=>b.c.faltas-a.c.faltas);
 
   document.getElementById('rel-body').innerHTML=`
-    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} adoração(ões) registrada(s)</p>
+    <p style="font-size:12px;color:#888;margin-bottom:4px">${docs.length} adoração(ões) registrada(s)</p>
+    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque no nome para editar o cadastro.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:5px 4px">Ministro</th>
@@ -6040,13 +6047,15 @@ async function relAdoracoes(){
         <th style="text-align:center;padding:5px 4px;color:#A32D2D">F</th>
         <th style="text-align:center;padding:5px 4px;color:#BA7517">FJ</th>
         <th style="text-align:center;padding:5px 4px">%</th>
+        <th></th>
       </tr></thead>
       <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
-        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
+        <td style="padding:5px 4px;font-size:12px;cursor:pointer" onclick="abrirPerfil('${m.id}')">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;color:#185FA5;font-weight:600">${m.c.presentes}</td>
         <td style="text-align:center;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
         <td style="text-align:center;color:#BA7517">${m.c.justificadas}</td>
         <td style="text-align:center"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
+        <td style="text-align:center;padding:5px 2px"><button onclick="excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:14px;cursor:pointer" title="Excluir ministro">🗑️</button></td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
