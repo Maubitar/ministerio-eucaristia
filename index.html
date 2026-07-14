@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.19.4';
+const APP_VERSAO = '19.19.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5634,7 +5634,7 @@ window.removerMinistroDaListaFaltas = async function(ministroId, nomeMinistro, c
     snap.docs.forEach(d=>{
       const reg = (d.data().registros||{})[ministroId];
       if(!reg) return;
-      const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (reg.presente===false);
+      const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (!reg.presente);
       if(faltou) updates.push(updateDoc(doc(db,colecao,d.id), { [`registros.${ministroId}`]: deleteField() }));
     });
     await Promise.all(updates);
@@ -5657,7 +5657,7 @@ window.abrirCorrecaoFaltas = async function(ministroId, nomeMinistro, colecao){
     const data = d.data();
     const reg = (data.registros||{})[ministroId];
     if(!reg) return;
-    const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (reg.presente===false);
+    const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (!reg.presente);
     if(!faltou) return;
     const label = colecao==='presencas'
       ? `⛪ Missa ${data.horario||''} — ${(data.data||'').split('-').reverse().join('/')}`
