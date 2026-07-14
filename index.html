@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.17.1';
+const APP_VERSAO = '19.18.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5622,41 +5622,70 @@ async function relConsolidado(){
     getDocs(collection(db,'adoracoes'))
   ]);
   const cont = {};
-  function init(id){ if(!cont[id]) cont[id]={missaP:0,missaF:0,reunP:0,reunF:0,adorP:0,adorF:0}; }
+  function init(id){ if(!cont[id]) cont[id]={missaP:0,missaF:0,reunP:0,reunF:0,adorP:0,adorF:0,eventos:[]}; }
+  const fmtData = iso => (iso||'').split('-').reverse().join('/');
 
   snapM.docs.forEach(d=>{
-    Object.entries(d.data().registros||{}).forEach(([id,reg])=>{
+    const data = d.data();
+    Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       const status = typeof reg==='string'?reg:(reg?.status||'');
       if(status==='P') cont[id].missaP++;
-      else if(status==='F'||status==='S') cont[id].missaF++;
+      else if(status==='F'||status==='S'){
+        cont[id].missaF++;
+        cont[id].eventos.push({tipo:'⛪ Missa', label:`⛪ Missa ${data.horario||''} — ${fmtData(data.data)}`, data:data.data||''});
+      }
     });
   });
   snapR.docs.forEach(d=>{
-    Object.entries(d.data().registros||{}).forEach(([id,reg])=>{
+    const data = d.data();
+    Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
-      if(reg.presente) cont[id].reunP++; else cont[id].reunF++;
+      if(reg.presente) cont[id].reunP++;
+      else { cont[id].reunF++; cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||''}); }
     });
   });
   snapA.docs.forEach(d=>{
-    Object.entries(d.data().registros||{}).forEach(([id,reg])=>{
+    const data = d.data();
+    Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
-      if(reg.presente) cont[id].adorP++; else cont[id].adorF++;
+      if(reg.presente) cont[id].adorP++;
+      else { cont[id].adorF++; cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||''}); }
     });
   });
 
   const dados = ministros.map(m=>{
-    const c = cont[m.id] || {missaP:0,missaF:0,reunP:0,reunF:0,adorP:0,adorF:0};
+    const c = cont[m.id] || {missaP:0,missaF:0,reunP:0,reunF:0,adorP:0,adorF:0,eventos:[]};
     const totalP = c.missaP + c.reunP + c.adorP;
     const totalF = c.missaF + c.reunF + c.adorF;
     const tot = totalP + totalF;
+    c.eventos.sort((a,b)=>(b.data||'').localeCompare(a.data||''));
     return {...m, c, totalP, totalF, tot, pct: tot>0?Math.round(totalP/tot*100):0};
   }).filter(m=>m.tot>0).sort((a,b)=>b.pct-a.pct || b.tot-a.tot);
 
   const semRegistro = ministros.length - dados.length;
+  window._relConsolidadoAtual = dados;
+
+  const topFaltas = [...dados].filter(m=>m.totalF>0).sort((a,b)=>b.totalF-a.totalF).slice(0,10);
+  const maxF = Math.max(1, ...topFaltas.map(m=>m.totalF));
+  const graficoHtml = topFaltas.length ? `
+    <p style="font-size:12px;font-weight:700;color:#333;margin:4px 0 10px">📉 Top faltas (todos os setores)</p>
+    <div style="margin-bottom:16px">
+      ${topFaltas.map(m=>`
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="width:110px;font-size:11px;color:#555;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${primeiroNomes(m.nome)}</span>
+          <div style="flex:1;background:#f5f5f3;border-radius:6px;overflow:hidden;height:16px">
+            <div style="height:100%;width:${(m.totalF/maxF*100).toFixed(1)}%;background:linear-gradient(90deg,#e08a8a,#A32D2D);border-radius:6px"></div>
+          </div>
+          <span style="width:22px;text-align:right;font-size:12px;font-weight:700;color:#A32D2D">${m.totalF}</span>
+        </div>`).join('')}
+    </div>` : '';
 
   document.getElementById('rel-body').innerHTML = dados.length ? `
     <p style="font-size:12px;color:#888;margin-bottom:10px">Presença cruzada — Missas + Reuniões + Adorações (registradas por QR ou manual). ${semRegistro} ministro(s) ainda sem nenhum registro.</p>
+    ${graficoHtml}
+    <button onclick="imprimirRelatorioConsolidado()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">🖨️ Imprimir Relatório de Participação e Faltas</button>
+    <p style="font-size:11px;color:#aaa;margin:0 0 6px">Toque num ministro para ver quais eventos ele faltou.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:6px 4px">Ministro</th>
@@ -5665,17 +5694,73 @@ async function relConsolidado(){
         <th style="text-align:center;padding:6px 4px" title="Adorações (P/F)">🙏</th>
         <th style="text-align:center;padding:6px 4px">% Geral</th>
       </tr></thead>
-      <tbody>${dados.slice(0,60).map(m=>`<tr style="border-bottom:1px solid #eee">
+      <tbody>${dados.slice(0,60).map((m,i)=>`<tr style="border-bottom:1px solid #eee;cursor:pointer" onclick="toggleDetalheConsolidado(${i})">
         <td style="padding:6px 4px">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;padding:6px 4px;white-space:nowrap"><span style="color:#1D9E75;font-weight:600">${m.c.missaP}</span>/<span style="color:#A32D2D">${m.c.missaF}</span></td>
         <td style="text-align:center;padding:6px 4px;white-space:nowrap"><span style="color:#1D9E75;font-weight:600">${m.c.reunP}</span>/<span style="color:#A32D2D">${m.c.reunF}</span></td>
         <td style="text-align:center;padding:6px 4px;white-space:nowrap"><span style="color:#1D9E75;font-weight:600">${m.c.adorP}</span>/<span style="color:#A32D2D">${m.c.adorF}</span></td>
         <td style="text-align:center;padding:6px 4px"><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
-      </tr>`).join('')}</tbody>
+      </tr>
+      <tr id="det-cons-${i}" style="display:none"><td colspan="5" style="padding:6px 10px 12px;background:#fafafa">
+        ${m.c.eventos.length ? `<p style="font-size:11px;font-weight:700;color:#A32D2D;margin:6px 0 4px">Faltou em (${m.c.eventos.length}):</p><ul style="margin:0;padding-left:16px">${m.c.eventos.map(e=>`<li style="font-size:11px;color:#666">${e.label}</li>`).join('')}</ul>` : '<p style="font-size:11px;color:#1D9E75;margin:6px 0">Nenhuma falta registrada 🎉</p>'}
+      </td></tr>`).join('')}</tbody>
     </table>
     <p style="font-size:10px;color:#888;margin-top:6px">Cada coluna mostra Presente/Falta no setor. Faltas de missa incluem substituições (S).</p>`
     : '<p style="font-size:13px;color:#888;padding:8px 0">Nenhum registro de presença ainda em nenhum setor.</p>';
 }
+
+window.toggleDetalheConsolidado = function(i){
+  const el = document.getElementById('det-cons-'+i);
+  if(el) el.style.display = el.style.display==='none' ? 'table-row' : 'none';
+};
+
+window.imprimirRelatorioConsolidado = function(){
+  const dados = window._relConsolidadoAtual;
+  if(!dados){ toast('Abra o relatório primeiro.','warn'); return; }
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  const linhas = dados.map(m=>`<tr style="border-bottom:1px solid #eee">
+    <td style="padding:6px 4px">${m.nome}</td>
+    <td style="text-align:center;padding:6px 4px">${m.c.missaP}/${m.c.missaF}</td>
+    <td style="text-align:center;padding:6px 4px">${m.c.reunP}/${m.c.reunF}</td>
+    <td style="text-align:center;padding:6px 4px">${m.c.adorP}/${m.c.adorF}</td>
+    <td style="text-align:center;padding:6px 4px;font-weight:700">${m.totalF}</td>
+    <td style="text-align:center;padding:6px 4px">${m.pct}%</td>
+    <td style="padding:6px 4px;font-size:10px;color:#666">${m.c.eventos.map(e=>e.label).join('; ')||'—'}</td>
+  </tr>`).join('');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Participação e Faltas</title>
+    <style>
+      @page{ size:landscape; margin:12mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:18px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th{text-align:left;padding:6px 4px;border-bottom:2px solid #333;background:#f5f5f3}
+      .rodape{margin-top:24px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+    </style></head><body>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">📋 Relatório de Participação e Faltas</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+    <table>
+      <thead><tr><th>Ministro</th><th style="text-align:center">⛪ P/F</th><th style="text-align:center">📋 P/F</th><th style="text-align:center">🙏 P/F</th><th style="text-align:center">Faltas</th><th style="text-align:center">% Geral</th><th>Eventos faltados</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
+    <script>window.onload=()=>window.print();<\/script>
+    </body></html>`);
+  w.document.close();
+};
 
 async function relFaltas(){
   const dados=ministros.map(m=>({
