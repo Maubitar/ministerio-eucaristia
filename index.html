@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.19.3';
+const APP_VERSAO = '19.19.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5625,6 +5625,24 @@ window.removerRegistroPresenca = async function(colecao, docId, nomeEvento, mini
 };
 
 // Abre um modal simples listando as faltas de UM ministro num setor (missa/reuniao/adoracao), com ação de corrigir/remover cada uma
+// Remove TODAS as faltas de um ministro num setor (missa/reunião/adoração) de uma vez — ele some da lista
+window.removerMinistroDaListaFaltas = async function(ministroId, nomeMinistro, colecao){
+  if(!confirm(`Remover ${primeiroNomes(nomeMinistro)} desta lista de faltas?\n\nIsso apaga TODAS as faltas dele registradas neste setor (não mexe no cadastro).`)) return;
+  try{
+    const snap = await getDocs(collection(db,colecao));
+    const updates = [];
+    snap.docs.forEach(d=>{
+      const reg = (d.data().registros||{})[ministroId];
+      if(!reg) return;
+      const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (reg.presente===false);
+      if(faltou) updates.push(updateDoc(doc(db,colecao,d.id), { [`registros.${ministroId}`]: deleteField() }));
+    });
+    await Promise.all(updates);
+    toast(`✓ ${updates.length} falta(s) removida(s) da lista!`);
+    if(typeof renderRelatorios==='function') renderRelatorios();
+  }catch(e){ toast('Erro ao remover: '+e.message,'err'); }
+};
+
 window.abrirCorrecaoFaltas = async function(ministroId, nomeMinistro, colecao){
   abrirCorrecaoFaltas._reabrir = () => abrirCorrecaoFaltas(ministroId, nomeMinistro, colecao);
   const modalTitulo = document.getElementById('corr-falta-titulo');
@@ -5718,7 +5736,7 @@ async function relFrequencia(){
         <td style="text-align:center;padding:6px 4px;color:#A32D2D;font-weight:600">${m.c.f}</td>
         <td style="text-align:center;padding:6px 4px;color:#BA7517;font-weight:600">${m.c.s}</td>
         <td style="text-align:center;padding:6px 4px"><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.tot>0?m.pct+'%':'—'}</span></td>
-        <td style="text-align:center;padding:6px 2px">${(m.c.f+m.c.s)>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','presencas')" style="border:1.5px solid #185FA5;background:white;color:#185FA5;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>`:''}</td>
+        <td style="text-align:center;padding:6px 2px;white-space:nowrap">${(m.c.f+m.c.s)>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','presencas')" style="border:1.5px solid #185FA5;background:white;color:#185FA5;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;margin-right:4px">✏️ Editar</button><button onclick="removerMinistroDaListaFaltas('${m.id}','${m.nome.replace(/'/g,"")}','presencas')" style="border:1.5px solid #A32D2D;background:white;color:#A32D2D;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer">🗑️</button>`:''}</td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
@@ -6107,7 +6125,7 @@ async function relReunioes(){
         <td style="text-align:center;padding:5px 4px;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
         <td style="text-align:center;padding:5px 4px;color:#BA7517">${m.c.justificadas}</td>
         <td style="text-align:center;padding:5px 4px"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
-        <td style="text-align:center;padding:5px 2px">${m.c.faltas>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','reunioes')" style="border:1.5px solid #185FA5;background:white;color:#185FA5;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>`:''}</td>
+        <td style="text-align:center;padding:5px 2px;white-space:nowrap">${m.c.faltas>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','reunioes')" style="border:1.5px solid #185FA5;background:white;color:#185FA5;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;margin-right:4px">✏️ Editar</button><button onclick="removerMinistroDaListaFaltas('${m.id}','${m.nome.replace(/'/g,"")}','reunioes')" style="border:1.5px solid #A32D2D;background:white;color:#A32D2D;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer">🗑️</button>`:''}</td>
       </tr>`).join('')}</tbody>
     </table>
     <p style="font-size:10px;color:#888;margin-top:6px">P=Presente · F=Falta · FJ=Justificada</p>`;
@@ -6151,7 +6169,7 @@ async function relAdoracoes(){
         <td style="text-align:center;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
         <td style="text-align:center;color:#BA7517">${m.c.justificadas}</td>
         <td style="text-align:center"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
-        <td style="text-align:center;padding:5px 2px">${m.c.faltas>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','adoracoes')" style="border:1.5px solid #185FA5;background:white;color:#185FA5;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>`:''}</td>
+        <td style="text-align:center;padding:5px 2px;white-space:nowrap">${m.c.faltas>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','adoracoes')" style="border:1.5px solid #185FA5;background:white;color:#185FA5;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer;margin-right:4px">✏️ Editar</button><button onclick="removerMinistroDaListaFaltas('${m.id}','${m.nome.replace(/'/g,"")}','adoracoes')" style="border:1.5px solid #A32D2D;background:white;color:#A32D2D;font-size:11px;font-weight:600;padding:4px 8px;border-radius:6px;cursor:pointer">🗑️</button>`:''}</td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
