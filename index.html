@@ -14,7 +14,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = {
   apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.19.1';
+const APP_VERSAO = '19.19.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5602,6 +5602,85 @@ async function relExcecoes(){
     }).join('')}`;
 }
 
+// ===== CORREÇÃO DE REGISTROS DE PRESENÇA (relatórios) — nunca mexe no cadastro do ministro =====
+window.corrigirParaPresente = async function(colecao, docId, ministroId){
+  try{
+    const campo = `registros.${ministroId}.` + (colecao==='presencas' ? 'status' : 'presente');
+    const valor = colecao==='presencas' ? 'P' : true;
+    await updateDoc(doc(db,colecao,docId), { [campo]: valor });
+    toast('✓ Corrigido para presente!');
+    if(typeof abrirCorrecaoFaltas._reabrir==='function') abrirCorrecaoFaltas._reabrir();
+    else if(typeof renderRelatorios==='function') renderRelatorios();
+  }catch(e){ toast('Erro ao corrigir: '+e.message,'err'); }
+};
+
+window.removerRegistroPresenca = async function(colecao, docId, nomeEvento, ministroId){
+  if(!confirm(`Remover o registro de "${nomeEvento}" para este ministro?\n\nIsso apaga essa falta específica (como se o evento não valesse pra ele) — não afeta o cadastro do ministro.`)) return;
+  try{
+    await updateDoc(doc(db,colecao,docId), { [`registros.${ministroId}`]: deleteField() });
+    toast('✓ Registro removido!');
+    if(typeof abrirCorrecaoFaltas._reabrir==='function') abrirCorrecaoFaltas._reabrir();
+    else if(typeof renderRelatorios==='function') renderRelatorios();
+  }catch(e){ toast('Erro ao remover: '+e.message,'err'); }
+};
+
+// Abre um modal simples listando as faltas de UM ministro num setor (missa/reuniao/adoracao), com ação de corrigir/remover cada uma
+window.abrirCorrecaoFaltas = async function(ministroId, nomeMinistro, colecao){
+  abrirCorrecaoFaltas._reabrir = () => abrirCorrecaoFaltas(ministroId, nomeMinistro, colecao);
+  const modalTitulo = document.getElementById('corr-falta-titulo');
+  const modalBody = document.getElementById('corr-falta-body');
+  modalTitulo.textContent = `Faltas de ${primeiroNomes(nomeMinistro)}`;
+  modalBody.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando...</p>';
+  document.getElementById('modal-corr-falta').style.display='flex';
+
+  const snap = await getDocs(collection(db,colecao));
+  const eventos = [];
+  snap.docs.forEach(d=>{
+    const data = d.data();
+    const reg = (data.registros||{})[ministroId];
+    if(!reg) return;
+    const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (reg.presente===false);
+    if(!faltou) return;
+    const label = colecao==='presencas'
+      ? `⛪ Missa ${data.horario||''} — ${(data.data||'').split('-').reverse().join('/')}`
+      : (colecao==='reunioes' ? `📋 Reunião — ${(data.data||'').split('-').reverse().join('/')}` : `🙏 Adoração — ${(data.data||'').split('-').reverse().join('/')}`);
+    eventos.push({ docId:d.id, label, data:data.data||'' });
+  });
+  eventos.sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+
+  modalBody.innerHTML = eventos.length ? eventos.map(e=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+      <span style="flex:1;font-size:12px;color:#333">${e.label}</span>
+      <button onclick="corrigirParaPresente('${colecao}','${e.docId}','${ministroId}')" style="font-size:10px;padding:5px 8px;border:1.5px solid #1D9E75;border-radius:6px;background:white;color:#1D9E75;cursor:pointer;font-weight:600">✅ Presente</button>
+      <button onclick="removerRegistroPresenca('${colecao}','${e.docId}','${e.label.replace(/'/g,"")}','${ministroId}')" style="font-size:10px;padding:5px 8px;border:1.5px solid #A32D2D;border-radius:6px;background:white;color:#A32D2D;cursor:pointer;font-weight:600">🗑️ Remover</button>
+    </div>`).join('') : '<p style="font-size:12px;color:#1D9E75;padding:10px 0">Nenhuma falta encontrada para este ministro.</p>';
+};
+
+// Edição direta dos contadores de faltas (usado no relatório "Faltas disciplinares", que é baseado em contador, não em evento)
+window.abrirEdicaoContadorFaltas = function(ministroId){
+  const m = ministros.find(x=>x.id===ministroId);
+  if(!m) return;
+  document.getElementById('cf-nome').textContent = primeiroNomes(m.nome);
+  document.getElementById('cf-reuniao').value = m.faltasReuniao||0;
+  document.getElementById('cf-adoracao').value = m.faltasAdoracao||0;
+  document.getElementById('modal-corr-contador').dataset.ministroId = ministroId;
+  document.getElementById('modal-corr-contador').style.display='flex';
+};
+
+window.salvarEdicaoContadorFaltas = async function(){
+  const id = document.getElementById('modal-corr-contador').dataset.ministroId;
+  const fr = Math.max(0, parseInt(document.getElementById('cf-reuniao').value)||0);
+  const fa = Math.max(0, parseInt(document.getElementById('cf-adoracao').value)||0);
+  try{
+    await updateDoc(doc(db,'ministros',id), { faltasReuniao:fr, faltasAdoracao:fa });
+    const m = ministros.find(x=>x.id===id);
+    if(m){ m.faltasReuniao=fr; m.faltasAdoracao=fa; }
+    document.getElementById('modal-corr-contador').style.display='none';
+    toast('✓ Faltas corrigidas!');
+    if(typeof renderRelatorios==='function') renderRelatorios();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
 async function relFrequencia(){
   const snap=await getDocs(collection(db,'presencas'));
   const contadores={};
@@ -5623,7 +5702,7 @@ async function relFrequencia(){
   }).sort((a,b)=>b.pct-a.pct);
 
   document.getElementById('rel-body').innerHTML=`
-    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque no nome para editar o cadastro.</p>
+    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque em ✏️ para corrigir uma falta lançada errada.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:6px 4px">Ministro</th>
@@ -5634,12 +5713,12 @@ async function relFrequencia(){
         <th></th>
       </tr></thead>
       <tbody>${dados.slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
-        <td style="padding:6px 4px;font-size:12px;cursor:pointer" onclick="abrirPerfil('${m.id}')">${primeiroNomes(m.nome)}</td>
+        <td style="padding:6px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;padding:6px 4px;color:#1D9E75;font-weight:600">${m.c.p}</td>
         <td style="text-align:center;padding:6px 4px;color:#A32D2D;font-weight:600">${m.c.f}</td>
         <td style="text-align:center;padding:6px 4px;color:#BA7517;font-weight:600">${m.c.s}</td>
         <td style="text-align:center;padding:6px 4px"><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.tot>0?m.pct+'%':'—'}</span></td>
-        <td style="text-align:center;padding:6px 2px"><button onclick="excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:14px;cursor:pointer" title="Excluir ministro">🗑️</button></td>
+        <td style="text-align:center;padding:6px 2px">${(m.c.f+m.c.s)>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','presencas')" style="border:none;background:none;color:#185FA5;font-size:14px;cursor:pointer" title="Corrigir faltas">✏️</button>`:''}</td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
@@ -5662,7 +5741,7 @@ async function relConsolidado(){
       if(status==='P') cont[id].missaP++;
       else if(status==='F'||status==='S'){
         cont[id].missaF++;
-        cont[id].eventos.push({tipo:'⛪ Missa', label:`⛪ Missa ${data.horario||''} — ${fmtData(data.data)}`, data:data.data||''});
+        cont[id].eventos.push({tipo:'⛪ Missa', label:`⛪ Missa ${data.horario||''} — ${fmtData(data.data)}`, data:data.data||'', colecao:'presencas', docId:d.id});
       }
     });
   });
@@ -5671,7 +5750,7 @@ async function relConsolidado(){
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       if(reg.presente) cont[id].reunP++;
-      else { cont[id].reunF++; cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||''}); }
+      else { cont[id].reunF++; cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||'', colecao:'reunioes', docId:d.id}); }
     });
   });
   snapA.docs.forEach(d=>{
@@ -5679,7 +5758,7 @@ async function relConsolidado(){
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       if(reg.presente) cont[id].adorP++;
-      else { cont[id].adorF++; cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||''}); }
+      else { cont[id].adorF++; cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||'', colecao:'adoracoes', docId:d.id}); }
     });
   });
 
@@ -5731,11 +5810,12 @@ async function relConsolidado(){
         <td style="text-align:center;padding:6px 4px"><span style="font-size:11px;padding:1px 7px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
       </tr>
       <tr id="det-cons-${i}" style="display:none"><td colspan="5" style="padding:6px 10px 12px;background:#fafafa">
-        ${m.c.eventos.length ? `<p style="font-size:11px;font-weight:700;color:#A32D2D;margin:6px 0 4px">Faltou em (${m.c.eventos.length}):</p><ul style="margin:0;padding-left:16px">${m.c.eventos.map(e=>`<li style="font-size:11px;color:#666">${e.label}</li>`).join('')}</ul>` : '<p style="font-size:11px;color:#1D9E75;margin:6px 0">Nenhuma falta registrada 🎉</p>'}
-        <div style="display:flex;gap:6px;margin-top:8px">
-          <button onclick="abrirPerfil('${m.id}')" style="flex:1;padding:7px;border:1.5px solid #185FA5;border-radius:6px;background:white;color:#185FA5;font-size:11px;font-weight:600;cursor:pointer">✏️ Editar ministro</button>
-          <button onclick="excluirMinistro('${m.id}')" style="padding:7px 10px;border:1.5px solid #A32D2D;border-radius:6px;background:white;color:#A32D2D;font-size:11px;font-weight:600;cursor:pointer">🗑️ Excluir</button>
-        </div>
+        ${m.c.eventos.length ? `<p style="font-size:11px;font-weight:700;color:#A32D2D;margin:6px 0 4px">Faltou em (${m.c.eventos.length}):</p>` + m.c.eventos.map(e=>`
+        <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #eee">
+          <span style="flex:1;font-size:11px;color:#666">${e.label}</span>
+          <button onclick="corrigirParaPresente('${e.colecao}','${e.docId}','${m.id}')" style="font-size:9px;padding:4px 7px;border:1.5px solid #1D9E75;border-radius:6px;background:white;color:#1D9E75;cursor:pointer;font-weight:600">✅ Presente</button>
+          <button onclick="removerRegistroPresenca('${e.colecao}','${e.docId}','${e.label.replace(/'/g,"")}','${m.id}')" style="font-size:9px;padding:4px 7px;border:1.5px solid #A32D2D;border-radius:6px;background:white;color:#A32D2D;cursor:pointer;font-weight:600">🗑️</button>
+        </div>`).join('') : '<p style="font-size:11px;color:#1D9E75;margin:6px 0">Nenhuma falta registrada 🎉</p>'}
       </td></tr>`).join('')}</tbody>
     </table>
     <p style="font-size:10px;color:#888;margin-top:6px">Cada coluna mostra Presente/Falta no setor. Faltas de missa incluem substituições (S).</p>`
@@ -5803,17 +5883,17 @@ async function relFaltas(){
   })).filter(m=>m.totalFaltas>0).sort((a,b)=>b.totalFaltas-a.totalFaltas);
 
   document.getElementById('rel-body').innerHTML=dados.length?`
-    <p style="font-size:12px;color:#888;margin-bottom:10px">Critério: 3+ faltas em reunião/adoração = cartão amarelo · toque no nome para editar</p>
+    <p style="font-size:12px;color:#888;margin-bottom:10px">Critério: 3+ faltas em reunião/adoração = cartão amarelo · toque em ✏️ para corrigir o número</p>
     ${dados.map(m=>`
       <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
-        <div style="flex:1;cursor:pointer" onclick="abrirPerfil('${m.id}')">
-          <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)} <span style="font-size:11px;color:#185FA5;font-weight:400">✏️</span></p>
+        <div style="flex:1">
+          <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
           <p style="font-size:11px;color:#888;margin:0">Reunião: ${m.fr}F · Adoração: ${m.fa}F</p>
         </div>
         <span style="font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;background:${m.totalFaltas>=3?'#fcebeb':'#faeeda'};color:${m.totalFaltas>=3?'#A32D2D':'#BA7517'}">
           ${m.totalFaltas>=3?'🟡 Cartão amarelo':'⚠️ '+m.totalFaltas+' faltas'}
         </span>
-        <button onclick="event.stopPropagation();excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:16px;cursor:pointer;padding:0 4px" title="Excluir ministro">🗑️</button>
+        <button onclick="abrirEdicaoContadorFaltas('${m.id}')" style="border:none;background:none;color:#185FA5;font-size:15px;cursor:pointer;padding:0 4px" title="Corrigir número de faltas">✏️</button>
       </div>`).join('')}`
     :'<p style="font-size:13px;color:#1D9E75;padding:8px 0">✓ Nenhum ministro com faltas registradas.</p>';
 }
@@ -5995,7 +6075,7 @@ async function relReunioes(){
       }).join('')}
     </div>
     <p style="font-size:12px;font-weight:600;color:#333;margin-bottom:4px">Frequência por ministro</p>
-    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque no nome para editar o cadastro.</p>
+    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque em ✏️ para corrigir uma falta lançada errada.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:5px 4px">Ministro</th>
@@ -6006,12 +6086,12 @@ async function relReunioes(){
         <th></th>
       </tr></thead>
       <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
-        <td style="padding:5px 4px;font-size:12px;cursor:pointer" onclick="abrirPerfil('${m.id}')">${primeiroNomes(m.nome)}</td>
+        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;padding:5px 4px;color:#1D9E75;font-weight:600">${m.c.presentes}</td>
         <td style="text-align:center;padding:5px 4px;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
         <td style="text-align:center;padding:5px 4px;color:#BA7517">${m.c.justificadas}</td>
         <td style="text-align:center;padding:5px 4px"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
-        <td style="text-align:center;padding:5px 2px"><button onclick="excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:14px;cursor:pointer" title="Excluir ministro">🗑️</button></td>
+        <td style="text-align:center;padding:5px 2px">${m.c.faltas>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','reunioes')" style="border:none;background:none;color:#185FA5;font-size:14px;cursor:pointer" title="Corrigir faltas">✏️</button>`:''}</td>
       </tr>`).join('')}</tbody>
     </table>
     <p style="font-size:10px;color:#888;margin-top:6px">P=Presente · F=Falta · FJ=Justificada</p>`;
@@ -6039,7 +6119,7 @@ async function relAdoracoes(){
 
   document.getElementById('rel-body').innerHTML=`
     <p style="font-size:12px;color:#888;margin-bottom:4px">${docs.length} adoração(ões) registrada(s)</p>
-    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque no nome para editar o cadastro.</p>
+    <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque em ✏️ para corrigir uma falta lançada errada.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
         <th style="text-align:left;padding:5px 4px">Ministro</th>
@@ -6050,12 +6130,12 @@ async function relAdoracoes(){
         <th></th>
       </tr></thead>
       <tbody>${dados.filter(m=>m.tot>0).slice(0,30).map(m=>`<tr style="border-bottom:1px solid #eee">
-        <td style="padding:5px 4px;font-size:12px;cursor:pointer" onclick="abrirPerfil('${m.id}')">${primeiroNomes(m.nome)}</td>
+        <td style="padding:5px 4px;font-size:12px">${primeiroNomes(m.nome)}</td>
         <td style="text-align:center;color:#185FA5;font-weight:600">${m.c.presentes}</td>
         <td style="text-align:center;color:${m.c.faltas>0?'#A32D2D':'#888'};font-weight:${m.c.faltas>0?'600':'400'}">${m.c.faltas}</td>
         <td style="text-align:center;color:#BA7517">${m.c.justificadas}</td>
         <td style="text-align:center"><span style="font-size:11px;padding:1px 6px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600">${m.pct}%</span></td>
-        <td style="text-align:center;padding:5px 2px"><button onclick="excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:14px;cursor:pointer" title="Excluir ministro">🗑️</button></td>
+        <td style="text-align:center;padding:5px 2px">${m.c.faltas>0?`<button onclick="abrirCorrecaoFaltas('${m.id}','${m.nome.replace(/'/g,"")}','adoracoes')" style="border:none;background:none;color:#185FA5;font-size:14px;cursor:pointer" title="Corrigir faltas">✏️</button>`:''}</td>
       </tr>`).join('')}</tbody>
     </table>`;
 }
@@ -10398,6 +10478,31 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <input type="number" id="geo-raio-cfg" value="250" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
     <button onclick="usarMinhaLocalizacaoAtual()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:9px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📍 Estou aqui agora — usar este local</button>
     <button onclick="salvarGeoConfig()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar</button>
+  </div>
+</div>
+
+<div id="modal-corr-falta" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-corr-falta')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <p id="corr-falta-titulo" style="font-size:16px;font-weight:700">Faltas</p>
+      <button onclick="fecharModal('modal-corr-falta')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:11px;color:#888;margin:0 0 10px">Corrija se a falta foi lançada errada, ou remova o registro se o evento não valia pra este ministro. Isso não mexe no cadastro dele.</p>
+    <div id="corr-falta-body"></div>
+  </div>
+</div>
+
+<div id="modal-corr-contador" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-corr-contador')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <p style="font-size:16px;font-weight:700">✏️ Corrigir Faltas — <span id="cf-nome"></span></p>
+      <button onclick="fecharModal('modal-corr-contador')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Faltas em Reunião</label>
+    <input type="number" id="cf-reuniao" min="0" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:12px;box-sizing:border-box">
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Faltas em Adoração</label>
+    <input type="number" id="cf-adoracao" min="0" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:14px;box-sizing:border-box">
+    <button onclick="salvarEdicaoContadorFaltas()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar</button>
   </div>
 </div>
 
