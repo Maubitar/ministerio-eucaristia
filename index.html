@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.18.0';
+const APP_VERSAO = '19.19.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1873,7 +1873,7 @@ window.nav = function(id, btn){
     plantao: ()=>renderPlantonistas(),
     ausencias: ()=>renderAusencias(),
     responsaveis: ()=>renderResponsaveis(),
-    relatorios: ()=>renderRelatorios(),
+    relatorios: ()=>{ if(typeof trocarRelatorio==='function') trocarRelatorio(); },
     inicio: ()=>renderInicio(),
     eventos: ()=>renderEventos(),
     financeiro: ()=>renderFinanceiro(),
@@ -5396,6 +5396,32 @@ window.compartilharReforco=function(){
   }
 };
 
+const REL_NOMES = {
+  atualizacao:'✅ Quem atualizou cadastro', incompletos:'📸 Quem falta completar', arquidiocese:'📋 Relatório Arquidiocese',
+  excecoes:'⚠️ Exceções na escala (log)', escalas:'🗂️ Histórico de escalas e responsáveis', eventos:'🎉 Eventos especiais',
+  missas:'⛪ Missas', reunioes:'📋 Reuniões', adoracoes:'🙏 Adorações', consolidado:'🗂️ Presença consolidada', faltas:'🟡 Faltas disciplinares'
+};
+
+window.selecionarRelatorio = function(valor){
+  document.getElementById('rel-tab').value = valor;
+  document.querySelectorAll('.rel-chip').forEach(b=>b.classList.toggle('rel-chip-ativo', b.dataset.rel===valor));
+  document.getElementById('rel-seletor').style.display = 'none';
+  document.getElementById('rel-body-wrap').style.display = 'block';
+  const barra = document.getElementById('rel-barra-atual');
+  if(barra){
+    barra.style.display = 'flex';
+    document.getElementById('rel-nome-atual').textContent = REL_NOMES[valor]||valor;
+  }
+  renderRelatorios();
+};
+
+window.trocarRelatorio = function(){
+  document.getElementById('rel-seletor').style.display = 'block';
+  document.getElementById('rel-body-wrap').style.display = 'none';
+  const barra = document.getElementById('rel-barra-atual');
+  if(barra) barra.style.display = 'none';
+};
+
 window.renderRelatorios = async function(){
   const tab=document.getElementById('rel-tab').value;
   document.getElementById('rel-body').innerHTML='<p style="color:#888;font-size:13px;padding:8px 0">Carregando...</p>';
@@ -5703,6 +5729,10 @@ async function relConsolidado(){
       </tr>
       <tr id="det-cons-${i}" style="display:none"><td colspan="5" style="padding:6px 10px 12px;background:#fafafa">
         ${m.c.eventos.length ? `<p style="font-size:11px;font-weight:700;color:#A32D2D;margin:6px 0 4px">Faltou em (${m.c.eventos.length}):</p><ul style="margin:0;padding-left:16px">${m.c.eventos.map(e=>`<li style="font-size:11px;color:#666">${e.label}</li>`).join('')}</ul>` : '<p style="font-size:11px;color:#1D9E75;margin:6px 0">Nenhuma falta registrada 🎉</p>'}
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button onclick="abrirPerfil('${m.id}')" style="flex:1;padding:7px;border:1.5px solid #185FA5;border-radius:6px;background:white;color:#185FA5;font-size:11px;font-weight:600;cursor:pointer">✏️ Editar ministro</button>
+          <button onclick="excluirMinistro('${m.id}')" style="padding:7px 10px;border:1.5px solid #A32D2D;border-radius:6px;background:white;color:#A32D2D;font-size:11px;font-weight:600;cursor:pointer">🗑️ Excluir</button>
+        </div>
       </td></tr>`).join('')}</tbody>
     </table>
     <p style="font-size:10px;color:#888;margin-top:6px">Cada coluna mostra Presente/Falta no setor. Faltas de missa incluem substituições (S).</p>`
@@ -5770,16 +5800,17 @@ async function relFaltas(){
   })).filter(m=>m.totalFaltas>0).sort((a,b)=>b.totalFaltas-a.totalFaltas);
 
   document.getElementById('rel-body').innerHTML=dados.length?`
-    <p style="font-size:12px;color:#888;margin-bottom:10px">Critério: 3+ faltas em reunião/adoração = cartão amarelo</p>
+    <p style="font-size:12px;color:#888;margin-bottom:10px">Critério: 3+ faltas em reunião/adoração = cartão amarelo · toque no nome para editar</p>
     ${dados.map(m=>`
       <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
-        <div style="flex:1">
-          <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)}</p>
+        <div style="flex:1;cursor:pointer" onclick="abrirPerfil('${m.id}')">
+          <p style="font-size:13px;font-weight:500;margin:0">${primeiroNomes(m.nome)} <span style="font-size:11px;color:#185FA5;font-weight:400">✏️</span></p>
           <p style="font-size:11px;color:#888;margin:0">Reunião: ${m.fr}F · Adoração: ${m.fa}F</p>
         </div>
         <span style="font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;background:${m.totalFaltas>=3?'#fcebeb':'#faeeda'};color:${m.totalFaltas>=3?'#A32D2D':'#BA7517'}">
           ${m.totalFaltas>=3?'🟡 Cartão amarelo':'⚠️ '+m.totalFaltas+' faltas'}
         </span>
+        <button onclick="event.stopPropagation();excluirMinistro('${m.id}')" style="border:none;background:none;color:#ccc;font-size:16px;cursor:pointer;padding:0 4px" title="Excluir ministro">🗑️</button>
       </div>`).join('')}`
     :'<p style="font-size:13px;color:#1D9E75;padding:8px 0">✓ Nenhum ministro com faltas registradas.</p>';
 }
@@ -9165,6 +9196,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .nb svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s}
 .nb.active svg{transform:translateY(-1px) scale(1.05)}
 .sec{display:none;padding:14px 14px 90px;animation:secIn .35s ease}
+.rel-chip{width:100%;text-align:left;padding:12px 14px;border:1.5px solid #ececec;border-radius:10px;background:white;color:#333;font-size:13px;font-weight:600;cursor:pointer;transition:border-color .15s,background .15s}
+.rel-chip:active{background:#f7f9f8}
+.rel-chip-ativo{border-color:#0A6E58!important;background:#f0faf5!important;color:#0A6E58!important}
 @keyframes secIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .card{background:white;border-radius:14px;padding:14px 16px;margin-bottom:12px;box-shadow:0 1px 5px rgba(0,0,0,.05);border:1px solid rgba(0,0,0,.02)}
 .ct{font-size:13px;font-weight:700;margin-bottom:12px;color:#1a1a1a}
@@ -9696,7 +9730,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card">
     <p class="ct">📊 Relatórios</p>
-    <select id="rel-tab" onchange="renderRelatorios()" style="margin-bottom:12px">
+    <select id="rel-tab" style="display:none">
       <option value="atualizacao">✅ Quem atualizou cadastro</option>
       <option value="incompletos">📋 Quem falta completar (foto, nascimento...)</option>
       <option value="excecoes">⚠️ Exceções na escala (log)</option>
@@ -9709,7 +9743,40 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <option value="eventos">Eventos especiais</option>
       <option value="arquidiocese">📋 Relatório Arquidiocese (nome, nascimento, fone)</option>
     </select>
-    <div id="rel-body"><p style="font-size:12px;color:#888">Selecione um relatório acima.</p></div>
+
+    <div id="rel-seletor" style="margin-bottom:16px">
+      <p style="font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.6px;margin:0 0 6px">👤 Cadastro</p>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+        <button data-rel="atualizacao" onclick="selecionarRelatorio('atualizacao')" class="rel-chip">✅ Quem atualizou cadastro</button>
+        <button data-rel="incompletos" onclick="selecionarRelatorio('incompletos')" class="rel-chip">📸 Quem falta completar (foto, nascimento...)</button>
+        <button data-rel="arquidiocese" onclick="selecionarRelatorio('arquidiocese')" class="rel-chip">📋 Relatório Arquidiocese</button>
+      </div>
+
+      <p style="font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.6px;margin:0 0 6px">📅 Escala</p>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+        <button data-rel="excecoes" onclick="selecionarRelatorio('excecoes')" class="rel-chip">⚠️ Exceções na escala (log)</button>
+        <button data-rel="escalas" onclick="selecionarRelatorio('escalas')" class="rel-chip">🗂️ Histórico de escalas e responsáveis</button>
+        <button data-rel="eventos" onclick="selecionarRelatorio('eventos')" class="rel-chip">🎉 Eventos especiais</button>
+      </div>
+
+      <p style="font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.6px;margin:0 0 6px">✅ Presença</p>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button data-rel="missas" onclick="selecionarRelatorio('missas')" class="rel-chip">⛪ Missas</button>
+        <button data-rel="reunioes" onclick="selecionarRelatorio('reunioes')" class="rel-chip">📋 Reuniões</button>
+        <button data-rel="adoracoes" onclick="selecionarRelatorio('adoracoes')" class="rel-chip">🙏 Adorações</button>
+        <button data-rel="consolidado" onclick="selecionarRelatorio('consolidado')" class="rel-chip">🗂️ Presença consolidada (todos os setores)</button>
+        <button data-rel="faltas" onclick="selecionarRelatorio('faltas')" class="rel-chip">🟡 Faltas disciplinares</button>
+      </div>
+    </div>
+
+    <div id="rel-barra-atual" style="display:none;align-items:center;justify-content:space-between;background:#f0faf5;border:1.5px solid #e1f5ee;border-radius:10px;padding:10px 12px;margin-bottom:14px">
+      <span id="rel-nome-atual" style="font-size:13px;font-weight:700;color:#085041"></span>
+      <button onclick="trocarRelatorio()" style="font-size:11px;padding:5px 12px;border:1.5px solid #0A6E58;border-radius:16px;background:white;color:#0A6E58;cursor:pointer;font-weight:600">🔄 Trocar</button>
+    </div>
+
+    <div id="rel-body-wrap" style="display:none;border-top:1.5px solid #f0f0ee;padding-top:14px">
+      <div id="rel-body"></div>
+    </div>
     <div style="margin-top:12px;display:flex;gap:6px">
       <button class="btn-o" onclick="exportarCSV()" style="margin:0;flex:1">📥 Exportar CSV</button>
       <button class="btn-o" onclick="imprimirRelatorioArquidiocese()" style="margin:0;flex:1;color:#085041;border-color:#085041">🖨️ Imprimir Arquidiocese</button>
