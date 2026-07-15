@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.19.5';
+const APP_VERSAO = '19.20.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7967,7 +7967,7 @@ function iniciarCameraQuiosque(facing){
   if(_qStream){ _qStream.getTracks().forEach(t=>t.stop()); _qStream=null; }
   if(_qInterval){ clearInterval(_qInterval); _qInterval=null; }
 
-  navigator.mediaDevices.getUserMedia({video:{facingMode:facing}})
+  navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1920}, height:{ideal:1920}}})
     .then(stream=>{
       _qStream=stream;
       video.srcObject=stream;
@@ -7978,11 +7978,11 @@ function iniciarCameraQuiosque(facing){
         video.play().then(()=>{
           if(statusEl) statusEl.textContent = '📷 Lendo... aproxime a carteirinha';
           if(_qInterval) clearInterval(_qInterval);
-          _qInterval=setInterval(()=>qLerFrame(video),250);
+          _qInterval=setInterval(()=>qLerFrame(video),150);
         }).catch(()=>{
           if(statusEl) statusEl.textContent = 'Toque na tela para iniciar a câmera';
           const tela=document.getElementById('quiosque-tela');
-          tela.onclick = ()=>{ video.play(); tela.onclick=null; if(_qInterval) clearInterval(_qInterval); _qInterval=setInterval(()=>qLerFrame(video),250); };
+          tela.onclick = ()=>{ video.play(); tela.onclick=null; if(_qInterval) clearInterval(_qInterval); _qInterval=setInterval(()=>qLerFrame(video),150); };
         });
       };
     })
@@ -8028,8 +8028,36 @@ function qLerFrame(video){
   }catch(e){}
 }
 
+// Beep curto via Web Audio API — sem precisar de arquivo de áudio externo
+let _beepCtx = null;
+function tocarBeep(tipo){
+  try{
+    if(!_beepCtx) _beepCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const ctx = _beepCtx;
+    if(ctx.state==='suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine';
+    if(tipo==='duplicado'){
+      osc.frequency.setValueAtTime(420, ctx.currentTime);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.25);
+      osc.start(); osc.stop(ctx.currentTime+0.25);
+    } else {
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      gain.gain.setValueAtTime(0.22, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18);
+      osc.start();
+      osc.frequency.setValueAtTime(1160, ctx.currentTime+0.1);
+      osc.stop(ctx.currentTime+0.2);
+    }
+  }catch(e){}
+}
+
 function qFeedback(m, jaLido){
   _qPausado=true;
+  tocarBeep(jaLido ? 'duplicado' : 'ok');
   const fb=document.getElementById('q-feedback');
   const cor = jaLido ? '#BA7517' : '#1D9E75';
   const fotoHtml = m.foto
@@ -10708,27 +10736,27 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
 </div>
 
 <!-- TELA CHEIA DO QUIOSQUE -->
-<div id="quiosque-tela" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0a0a;flex-direction:column;align-items:center;justify-content:flex-start;overflow:hidden">
-  <div style="width:100%;text-align:center;padding:18px 16px 10px">
-    <p id="q-evento-label" style="color:#9cc9bb;font-size:14px;font-weight:600;margin:0"></p>
-    <p id="q-contador-tela" style="color:#1D9E75;font-size:13px;font-weight:700;margin:4px 0 0">0 presença(s) registrada(s)</p>
+<div id="quiosque-tela" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0a0a;overflow:hidden">
+  <video id="q-video" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" playsinline></video>
+  <canvas id="q-canvas" style="display:none"></canvas>
+  <!-- moldura de leitura — grande, ocupa quase a largura toda pra ler rápido de longe -->
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(88vw,86vh,560px);height:min(88vw,86vh,560px);border:4px solid rgba(255,255,255,.55);border-radius:28px;box-shadow:0 0 0 9999px rgba(0,0,0,.38);pointer-events:none"></div>
+  <!-- cabeçalho flutuante -->
+  <div style="position:absolute;top:0;left:0;right:0;text-align:center;padding:16px 16px 24px;background:linear-gradient(rgba(0,0,0,.55),transparent);pointer-events:none">
+    <p id="q-evento-label" style="color:#bfe6d8;font-size:14px;font-weight:600;margin:0"></p>
+    <p id="q-contador-tela" style="color:#3ddb9a;font-size:13px;font-weight:700;margin:4px 0 0">0 presença(s) registrada(s)</p>
   </div>
-  <div style="position:relative;flex:1;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden">
-    <video id="q-video" style="width:100%;height:100%;object-fit:cover" playsinline></video>
-    <canvas id="q-canvas" style="display:none"></canvas>
-    <!-- moldura de leitura -->
-    <div style="position:absolute;width:min(62vw,320px);height:min(62vw,320px);border:3px solid rgba(255,255,255,.5);border-radius:24px;box-shadow:0 0 0 9999px rgba(0,0,0,.45)"></div>
-    <!-- feedback grande -->
-    <div id="q-feedback" style="display:none;position:absolute;inset:0;background:rgba(8,80,65,.96);flex-direction:column;align-items:center;justify-content:center;gap:16px"></div>
-  </div>
-  <div style="width:100%;text-align:center;padding:16px">
-    <p style="color:white;font-size:22px;font-weight:700;margin:0">Aproxime sua carteirinha</p>
-    <p id="q-status-cam" style="color:#1D9E75;font-size:13px;margin:6px 0 0">Iniciando câmera...</p>
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
-      <button onclick="trocarCameraQuiosque()" style="padding:8px 18px;border:1px solid #444;border-radius:20px;background:transparent;color:#999;font-size:12px;cursor:pointer">🔄 Trocar câmera</button>
-      <button onclick="tentarSairQuiosque()" style="padding:8px 18px;border:1px solid #444;border-radius:20px;background:transparent;color:#777;font-size:12px;cursor:pointer">🔒 Sair do quiosque</button>
+  <!-- rodapé flutuante -->
+  <div style="position:absolute;bottom:0;left:0;right:0;text-align:center;padding:20px 16px 22px;background:linear-gradient(transparent,rgba(0,0,0,.6))">
+    <p style="color:white;font-size:20px;font-weight:700;margin:0;text-shadow:0 1px 4px rgba(0,0,0,.6)">Aproxime sua carteirinha</p>
+    <p id="q-status-cam" style="color:#3ddb9a;font-size:12px;margin:5px 0 0">Iniciando câmera...</p>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+      <button onclick="trocarCameraQuiosque()" style="padding:7px 16px;border:1px solid rgba(255,255,255,.3);border-radius:20px;background:rgba(255,255,255,.08);color:#ccc;font-size:11px;cursor:pointer">🔄 Trocar câmera</button>
+      <button onclick="tentarSairQuiosque()" style="padding:7px 16px;border:1px solid rgba(255,255,255,.3);border-radius:20px;background:rgba(255,255,255,.08);color:#999;font-size:11px;cursor:pointer">🔒 Sair do quiosque</button>
     </div>
   </div>
+  <!-- feedback grande -->
+  <div id="q-feedback" style="display:none;position:absolute;inset:0;background:rgba(8,80,65,.96);flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:2"></div>
 </div>
 
 </body>
