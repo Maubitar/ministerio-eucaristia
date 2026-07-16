@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.20.0';
+const APP_VERSAO = '19.20.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7967,7 +7967,7 @@ function iniciarCameraQuiosque(facing){
   if(_qStream){ _qStream.getTracks().forEach(t=>t.stop()); _qStream=null; }
   if(_qInterval){ clearInterval(_qInterval); _qInterval=null; }
 
-  navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1920}, height:{ideal:1920}}})
+  navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1280}, height:{ideal:1280}}})
     .then(stream=>{
       _qStream=stream;
       video.srcObject=stream;
@@ -7996,36 +7996,47 @@ window.trocarCameraQuiosque = function(){
   iniciarCameraQuiosque(_qConfig.camera);
 };
 
+let _qLendoAgora = false;
 function qLerFrame(video){
-  if(_qPausado) return;
+  if(_qPausado || _qLendoAgora) return;
   if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
   if(!video.videoWidth || !video.videoHeight) return; // metadados ainda não prontos
-  const canvas=document.getElementById('q-canvas');
-  const ctx=canvas.getContext('2d');
-  canvas.width=video.videoWidth; canvas.height=video.videoHeight;
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  _qLendoAgora = true;
   try{
-    const imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
+    const canvas=document.getElementById('q-canvas');
+    const ctx=canvas.getContext('2d');
+    // Lê só a área da moldura central (bem mais rápido que o quadro inteiro e mais preciso)
+    const vw=video.videoWidth, vh=video.videoHeight;
+    const lado = Math.round(Math.min(vw,vh) * 0.75);
+    const sx = Math.round((vw-lado)/2), sy = Math.round((vh-lado)/2);
+    const tam = 480; // resolução de trabalho — leve o bastante pra não travar o celular
+    canvas.width=tam; canvas.height=tam;
+    ctx.drawImage(video, sx, sy, lado, lado, 0, 0, tam, tam);
     if(window.jsQR){
-      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'attemptBoth'});
+      const imageData=ctx.getImageData(0,0,tam,tam);
+      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
       if(code && code.data && code.data.includes('ministro=')){
         let id=null;
         try{ id=new URL(code.data).searchParams.get('ministro'); }catch(e){
-          // fallback: extrai o id manualmente se a URL não parsear
           const mm = code.data.match(/ministro=([^&\s]+)/); if(mm) id=mm[1];
         }
-        if(!id) return;
-        const m=ministros.find(x=>x.id===id) || (window.ministros||[]).find(x=>x.id===id);
-        if(!m) return;
-        if(_qLidos.has(id)){ qFeedback(m,true); return; }
-        _qLidos.add(id);
-        if(!_qConfig.registros) _qConfig.registros={};
-        _qConfig.registros[id]={status:'P',justificativa:''};
-        qSalvarParcial();
-        qFeedback(m,false);
+        if(id){
+          const m=ministros.find(x=>x.id===id) || (window.ministros||[]).find(x=>x.id===id);
+          if(m){
+            if(_qLidos.has(id)){ qFeedback(m,true); }
+            else{
+              _qLidos.add(id);
+              if(!_qConfig.registros) _qConfig.registros={};
+              _qConfig.registros[id]={status:'P',justificativa:''};
+              qSalvarParcial();
+              qFeedback(m,false);
+            }
+          }
+        }
       }
     }
   }catch(e){}
+  _qLendoAgora = false;
 }
 
 // Beep curto via Web Audio API — sem precisar de arquivo de áudio externo
