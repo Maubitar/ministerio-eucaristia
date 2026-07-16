@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.20.1';
+const APP_VERSAO = '19.20.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7967,13 +7967,21 @@ function iniciarCameraQuiosque(facing){
   if(_qStream){ _qStream.getTracks().forEach(t=>t.stop()); _qStream=null; }
   if(_qInterval){ clearInterval(_qInterval); _qInterval=null; }
 
-  navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1280}, height:{ideal:1280}}})
+  navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1280}, height:{ideal:1280}, focusMode:'continuous'}})
     .then(stream=>{
       _qStream=stream;
       video.srcObject=stream;
       video.style.transform = (facing==='user') ? 'scaleX(-1)' : 'none'; // espelha só a frontal
       video.setAttribute('playsinline','');
       video.muted = true;
+      // Tenta forçar foco automático contínuo (ajuda a ler de perto sem precisar ficar ajustando a distância)
+      try{
+        const track = stream.getVideoTracks()[0];
+        const caps = track.getCapabilities ? track.getCapabilities() : {};
+        if(caps.focusMode && caps.focusMode.includes('continuous')){
+          track.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+        }
+      }catch(e){}
       video.onloadedmetadata = ()=>{
         video.play().then(()=>{
           if(statusEl) statusEl.textContent = '📷 Lendo... aproxime a carteirinha';
@@ -7997,6 +8005,7 @@ window.trocarCameraQuiosque = function(){
 };
 
 let _qLendoAgora = false;
+let _qTentativa = 0;
 function qLerFrame(video){
   if(_qPausado || _qLendoAgora) return;
   if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
@@ -8005,16 +8014,23 @@ function qLerFrame(video){
   try{
     const canvas=document.getElementById('q-canvas');
     const ctx=canvas.getContext('2d');
-    // Lê só a área da moldura central (bem mais rápido que o quadro inteiro e mais preciso)
     const vw=video.videoWidth, vh=video.videoHeight;
-    const lado = Math.round(Math.min(vw,vh) * 0.75);
-    const sx = Math.round((vw-lado)/2), sy = Math.round((vh-lado)/2);
-    const tam = 480; // resolução de trabalho — leve o bastante pra não travar o celular
+    _qTentativa++;
+    // A cada 4ª tentativa, escaneia o quadro INTEIRO (fallback caso o QR esteja fora da moldura central)
+    const usarQuadroCheio = (_qTentativa % 4 === 0);
+    let sx, sy, lado;
+    if(usarQuadroCheio){
+      lado = Math.min(vw,vh); sx=Math.round((vw-lado)/2); sy=Math.round((vh-lado)/2);
+    } else {
+      lado = Math.round(Math.min(vw,vh) * 0.75);
+      sx = Math.round((vw-lado)/2); sy = Math.round((vh-lado)/2);
+    }
+    const tam = 560; // resolução de trabalho — leve o bastante pra não travar o celular, nítida o bastante pra ler bem
     canvas.width=tam; canvas.height=tam;
     ctx.drawImage(video, sx, sy, lado, lado, 0, 0, tam, tam);
     if(window.jsQR){
       const imageData=ctx.getImageData(0,0,tam,tam);
-      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'dontInvert'});
+      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'attemptBoth'});
       if(code && code.data && code.data.includes('ministro=')){
         let id=null;
         try{ id=new URL(code.data).searchParams.get('ministro'); }catch(e){
@@ -8046,22 +8062,23 @@ function tocarBeep(tipo){
     if(!_beepCtx) _beepCtx = new (window.AudioContext||window.webkitAudioContext)();
     const ctx = _beepCtx;
     if(ctx.state==='suspended') ctx.resume();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.type = 'sine';
+    function tom(freq, inicio, duracao, volume){
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime+inicio);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime+inicio);
+      gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime+inicio+0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+inicio+duracao);
+      osc.start(ctx.currentTime+inicio);
+      osc.stop(ctx.currentTime+inicio+duracao+0.02);
+    }
     if(tipo==='duplicado'){
-      osc.frequency.setValueAtTime(420, ctx.currentTime);
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.25);
-      osc.start(); osc.stop(ctx.currentTime+0.25);
+      tom(300, 0, 0.30, 0.55);
     } else {
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      gain.gain.setValueAtTime(0.22, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.18);
-      osc.start();
-      osc.frequency.setValueAtTime(1160, ctx.currentTime+0.1);
-      osc.stop(ctx.currentTime+0.2);
+      tom(1046, 0, 0.11, 0.7);      // Dó
+      tom(1568, 0.12, 0.20, 0.7);   // Sol — "ding-dong" de confirmação
     }
   }catch(e){}
 }
