@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.22.0';
+const APP_VERSAO = '19.22.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4541,17 +4541,44 @@ window.imprimirEscalaFinalizadaComoEscala = async function(docId){
     if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
     const paginas = montarPaginasEscalaFinalizada(info);
     if(!paginas.length){ toast('Nenhum ministro nessa escala finalizada.','warn'); return; }
+    toast(`Preparando ${paginas.length} página(s) para impressão...`,'ok');
+
+    // Converte cada semana em IMAGEM (mesmo gerador usado no WhatsApp, já testado e correto)
+    // em vez de imprimir o HTML bruto — evita o HTML de 1900px "explodir" em dezenas de folhas.
+    const BASE_W = 1900;
+    const imgsUrl = [];
+    for(const paginaHtml of paginas){
+      const wrap=document.createElement('div');
+      wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
+      wrap.innerHTML = paginaHtml;
+      document.body.appendChild(wrap);
+      try{
+        await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
+          img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
+        ));
+        await new Promise(r=>setTimeout(r,120));
+        const blob = await capturarImagemAlta(wrap);
+        imgsUrl.push(URL.createObjectURL(blob));
+      } finally {
+        document.body.removeChild(wrap);
+      }
+    }
+
     const w = window.open('', '_blank');
     if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
-    const paginasHtml = paginas.map((p,i)=>`<div style="${i<paginas.length-1?'page-break-after:always;':''}padding:14px">${p}</div>`).join('');
+    const paginasHtml = imgsUrl.map((url,i)=>
+      `<div style="${i<imgsUrl.length-1?'page-break-after:always;':''}width:100%;display:flex;justify-content:center;align-items:flex-start">
+        <img src="${url}" style="width:100%;max-width:100%;height:auto;display:block">
+      </div>`
+    ).join('');
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${info.rotulo}</title>
       <style>
-        @page{ size:portrait; margin:10mm }
-        body{font-family:Arial,sans-serif;margin:0}
-        @media print{ body{padding:0} }
+        @page{ size:portrait; margin:6mm }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{background:white}
       </style></head><body>
       ${paginasHtml}
-      <script>window.onload=()=>window.print();<\/script>
+      <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script>
       </body></html>`);
     w.document.close();
   }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
