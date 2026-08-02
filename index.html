@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.20.2';
+const APP_VERSAO = '19.22.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4456,6 +4456,108 @@ async function montarDadosEscalaFinalizada(docId){
   return { semanasComFoto, rotulo };
 }
 
+const CORES_HORARIO_FIN = {
+  '06:00h':{escuro:'#2E5EAA',claro:'#eef3fb'}, '07:00h':{escuro:'#2E5EAA',claro:'#eef3fb'},
+  '08:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'}, '09:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'},
+  '10:00h':{escuro:'#B5852A',claro:'#faf4e6'}, '12:00h':{escuro:'#9B4A8C',claro:'#f8eef6'},
+  '16:00h':{escuro:'#5C6BC0',claro:'#eef0fa'}, '18:00h':{escuro:'#C05A3E',claro:'#fbefeb'},
+  '20:00h':{escuro:'#3E7C8C',claro:'#ebf4f6'}
+};
+
+// Monta o HTML visual da ESCALA finalizada (cards por horário, foto, responsável) — usado no compartilhar (imagem) e no imprimir (PDF/print)
+function cardHorarioFin(hObj){
+  if(!hObj.ministros || !hObj.ministros.length) return '';
+  const corH = CORES_HORARIO_FIN[hObj.hora] || {escuro:'#085041',claro:'#eef5f2'};
+  const linhas = hObj.ministros.map((m)=>{
+    const fotoHtml = m.foto
+      ? `<img src="${m.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
+      : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
+    return `<tr>
+      <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${m.num}</td>
+      <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
+      <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${m.isResp?'font-weight:700':''}">${m.nome}</td>
+    </tr>`;
+  }).join('');
+  const respTop = hObj.responsavel ? `<div style="font-weight:700;font-size:24px;margin-top:5px;line-height:1.3;word-break:break-word">★ ${hObj.responsavel}${hObj.respTel?`<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${hObj.respTel.replace(' — ','')}</span>`:''}</div>` : '';
+  return `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:24px;break-inside:avoid">
+    <div style="background:${corH.escuro};color:white;padding:14px 20px">
+      <div style="font-weight:800;font-size:34px">⏰ ${hObj.hora}</div>
+      ${respTop}
+    </div>
+    <table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhas}</tbody></table>
+  </div>`;
+}
+
+// Monta UMA "PÁGINA" (mesmo tamanho/proporção da dominical: 1900px, cabeçalho com logos) para um conjunto de cards
+function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
+  if(!cards.length) return null;
+  // 2 colunas balanceadas por altura (mesmo padrão da semanal ao vivo) — cards ficam do mesmo tamanho da dominical
+  const cols = ['',''];
+  const alturas = [0,0];
+  cards.forEach(c=>{
+    const menor = alturas[0] <= alturas[1] ? 0 : 1;
+    cols[menor] += c.html;
+    alturas[menor] += c.peso;
+  });
+  const banda = tituloFaixa ? `<div style="background:${corBorda};color:white;text-align:center;padding:14px 20px;border-radius:8px;margin:14px 0 22px"><span style="font-size:28px;font-weight:800;letter-spacing:.5px">${tituloFaixa}</span></div>` : '';
+  return `
+   <div style="border:3px solid ${corBorda};border-radius:14px;padding:26px 24px;background:white">
+    <div style="display:flex;align-items:center;gap:22px;border-bottom:4px solid ${corBorda};padding-bottom:16px;margin-bottom:8px">
+      <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1 style="margin:4px 0;color:${corBorda};font-size:30px">${rotulo}</h1>
+        <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
+    </div>
+    ${banda}
+    <div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols[0]}</div><div style="flex:1;min-width:0">${cols[1]}</div></div>
+    <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré (escala finalizada)</p>
+   </div>`;
+}
+
+// Retorna um ARRAY de páginas (uma por semana, no caso semanal — sempre no mesmo tamanho/proporção da dominical)
+function montarPaginasEscalaFinalizada(info){
+  const paginas = [];
+  (info.semanasComFoto||[]).forEach(sem=>{
+    const cards = (sem.horarios||[]).map(h=>{
+      const html = cardHorarioFin(h);
+      if(!html) return null;
+      return { html, peso: (h.ministros?.length||0) + 2 };
+    }).filter(Boolean);
+    if(!cards.length) return;
+    const tituloFaixa = sem.label ? `${sem.label}${sem.periodo?' — '+sem.periodo:''}` : (sem.periodo || '');
+    const pagina = montarPaginaEscalaFin(info.rotulo, tituloFaixa, cards, '#085041');
+    if(pagina) paginas.push(pagina);
+  });
+  return paginas;
+}
+
+// Imprime a ESCALA (quem serve em qual horário) — não confundir com a Lista de Presença (P/F/S)
+window.imprimirEscalaFinalizadaComoEscala = async function(docId){
+  try{
+    const info = await montarDadosEscalaFinalizada(docId);
+    if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
+    const paginas = montarPaginasEscalaFinalizada(info);
+    if(!paginas.length){ toast('Nenhum ministro nessa escala finalizada.','warn'); return; }
+    const w = window.open('', '_blank');
+    if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+    const paginasHtml = paginas.map((p,i)=>`<div style="${i<paginas.length-1?'page-break-after:always;':''}padding:14px">${p}</div>`).join('');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${info.rotulo}</title>
+      <style>
+        @page{ size:portrait; margin:10mm }
+        body{font-family:Arial,sans-serif;margin:0}
+        @media print{ body{padding:0} }
+      </style></head><body>
+      ${paginasHtml}
+      <script>window.onload=()=>window.print();<\/script>
+      </body></html>`);
+    w.document.close();
+  }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
+};
+
+// Imprime a LISTA DE PRESENÇA (P/F/S) — usada na sacristia pra marcar presença/QR
 window.imprimirEscalaFinalizada = async function(docId){
   try{
     const info = await montarDadosEscalaFinalizada(docId);
@@ -4468,79 +4570,30 @@ window.compartilharEscalaFinalizada = async function(docId){
   try{
     const info = await montarDadosEscalaFinalizada(docId);
     if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
-    toast('Gerando imagem para compartilhar...','ok');
-
-    const CORES_HORARIO_FIN = {
-      '06:00h':{escuro:'#2E5EAA',claro:'#eef3fb'}, '07:00h':{escuro:'#2E5EAA',claro:'#eef3fb'},
-      '08:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'}, '09:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'},
-      '10:00h':{escuro:'#B5852A',claro:'#faf4e6'}, '12:00h':{escuro:'#9B4A8C',claro:'#f8eef6'},
-      '16:00h':{escuro:'#5C6BC0',claro:'#eef0fa'}, '18:00h':{escuro:'#C05A3E',claro:'#fbefeb'},
-      '20:00h':{escuro:'#3E7C8C',claro:'#ebf4f6'}
-    };
-
-    function cardHorarioFin(hObj){
-      if(!hObj.ministros || !hObj.ministros.length) return '';
-      const corH = CORES_HORARIO_FIN[hObj.hora] || {escuro:'#085041',claro:'#eef5f2'};
-      const linhas = hObj.ministros.map((m)=>{
-        const fotoHtml = m.foto
-          ? `<img src="${m.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
-          : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
-        return `<tr>
-          <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${m.num}</td>
-          <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
-          <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${m.isResp?'font-weight:700':''}">${m.nome}</td>
-        </tr>`;
-      }).join('');
-      const respTop = hObj.responsavel ? `<div style="font-weight:700;font-size:24px;margin-top:5px;line-height:1.3;word-break:break-word">★ ${hObj.responsavel}${hObj.respTel?`<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${hObj.respTel.replace(' — ','')}</span>`:''}</div>` : '';
-      return `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:24px;break-inside:avoid">
-        <div style="background:${corH.escuro};color:white;padding:14px 20px">
-          <div style="font-weight:800;font-size:34px">⏰ ${hObj.hora}</div>
-          ${respTop}
-        </div>
-        <table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhas}</tbody></table>
-      </div>`;
-    }
-
-    const semanasBlocos = (info.semanasComFoto||[]).map(sem=>{
-      const cards = (sem.horarios||[]).map(cardHorarioFin).filter(Boolean);
-      if(!cards.length) return '';
-      const cols3 = ['','',''];
-      cards.forEach((c,i)=>{ cols3[i%3]+=c; });
-      const banda = sem.label ? `<div style="background:#185FA5;color:white;text-align:center;padding:10px 16px;border-radius:8px;margin:18px 0 14px;font-weight:700;font-size:24px">${sem.label}${sem.periodo?' — '+sem.periodo:''}</div>` : (sem.periodo ? `<div style="text-align:center;color:#555;font-size:20px;margin:0 0 14px">${sem.periodo}</div>` : '');
-      return banda + `<div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols3[0]}</div><div style="flex:1;min-width:0">${cols3[1]}</div><div style="flex:1;min-width:0">${cols3[2]}</div></div>`;
-    }).join('');
-
-    if(!semanasBlocos.trim()){ toast('Nenhum ministro nessa escala finalizada.','warn'); return; }
+    const paginas = montarPaginasEscalaFinalizada(info);
+    if(!paginas.length){ toast('Nenhum ministro nessa escala finalizada.','warn'); return; }
+    if(paginas.length>1) toast(`Gerando ${paginas.length} imagens (uma por semana)...`,'ok');
+    else toast('Gerando imagem para compartilhar...','ok');
 
     const BASE_W = 1900;
-    const wrap=document.createElement('div');
-    wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
-    wrap.innerHTML=`
-     <div style="border:3px solid #085041;border-radius:14px;padding:26px 24px;background:white">
-      <div style="display:flex;align-items:center;gap:22px;border-bottom:4px solid #085041;padding-bottom:16px;margin-bottom:8px">
-        <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
-        <div style="flex:1;text-align:center">
-          <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-          <h1 style="margin:4px 0;color:#085041;font-size:30px">${info.rotulo}</h1>
-          <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-        </div>
-        <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
-      </div>
-      ${semanasBlocos}
-      <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré (escala finalizada)</p>
-     </div>`;
-    document.body.appendChild(wrap);
-
-    try{
-      await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
-        img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
-      ));
-      const blob = await capturarImagemAlta(wrap);
-      await compartilharOuBaixarImagem(blob, `escala_finalizada_${docId}.png`);
-    }catch(e){
-      toast('Erro ao gerar imagem: '+e.message,'err');
-    }finally{
-      document.body.removeChild(wrap);
+    for(let i=0;i<paginas.length;i++){
+      const wrap=document.createElement('div');
+      wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
+      wrap.innerHTML = paginas[i];
+      document.body.appendChild(wrap);
+      try{
+        await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
+          img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
+        ));
+        await new Promise(r=>setTimeout(r,150));
+        const blob = await capturarImagemAlta(wrap);
+        await compartilharOuBaixarImagem(blob, `escala_finalizada_${docId}_${i+1}.png`);
+      }catch(e){
+        toast('Erro ao gerar imagem: '+e.message,'err');
+      }finally{
+        document.body.removeChild(wrap);
+      }
+      if(i < paginas.length-1) await new Promise(r=>setTimeout(r,600));
     }
   }catch(e){ toast('Erro ao compartilhar: '+e.message,'warn'); }
 };
@@ -4572,8 +4625,9 @@ window.renderEscalasFinalizadas = async function(){
       return `<div class="card" style="border:1.5px solid #e1f5ee;margin-bottom:10px">
         <p class="ct">${icone} ${titulo}</p>
         <p style="font-size:12px;color:#666;margin:0 0 10px">${qtdHorarios} horário(s) travado(s) para impressão</p>
+        <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="width:100%;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📄 Imprimir Escala</button>
         <div style="display:flex;gap:8px;margin-bottom:8px">
-          <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#185FA5;color:white;font-size:13px;font-weight:600;cursor:pointer">🖨️ Imprimir PDF</button>
+          <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🖨️ Lista de Presença</button>
           <button onclick="excluirEscalaFinalizada('${it.id}')" style="padding:10px 14px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer">🗑️</button>
         </div>
         <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Transmitir via WhatsApp</button>
