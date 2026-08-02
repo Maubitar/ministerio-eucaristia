@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.22.7';
+const APP_VERSAO = '19.22.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4535,201 +4535,68 @@ function montarPaginasEscalaFinalizada(info){
 }
 
 // Imprime a ESCALA (quem serve em qual horário) — não confundir com a Lista de Presença (P/F/S)
-// Gera a ESCALA (quem serve em qual horário — sem colunas de data/P/F/S) em PDF vetorial, rápido, sem captura de tela.
-// Reaproveita o mesmo motor de paginação já comprovado do gerarPDFPresenca.
-async function gerarPDFEscala(semanas, tipoLabel, acao){
-  acao = acao || 'abrir';
-  if(!window.jspdf || !window.jspdf.jsPDF){
-    toast('Biblioteca de PDF ainda carregando, tente de novo em instantes.','warn');
-    return;
-  }
-  toast('Gerando PDF, aguarde...','ok');
-
-  const fotoCache = {};
-  async function carregarFoto(url){
-    return new Promise((resolve)=>{
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = ()=>{
-        try{
-          const cnv = document.createElement('canvas');
-          const size = 60;
-          cnv.width = size; cnv.height = size;
-          const ctx = cnv.getContext('2d');
-          const min = Math.min(img.width, img.height);
-          const sx = (img.width - min)/2, sy = (img.height - min)/2;
-          ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
-          resolve(cnv.toDataURL('image/jpeg', 0.8));
-        }catch(e){ resolve(null); }
-      };
-      img.onerror = ()=>resolve(null);
-      img.src = url;
-    });
-  }
-  const nomesComFoto = new Set();
-  semanas.forEach(s=>s.horarios.forEach(h=>h.ministros.forEach(m=>{ if(m.foto) nomesComFoto.add(m.nome+'|||'+m.foto); })));
-  for(const chave of nomesComFoto){
-    const [nome, url] = chave.split('|||');
-    fotoCache[nome] = await carregarFoto(url);
-  }
-
-  // Pré-carrega as logos institucionais (mesmo padrão da Escala colorida/WhatsApp)
-  async function carregarLogo(url){
-    return new Promise((resolve)=>{
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = ()=>{
-        try{
-          const cnv = document.createElement('canvas');
-          cnv.width = img.width; cnv.height = img.height;
-          cnv.getContext('2d').drawImage(img,0,0);
-          resolve(cnv.toDataURL('image/png'));
-        }catch(e){ resolve(null); }
-      };
-      img.onerror = ()=>resolve(null);
-      img.src = url;
-    });
-  }
-  const logoBasilica = await carregarLogo(LOGO_BASILICA);
-  const logoMesce = await carregarLogo(LOGO_MESCE);
-
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-  const M = 10;
-
-  function cabecalho(){
-    const logoD = 14;
-    if(logoBasilica){ try{ pdf.addImage(logoBasilica,'PNG', M, M-2, logoD, logoD); }catch(e){} }
-    if(logoMesce){ try{ pdf.addImage(logoMesce,'PNG', pageW-M-logoD, M-2, logoD, logoD); }catch(e){} }
-    pdf.setFont('helvetica','bold'); pdf.setFontSize(14); pdf.setTextColor(8,80,65);
-    pdf.text(tipoLabel, pageW/2, M+5, {align:'center'});
-    pdf.setFont('helvetica','normal'); pdf.setFontSize(8); pdf.setTextColor(90,90,90);
-    pdf.text('Basílica Santuário de Nossa Senhora de Nazaré · Ministério Extraordinário da Sagrada Comunhão Eucarística', pageW/2, M+10, {align:'center'});
-  }
-  cabecalho();
-  let y = M + 16;
-  const larguraCard = pageW - 2*M;
-
-  function hexRgb(hex){
-    hex = (hex||'#085041').replace('#','');
-    return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
-  }
-  const alturaLinha = 8;
-  const alturaHeaderCard = 12;
-
-  function alturaCard(h){ return alturaHeaderCard + h.ministros.length*alturaLinha + 3; }
-
-  semanas.forEach(sem=>{
-    const tituloFaixa = sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||'');
-    if(tituloFaixa){
-      if(y + 10 > pageH - M - 4){ pdf.addPage(); cabecalho(); y = M+16; }
-      pdf.setFillColor(19,78,142); pdf.rect(M, y, larguraCard, 8, 'F');
-      pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(255,255,255);
-      pdf.text(tituloFaixa, pageW/2, y+5.5, {align:'center'});
-      y += 8 + 3;
-    }
-
-    sem.horarios.forEach(h=>{
-      if(!h.ministros.length) return;
-      const alt = alturaCard(h);
-
-      // Card maior que uma página inteira (ex.: Círio, muitos ministros)? Começa mesmo assim numa página nova,
-      // e deixa as linhas de ministros seguirem até o fim física da folha — sem cortar o card ao meio sem necessidade.
-      if(y + Math.min(alt, alturaHeaderCard+4*alturaLinha) > pageH - M - 4){
-        pdf.addPage(); cabecalho(); y = M+16;
-      }
-
-      const cor = CORES_HORARIO_FIN[h.hora] || {escuro:'#085041',claro:'#eef5f2'};
-      const [er,eg,eb] = hexRgb(cor.escuro);
-      const [cr,cg,cb] = hexRgb(cor.claro);
-      const xCard = M;
-      const yCardTop = y;
-
-      // Corpo (fundo claro) + borda colorida
-      pdf.setFillColor(cr,cg,cb);
-      pdf.rect(xCard, y, larguraCard, alt, 'F');
-      pdf.setDrawColor(er,eg,eb); pdf.setLineWidth(0.6);
-      pdf.rect(xCard, y, larguraCard, alt, 'S');
-
-      // Faixa colorida do horário/responsável
-      pdf.setFillColor(er,eg,eb);
-      pdf.rect(xCard, y, larguraCard, alturaHeaderCard, 'F');
-      pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold'); pdf.setFontSize(11);
-      pdf.text('Horário: '+h.hora, xCard+4, y+5);
-      pdf.setFont('helvetica','normal'); pdf.setFontSize(9);
-      pdf.text('Responsável: '+(h.responsavel||'—')+(h.respTel||''), xCard+4, y+9.5);
-
-      let yl = y + alturaHeaderCard + 5;
-      h.ministros.forEach((m)=>{
-        // Quebra de página NO MEIO do card (só acontece em casos gigantes) — refaz a faixa colorida no topo da nova página
-        if(yl + 4 > pageH - M - 4){
-          pdf.addPage(); cabecalho(); y = M+16;
-          pdf.setFillColor(cr,cg,cb); pdf.rect(xCard, y, larguraCard, pageH-M-4-y, 'F');
-          pdf.setDrawColor(er,eg,eb); pdf.rect(xCard, y, larguraCard, pageH-M-4-y, 'S');
-          yl = y + 3;
-        }
-        pdf.setTextColor(130,130,130); pdf.setFont('helvetica','normal'); pdf.setFontSize(9);
-        pdf.text(String(m.num), xCard+6, yl+1.6, {align:'center'});
-        const cx = xCard+16, cy = yl;
-        const d = 6.4;
-        const foto = m.foto ? fotoCache[m.nome] : null;
-        if(foto){
-          try{
-            pdf.saveGraphicsState(); pdf.circle(cx,cy,d/2,null); pdf.clip(); pdf.discardPath();
-            pdf.addImage(foto,'JPEG',cx-d/2,cy-d/2,d,d); pdf.restoreGraphicsState();
-          }catch(e){ try{ pdf.addImage(foto,'JPEG',cx-d/2,cy-d/2,d,d); }catch(e2){} }
-        } else {
-          const ini = (m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
-          pdf.setFillColor(255,255,255); pdf.circle(cx,cy,d/2,'F');
-          pdf.setTextColor(er,eg,eb); pdf.setFontSize(6.5); pdf.setFont('helvetica','bold');
-          pdf.text(ini, cx, cy+1.1, {align:'center'});
-        }
-        pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(10.5);
-        pdf.text(m.nome, xCard+22, yl+1.2);
-        if(m.isResp){
-          const tw = pdf.getTextWidth(m.nome);
-          desenharEstrela(pdf, xCard+22+tw+3, yl+0.2, 1.7);
-        }
-        yl += alturaLinha;
-      });
-
-      y = Math.max(yCardTop + alt, yl) + 4;
-    });
-    y += 1;
-  });
-
-  function _paginaVazia(k){
-    const pg = pdf.internal.pages[k];
-    const c = Array.isArray(pg) ? pg.join('\n') : String(pg||'');
-    return !/BT/.test(c) && !/ Do/.test(c);
-  }
-  while(pdf.internal.getNumberOfPages()>1 && _paginaVazia(pdf.internal.getNumberOfPages())){
-    pdf.deletePage(pdf.internal.getNumberOfPages());
-  }
-
-  const totalP = pdf.internal.getNumberOfPages();
-  for(let i=1;i<=totalP;i++){
-    pdf.setPage(i);
-    pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(150,150,150);
-    pdf.text('S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré  ·  Página '+i+'/'+totalP, pageW/2, pageH-4, {align:'center'});
-  }
-
-  const blob = pdf.output('blob');
-  if(acao==='compartilhar'){ await compartilharPDFBlob(blob, tipoLabel); return; }
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank');
-  if(!win){ toast('Permita pop-ups para abrir o PDF.','warn'); }
-  else { toast('✓ PDF gerado!','ok'); }
-}
-
 window.imprimirEscalaFinalizadaComoEscala = async function(docId){
+  // BLINDAGEM DE POP-UP: abre a janela JÁ, dentro do clique do usuário — antes de qualquer espera async.
+  // Isso impede o navegador de tratar a janela como pop-up bloqueado.
+  const w = window.open('', '_blank');
+  if(w){
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Preparando impressão…</title></head><body style="font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#085041;font-size:16px">⏳ Gerando escala para impressão, aguarde alguns segundos…</body></html>');
+  } else {
+    toast('Seu navegador bloqueou a janela. Clique no ícone de pop-up bloqueado na barra de endereço e permita para este site.','warn');
+  }
   try{
     const info = await montarDadosEscalaFinalizada(docId);
-    if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
-    await gerarPDFEscala(info.semanasComFoto, info.rotulo);
-  }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
+    if(!info){ toast('Escala finalizada não encontrada.','warn'); if(w&&!w.closed) w.close(); return; }
+    const paginas = montarPaginasEscalaFinalizada(info);
+    if(!paginas.length){ toast('Nenhum ministro nessa escala finalizada.','warn'); if(w&&!w.closed) w.close(); return; }
+    toast(`Preparando ${paginas.length} página(s) para impressão...`,'ok');
+
+    // Converte cada semana em IMAGEM (mesmo gerador usado no WhatsApp, já testado e correto)
+    // em vez de imprimir o HTML bruto — evita o HTML de 1900px "explodir" em dezenas de folhas.
+    const BASE_W = 1900;
+    const imgsUrl = [];
+    for(const paginaHtml of paginas){
+      const wrap=document.createElement('div');
+      wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
+      wrap.innerHTML = paginaHtml;
+      document.body.appendChild(wrap);
+      try{
+        await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
+          img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
+        ));
+        await new Promise(r=>setTimeout(r,120));
+        const blob = await capturarImagemAlta(wrap);
+        imgsUrl.push(URL.createObjectURL(blob));
+      } finally {
+        document.body.removeChild(wrap);
+      }
+    }
+
+    if(!w || w.closed){ toast('A janela de impressão foi fechada. Tente de novo.','warn'); return; }
+    const paginasHtml = imgsUrl.map((url,i)=>
+      `<div style="${i<imgsUrl.length-1?'page-break-after:always;':''}width:100%;display:flex;justify-content:center;align-items:flex-start">
+        <img src="${url}" style="width:100%;max-width:100%;height:auto;display:block">
+      </div>`
+    ).join('');
+    w.document.open();
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${info.rotulo}</title>
+      <style>
+        @page{ size:portrait; margin:6mm }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{background:white}
+      </style></head><body>
+      ${paginasHtml}
+      <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script>
+      </body></html>`);
+    w.document.close();
+  }catch(e){
+    toast('Erro ao imprimir: '+e.message,'warn');
+    if(w && !w.closed){
+      w.document.open();
+      w.document.write('<!DOCTYPE html><html><body style="font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#B00020;font-size:16px;text-align:center;padding:30px">❌ '+(e.message||'Erro ao gerar a escala.')+'<br><br>Feche esta janela e tente novamente.</body></html>');
+      w.document.close();
+    }
+  }
 };
 
 // Imprime a LISTA DE PRESENÇA (P/F/S) — usada na sacristia pra marcar presença/QR
@@ -4869,26 +4736,6 @@ async function gerarPDFPresenca(semanas, tipoLabel, acao){
     fotoCache[nome] = await carregarFoto(url);
   }
 
-  // Pré-carrega as logos institucionais (mesmo padrão da Escala colorida/WhatsApp)
-  async function carregarLogo(url){
-    return new Promise((resolve)=>{
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = ()=>{
-        try{
-          const cnv = document.createElement('canvas');
-          cnv.width = img.width; cnv.height = img.height;
-          cnv.getContext('2d').drawImage(img,0,0);
-          resolve(cnv.toDataURL('image/png'));
-        }catch(e){ resolve(null); }
-      };
-      img.onerror = ()=>resolve(null);
-      img.src = url;
-    });
-  }
-  const logoBasilica = await carregarLogo(LOGO_BASILICA);
-  const logoMesce = await carregarLogo(LOGO_MESCE);
-
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
@@ -4896,9 +4743,6 @@ async function gerarPDFPresenca(semanas, tipoLabel, acao){
   const M = 6; // margem
 
   function cabecalho(){
-    const logoD = 12;
-    if(logoBasilica){ try{ pdf.addImage(logoBasilica,'PNG', M, M-1, logoD, logoD); }catch(e){} }
-    if(logoMesce){ try{ pdf.addImage(logoMesce,'PNG', pageW-M-logoD, M-1, logoD, logoD); }catch(e){} }
     pdf.setFont('helvetica','bold'); pdf.setFontSize(13); pdf.setTextColor(8,80,65);
     pdf.text('Lista de Presença — '+tipoLabel, pageW/2, M+4, {align:'center'});
     pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(90,90,90);
@@ -4997,14 +4841,7 @@ async function gerarPDFPresenca(semanas, tipoLabel, acao){
         headStyles:{ fillColor:[223,231,228], textColor:[26,26,26], fontSize:8, halign:'center', lineColor:[80,80,80] },
         columnStyles: colStyles,
         rowPageBreak: 'avoid',
-        didDrawPage:(data)=>{
-          if(data.pageNumber===1) return;
-          const logoD = 10;
-          if(logoBasilica){ try{ pdf.addImage(logoBasilica,'PNG', M, M-1, logoD, logoD); }catch(e){} }
-          if(logoMesce){ try{ pdf.addImage(logoMesce,'PNG', pageW-M-logoD, M-1, logoD, logoD); }catch(e){} }
-          pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(140,140,140);
-          pdf.text('Lista de Presença — '+tipoLabel+' (continuação)', pageW/2, M+2, {align:'center'});
-        },
+        didDrawPage:(data)=>{ if(data.pageNumber===1) return; pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(140,140,140); pdf.text('Lista de Presença — '+tipoLabel+' (continuação)', pageW/2, M+2, {align:'center'}); },
         didParseCell:(data)=>{
           if(data.section==='body' && data.column.index===2){
             const idx = data.row.index;
