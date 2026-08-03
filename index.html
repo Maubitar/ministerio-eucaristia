@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.30.0';
+const APP_VERSAO = '19.30.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7765,9 +7765,12 @@ window.enviarCarteirinhaPara = async function(id){
   const url = `${APP_URL}/?ministro=${id}`;
   const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui está sua *Carteira Digital de Ministro* da Coordenação MESCE — Basílica de Nazaré:\n\n${url}\n\nApresente o QR Code dela para registrar presença nas missas, reuniões e adorações, e para se identificar como ministro. Guarde este link! 🕊️\n\n⚠️ *Por favor, toque no link acima agora* para confirmar o recebimento — o sistema registra automaticamente quando você abre. Links não confirmados podem ser invalidados.\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
   const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
-  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`,'_blank');
+  // Reaproveita sempre a MESMA aba (nome fixo 'sogi_zap_envio') em vez de abrir uma aba nova a cada envio
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`, 'sogi_zap_envio');
   await _marcarEnviada(id);
   renderEnvioCarteirinhas();
+  // Tenta devolver o foco pro app depois de um instante (nem todo navegador permite, mas ajuda quando permite)
+  setTimeout(()=>{ try{ window.focus(); }catch(e){} }, 900);
 };
 
 // Pega o próximo pendente com telefone válido e dispara — é o botão principal da esteira
