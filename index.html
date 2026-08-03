@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.31.0';
+const APP_VERSAO = '19.31.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4669,12 +4669,20 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   }
   const alturaLinha = 7.2;
   const alturaHeaderCard = 11;
+  const alturaHeaderCard2Linhas = 15;
   const rodapePagina = pageH - M - 4;
+
+  function precisaQuebrarResp(h){
+    const texto = 'Responsável: '+(h.responsavel||'—')+(h.respTel||'');
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.6);
+    return pdf.getTextWidth(texto) > (larguraCol-6);
+  }
+  function alturaHeaderParaCard(h){ return precisaQuebrarResp(h) ? alturaHeaderCard2Linhas : alturaHeaderCard; }
 
   function alturaCard(h){
     const temReforco = h.ministros.some(m=>m.isReforco);
     const alturaMinistros = h.ministros.reduce((acc,m)=> acc + (m.isReforco ? alturaLinha+3 : alturaLinha), 0);
-    return alturaHeaderCard + alturaMinistros + 3 + (temReforco ? 5 : 0);
+    return alturaHeaderParaCard(h) + alturaMinistros + 3 + (temReforco ? 5 : 0);
   }
 
   // Desenha um card (horário + responsável + ministros) numa coluna; devolve o Y final usado (pode ter quebrado página)
@@ -4683,20 +4691,27 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     const [er,eg,eb] = hexRgb(cor.escuro);
     const [cr,cg,cb] = hexRgb(cor.claro);
     let yy = yCard;
-    if(yy + Math.min(alturaCard(h), alturaHeaderCard+4*alturaLinha) > rodapePagina){
+    const headerH = alturaHeaderParaCard(h);
+    if(yy + Math.min(alturaCard(h), headerH+4*alturaLinha) > rodapePagina){
       pdf.addPage(); cabecalho(); yy = M+16;
     }
     const alt = alturaCard(h);
 
     pdf.setFillColor(cr,cg,cb); pdf.rect(xCard, yy, larguraCol, alt, 'F');
     pdf.setDrawColor(er,eg,eb); pdf.setLineWidth(0.6); pdf.rect(xCard, yy, larguraCol, alt, 'S');
-    pdf.setFillColor(er,eg,eb); pdf.rect(xCard, yy, larguraCol, alturaHeaderCard, 'F');
+    pdf.setFillColor(er,eg,eb); pdf.rect(xCard, yy, larguraCol, headerH, 'F');
     pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5);
     pdf.text('Horário: '+h.hora, xCard+3, yy+4.5);
     pdf.setFont('helvetica','normal'); pdf.setFontSize(7.6);
-    pdf.text('Responsável: '+(h.responsavel||'—')+(h.respTel||''), xCard+3, yy+8.3, {maxWidth: larguraCol-5});
+    if(headerH > alturaHeaderCard){
+      // Não coube numa linha só — nome numa linha, telefone na linha de baixo
+      pdf.text('Responsável: '+(h.responsavel||'—'), xCard+3, yy+8.3, {maxWidth: larguraCol-5});
+      if(h.respTel) pdf.text(h.respTel.replace(/^\s*—\s*/,''), xCard+3, yy+12, {maxWidth: larguraCol-5});
+    } else {
+      pdf.text('Responsável: '+(h.responsavel||'—')+(h.respTel||''), xCard+3, yy+8.3, {maxWidth: larguraCol-5});
+    }
 
-    let yl = yy + alturaHeaderCard + 4.5;
+    let yl = yy + headerH + 4.5;
     let jaMostrouDivisorReforco = false;
     h.ministros.forEach((m)=>{
       const alturaEstaLinha = m.isReforco ? alturaLinha+3 : alturaLinha;
