@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.24.0';
+const APP_VERSAO = '19.24.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4409,6 +4409,8 @@ window.finalizarEscalaSemanal = async function(){
     const reforcoQui18 = await lerReforco('qui18');
     const reforcoSab12 = await lerReforco('sab12');
     const reforcoSab17 = await lerReforco('sab17');
+    // DIAGNÓSTICO TEMPORÁRIO — só um aviso informativo, não muda nada na lógica nem no visual
+    alert(`🔍 DIAGNÓSTICO DE REFORÇOS\n\nQuinta 18h: ${reforcoQui18.length} encontrado(s)\n${reforcoQui18.join(', ')||'(nenhum)'}\n\nSábado 12h: ${reforcoSab12.length} encontrado(s)\n${reforcoSab12.join(', ')||'(nenhum)'}\n\nSábado 17h: ${reforcoSab17.length} encontrado(s)\n${reforcoSab17.join(', ')||'(nenhum)'}`);
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
     const reforcosPorHora = { '18:00h': [...reforcoQui18, ...reforcoSab17], '12:00h': [...reforcoSab12] };
 
