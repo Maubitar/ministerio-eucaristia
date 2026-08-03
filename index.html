@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.24.1';
+const APP_VERSAO = '19.24.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4409,8 +4409,22 @@ window.finalizarEscalaSemanal = async function(){
     const reforcoQui18 = await lerReforco('qui18');
     const reforcoSab12 = await lerReforco('sab12');
     const reforcoSab17 = await lerReforco('sab17');
-    // DIAGNÓSTICO TEMPORÁRIO — só um aviso informativo, não muda nada na lógica nem no visual
-    alert(`🔍 DIAGNÓSTICO DE REFORÇOS\n\nQuinta 18h: ${reforcoQui18.length} encontrado(s)\n${reforcoQui18.join(', ')||'(nenhum)'}\n\nSábado 12h: ${reforcoSab12.length} encontrado(s)\n${reforcoSab12.join(', ')||'(nenhum)'}\n\nSábado 17h: ${reforcoSab17.length} encontrado(s)\n${reforcoSab17.join(', ')||'(nenhum)'}`);
+    // DIAGNÓSTICO TEMPORÁRIO — caixa própria do app (não depende do alert() nativo do navegador, que pode estar bloqueado)
+    const diagHtml = `
+      <div id="diag-reforco-overlay" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px">
+        <div style="background:white;border-radius:14px;padding:22px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto">
+          <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 14px">🔍 Diagnóstico de Reforços</p>
+          <p style="font-size:13px;margin:0 0 4px"><strong>Quinta 18h:</strong> ${reforcoQui18.length} encontrado(s)</p>
+          <p style="font-size:12px;color:#666;margin:0 0 12px">${reforcoQui18.join(', ')||'(nenhum)'}</p>
+          <p style="font-size:13px;margin:0 0 4px"><strong>Sábado 12h:</strong> ${reforcoSab12.length} encontrado(s)</p>
+          <p style="font-size:12px;color:#666;margin:0 0 12px">${reforcoSab12.join(', ')||'(nenhum)'}</p>
+          <p style="font-size:13px;margin:0 0 4px"><strong>Sábado 17h:</strong> ${reforcoSab17.length} encontrado(s)</p>
+          <p style="font-size:12px;color:#666;margin:0 0 16px">${reforcoSab17.join(', ')||'(nenhum)'}</p>
+          <p style="font-size:10px;color:#999;margin:0 0 14px">Chave usada: mesKey = "${mesKey}"</p>
+          <button onclick="document.getElementById('diag-reforco-overlay').remove()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">Fechar</button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', diagHtml);
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
     const reforcosPorHora = { '18:00h': [...reforcoQui18, ...reforcoSab17], '12:00h': [...reforcoSab12] };
 
