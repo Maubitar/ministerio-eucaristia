@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.28.0';
+const APP_VERSAO = '19.30.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1880,6 +1880,7 @@ window.nav = function(id, btn){
     secretaria: ()=>renderSecretaria(),
     finalizadas: ()=>renderEscalasFinalizadas(),
     'tel-rapido': ()=>renderTelefonesRapido(),
+    'envio-cart': ()=>renderEnvioCarteirinhas(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
   if(fns[id]) fns[id]();
@@ -7684,10 +7685,106 @@ window.abrirCarteirinha = function(){
 window.enviarQRWhatsApp = function(){
   if(!qrMinistroAtual) return;
   const url = `${APP_URL}/?ministro=${qrMinistroAtual.id}`;
-  const txt = `Olá, ${qrMinistroAtual.nome.split(' ')[0]}! 🙏\n\nAqui está sua *Carteira Digital de Ministro* da Coordenação MESCE — Basílica de Nazaré:\n\n${url}\n\nApresente o QR Code dela para registrar presença nas missas, reuniões e adorações, e para se identificar como ministro. Guarde este link! 🕊️\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
+  const txt = `Olá, ${qrMinistroAtual.nome.split(' ')[0]}! 🙏\n\nAqui está sua *Carteira Digital de Ministro* da Coordenação MESCE — Basílica de Nazaré:\n\n${url}\n\nApresente o QR Code dela para registrar presença nas missas, reuniões e adorações, e para se identificar como ministro. Guarde este link! 🕊️\n\n⚠️ *Por favor, toque no link acima agora* para confirmar o recebimento — o sistema registra automaticamente quando você abre. Links não confirmados podem ser invalidados.\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
   const tel = (typeof formatarTelBR==='function') ? formatarTelBR(qrMinistroAtual.tel) : (qrMinistroAtual.tel||'').replace(/\D/g,'');
   const waUrl = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(txt)}` : `https://wa.me/?text=${encodeURIComponent(txt)}`;
   window.open(waUrl,'_blank');
+};
+
+// ===== ENVIO EM LOTE DE CARTEIRINHAS =====
+function _telValido(m){
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+  return tel && tel.length >= 10;
+}
+
+window.renderEnvioCarteirinhas = function(){
+  const cont = document.getElementById('ec-lista');
+  if(!cont) return;
+  const filtro = document.getElementById('ec-filtro')?.value || 'pendentes';
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  const enviados = ativos.filter(m=>m.carteirinhaEnviadaEm);
+  const confirmados = ativos.filter(m=>m.carteiraEmitidaEm);
+  const enviadosSemConfirmar = enviados.filter(m=>!m.carteiraEmitidaEm);
+  const total = ativos.length;
+
+  const pct = total ? Math.round(confirmados.length/total*100) : 0;
+  const txtEl = document.getElementById('ec-progresso-texto');
+  const pctEl = document.getElementById('ec-progresso-pct');
+  const barraEl = document.getElementById('ec-progresso-barra');
+  if(txtEl) txtEl.textContent = `${confirmados.length} de ${total} confirmadas (${enviados.length} enviadas)`;
+  if(pctEl) pctEl.textContent = pct+'%';
+  if(barraEl) barraEl.style.width = pct+'%';
+
+  let lista = ativos;
+  if(filtro==='pendentes') lista = ativos.filter(m=>!m.carteirinhaEnviadaEm);
+  else if(filtro==='enviados') lista = enviados;
+  else if(filtro==='naoconfirmaram') lista = enviadosSemConfirmar;
+  else if(filtro==='confirmados') lista = confirmados;
+  lista = [...lista].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+
+  cont.innerHTML = lista.length ? lista.map(m=>{
+    const semTel = !_telValido(m);
+    const enviado = !!m.carteirinhaEnviadaEm;
+    const confirmado = !!m.carteiraEmitidaEm;
+    let status;
+    if(confirmado) status = `<span style="color:#0A6E58">✓✓ Confirmada em ${new Date(m.carteiraEmitidaEm).toLocaleDateString('pt-BR')}</span>`;
+    else if(enviado) status = `<span style="color:#BA7517">✓ Enviada, aguardando confirmação</span>`;
+    else status = 'Pendente';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+      <div style="flex:1;min-width:0">
+        <p style="font-size:13px;font-weight:600;margin:0;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}</p>
+        <p style="font-size:10px;margin:1px 0 0">${status}</p>
+      </div>
+      ${enviado
+        ? `<button onclick="desmarcarCarteirinhaEnviada('${m.id}')" style="font-size:11px;padding:6px 10px;border:1.5px solid #999;border-radius:16px;background:white;color:#666;cursor:pointer">Desmarcar</button>`
+        : `<button onclick="enviarCarteirinhaPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:6px 10px;border:1.5px solid ${semTel?'#ccc':'#0A6E58'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#0A6E58'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600">📲 Enviar</button>`}
+    </div>`;
+  }).join('') : '<p style="font-size:12px;color:#888;padding:12px 0;text-align:center">Nenhum ministro nesse filtro.</p>';
+};
+
+async function _marcarEnviada(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const agora = Date.now();
+  m.carteirinhaEnviadaEm = agora;
+  try{ await updateDoc(doc(db,'ministros',id), { carteirinhaEnviadaEm: agora }); }catch(e){}
+}
+
+window.desmarcarCarteirinhaEnviada = async function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  delete m.carteirinhaEnviadaEm;
+  try{ await updateDoc(doc(db,'ministros',id), { carteirinhaEnviadaEm: deleteField() }); }catch(e){}
+  renderEnvioCarteirinhas();
+};
+
+// Abre o WhatsApp já pronto para UM ministro específico (usado tanto na fila quanto no botão individual da lista)
+window.enviarCarteirinhaPara = async function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m || !_telValido(m)) return;
+  const url = `${APP_URL}/?ministro=${id}`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui está sua *Carteira Digital de Ministro* da Coordenação MESCE — Basílica de Nazaré:\n\n${url}\n\nApresente o QR Code dela para registrar presença nas missas, reuniões e adorações, e para se identificar como ministro. Guarde este link! 🕊️\n\n⚠️ *Por favor, toque no link acima agora* para confirmar o recebimento — o sistema registra automaticamente quando você abre. Links não confirmados podem ser invalidados.\n_Basílica Santuário de Nossa Senhora de Nazaré_`;
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`,'_blank');
+  await _marcarEnviada(id);
+  renderEnvioCarteirinhas();
+};
+
+// Pega o próximo pendente com telefone válido e dispara — é o botão principal da esteira
+window.enviarProximaCarteirinha = async function(){
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  const pendentes = [...ativos.filter(m=>!m.carteirinhaEnviadaEm)].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const proximo = pendentes.find(m=>_telValido(m));
+  if(!proximo){
+    const semTelPendentes = pendentes.filter(m=>!_telValido(m));
+    if(semTelPendentes.length){
+      toast(`⚠️ Faltam ${semTelPendentes.length} ministro(s) sem telefone cadastrado — não dá pra enviar por WhatsApp. Complete o cadastro deles primeiro.`,'warn');
+    } else {
+      toast('✓ Todas as carteirinhas já foram enviadas!','ok');
+    }
+    return;
+  }
+  await enviarCarteirinhaPara(proximo.id);
 };
 
 window.imprimirQR = function(){
@@ -10343,8 +10440,47 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 </div>
 
 <!-- MAIS -->
+<!-- ENVIO EM LOTE DE CARTEIRINHAS -->
+<div id="s-envio-cart" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #0A6E58;background:#f0faf7">
+    <p class="ct" style="color:#0A6E58">📲 Envio em Lote de Carteirinhas</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Toque em <strong>"Enviar próxima"</strong>: abre o WhatsApp já com a mensagem e o link prontos pra aquele ministro — você só confirma o envio. Ao voltar aqui, ele já fica marcado como enviado e o botão pula pro próximo sozinho.</p>
+    <div id="ec-progresso" style="background:white;border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:6px">
+        <span id="ec-progresso-texto">0 de 0 enviadas</span>
+        <span id="ec-progresso-pct">0%</span>
+      </div>
+      <div style="height:10px;background:#eee;border-radius:20px;overflow:hidden">
+        <div id="ec-progresso-barra" style="height:100%;width:0%;background:linear-gradient(90deg,#1D9E75,#0A6E58);border-radius:20px"></div>
+      </div>
+    </div>
+    <button id="ec-btn-proxima" onclick="enviarProximaCarteirinha()" style="width:100%;padding:14px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">🚀 Enviar próxima carteirinha</button>
+    <p style="font-size:11px;color:#999;text-align:center;margin:0">Ministros sem telefone cadastrado ficam marcados em vermelho — não têm como receber por WhatsApp.</p>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <p class="ct" style="margin:0">Lista de ministros</p>
+      <select id="ec-filtro" onchange="renderEnvioCarteirinhas()" style="margin:0;font-size:12px;padding:6px 8px">
+        <option value="pendentes">Só pendentes (nunca enviei)</option>
+        <option value="naoconfirmaram">⚠️ Enviei mas não confirmaram</option>
+        <option value="confirmados">✓✓ Já confirmaram</option>
+        <option value="enviados">Todos que já enviei</option>
+        <option value="todos">Todos</option>
+      </select>
+    </div>
+    <p style="font-size:11px;color:#888;margin:0 0 4px">✓ = você enviou a mensagem · ✓✓ = ele abriu o link e confirmou de verdade</p>
+    <div id="ec-lista"></div>
+  </div>
+</div>
+
 <div id="s-mais" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #0A6E58;background:#f0faf7">
+    <p class="ct" style="color:#0A6E58">📲 Envio em Lote de Carteirinhas</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Envie a carteirinha digital pra todos os ministros de uma vez, em fila — sem precisar procurar cada um na lista.</p>
+    <button onclick="nav('envio-cart')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer">🚀 Abrir envio em lote</button>
+  </div>
   <div class="card" style="border:1.5px solid #e1f5ee">
     <p class="ct">👥 Acessos e Perfis</p>
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Crie acessos para a <strong>Financeira</strong> e a <strong>Secretária</strong>. Cada uma entra com seu usuário e senha e vê apenas a sua área.</p>
