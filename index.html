@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.30.1';
+const APP_VERSAO = '19.31.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4494,7 +4494,7 @@ async function montarDadosEscalaFinalizada(docId){
     }))
   }));
   const rotulo = (dados.tipo==='dom'?'Escala Dominical':'Escala Semanal') + ' — ' + dados.mesNome + '/' + dados.ano + ' (finalizada)';
-  return { semanasComFoto, rotulo };
+  return { semanasComFoto, rotulo, tipo: dados.tipo };
 }
 
 const CORES_HORARIO_FIN = {
@@ -4585,7 +4585,7 @@ function montarPaginasEscalaFinalizada(info){
 // Imprime a ESCALA (quem serve em qual horário) — não confundir com a Lista de Presença (P/F/S)
 // Gera a ESCALA (quem serve em qual horário — sem colunas de data/P/F/S) em PDF vetorial, rápido, sem captura de tela.
 // Reaproveita o mesmo motor de paginação já comprovado do gerarPDFPresenca.
-async function gerarPDFEscala(semanas, tipoLabel, acao){
+async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   acao = acao || 'abrir';
   if(!window.jspdf || !window.jspdf.jsPDF){
     toast('Biblioteca de PDF ainda carregando, tente de novo em instantes.','warn');
@@ -4660,7 +4660,8 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
   let y = M + 16;
   const larguraTotal = pageW - 2*M;
   const gapCol = 4;
-  const larguraCol = (larguraTotal - gapCol) / 2;
+  const numColunas = (tipo==='sem') ? 2 : 3;
+  const larguraCol = (larguraTotal - gapCol*(numColunas-1)) / numColunas;
 
   function hexRgb(hex){
     hex = (hex||'#085041').replace('#','');
@@ -4763,16 +4764,17 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
     const tituloFaixa = sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||'');
     const alturaTitulo = tituloFaixa ? 11 : 0;
 
-    // Balanceia os horários em 2 colunas por altura estimada (mesmo critério da imagem colorida)
-    const colunas = [[], []];
-    const alturasAcum = [0, 0];
+    // Balanceia os horários em N colunas por altura estimada (3 na dominical, 2 na semanal — mesmo critério da imagem colorida)
+    const colunas = Array.from({length:numColunas}, ()=>[]);
+    const alturasAcum = Array(numColunas).fill(0);
     horariosComGente.forEach(h=>{
       const alt = alturaCard(h);
-      const menor = alturasAcum[0] <= alturasAcum[1] ? 0 : 1;
+      let menor = 0;
+      for(let i=1;i<numColunas;i++){ if(alturasAcum[i] < alturasAcum[menor]) menor = i; }
       colunas[menor].push(h);
       alturasAcum[menor] += alt + 4;
     });
-    const alturaNecessaria = alturaTitulo + Math.max(alturasAcum[0], alturasAcum[1]);
+    const alturaNecessaria = alturaTitulo + Math.max(...alturasAcum);
 
     // Se a semana inteira não cabe no resto da página, quebra ANTES de desenhar qualquer coisa dela
     // (evita cards da mesma semana ficarem espalhados/fragmentados em páginas diferentes)
@@ -4790,15 +4792,15 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
 
     const yInicioSemana = y;
     let yMax = yInicioSemana;
-    [0,1].forEach(colIdx=>{
-      if(!colunas[colIdx].length) return;
+    for(let colIdx=0; colIdx<numColunas; colIdx++){
+      if(!colunas[colIdx].length) continue;
       let yc = yInicioSemana;
       const xCard = M + colIdx*(larguraCol+gapCol);
       colunas[colIdx].forEach(h=>{
         yc = desenharCard(xCard, yc, h);
       });
       yMax = Math.max(yMax, yc);
-    });
+    }
     y = yMax + 1;
   });
 
@@ -4830,7 +4832,7 @@ window.imprimirEscalaFinalizadaComoEscala = async function(docId){
   try{
     const info = await montarDadosEscalaFinalizada(docId);
     if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
-    await gerarPDFEscala(info.semanasComFoto, info.rotulo);
+    await gerarPDFEscala(info.semanasComFoto, info.rotulo, undefined, info.tipo);
   }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
 };
 
@@ -7697,6 +7699,13 @@ function _telValido(m){
   return tel && tel.length >= 10;
 }
 
+// Diz exatamente qual é o problema do telefone, pra não confundir "vazio" com "sem DDD"
+function _motivoTelInvalido(m){
+  const bruto = (m.tel||'').replace(/\D/g,'');
+  if(!bruto) return 'sem telefone cadastrado';
+  return 'telefone sem DDD (cadastrado: '+m.tel+')';
+}
+
 window.renderEnvioCarteirinhas = function(){
   const cont = document.getElementById('ec-lista');
   if(!cont) return;
@@ -7732,7 +7741,7 @@ window.renderEnvioCarteirinhas = function(){
     else status = 'Pendente';
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
       <div style="flex:1;min-width:0">
-        <p style="font-size:13px;font-weight:600;margin:0;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}</p>
+        <p style="font-size:13px;font-weight:600;margin:0;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ '+_motivoTelInvalido(m):''}</p>
         <p style="font-size:10px;margin:1px 0 0">${status}</p>
       </div>
       ${enviado
@@ -7781,7 +7790,7 @@ window.enviarProximaCarteirinha = async function(){
   if(!proximo){
     const semTelPendentes = pendentes.filter(m=>!_telValido(m));
     if(semTelPendentes.length){
-      toast(`⚠️ Faltam ${semTelPendentes.length} ministro(s) sem telefone cadastrado — não dá pra enviar por WhatsApp. Complete o cadastro deles primeiro.`,'warn');
+      toast(`⚠️ Faltam ${semTelPendentes.length} ministro(s) com telefone vazio ou sem DDD — não dá pra enviar por WhatsApp. Corrija em "Editar dados".`,'warn');
     } else {
       toast('✓ Todas as carteirinhas já foram enviadas!','ok');
     }
@@ -10459,7 +10468,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </div>
     </div>
     <button id="ec-btn-proxima" onclick="enviarProximaCarteirinha()" style="width:100%;padding:14px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">🚀 Enviar próxima carteirinha</button>
-    <p style="font-size:11px;color:#999;text-align:center;margin:0">Ministros sem telefone cadastrado ficam marcados em vermelho — não têm como receber por WhatsApp.</p>
+    <p style="font-size:11px;color:#999;text-align:center;margin:0">Ministros com telefone vazio ou sem DDD ficam marcados em vermelho — corrija em "Editar dados" antes de enviar.</p>
   </div>
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
