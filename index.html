@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.31.3';
+const APP_VERSAO = '19.33.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -333,6 +333,14 @@ window.addEventListener('load', async()=>{
     const app = initializeApp(FB);
     db = getFirestore(app);
     modoDisponibilidade(dispId);
+    return;
+  }
+  // LINK DO RESPONSÁVEL: abre painel de presença do horário que ele responde (sem login)
+  const presRespCodigo = params.get('presresp');
+  if(presRespCodigo){
+    const app = initializeApp(FB);
+    db = getFirestore(app);
+    modoPresencaResponsavel(presRespCodigo);
     return;
   }
   // LINK UNIVERSAL DE CADASTRO: um único link para todos os ministros se cadastrarem
@@ -1880,6 +1888,7 @@ window.nav = function(id, btn){
     secretaria: ()=>renderSecretaria(),
     finalizadas: ()=>renderEscalasFinalizadas(),
     'tel-rapido': ()=>renderTelefonesRapido(),
+    'envio-presenca': ()=>renderEnvioLinksPresenca(),
     'envio-cart': ()=>renderEnvioCarteirinhas(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
@@ -2444,13 +2453,12 @@ window.confirmarPeriodoSemana = function(){
   const selFirst = document.getElementById('esc-sem');
   if(selFirst){ selFirst.value='1'; }
 
-  // SALVA no localStorage — simples, seguro, sem Firebase
+  // SALVA no localStorage (rápido, uso no próprio aparelho) E na nuvem (pra o link do responsável funcionar em qualquer celular)
   try{
     const mesKey = getMesAtual();
-    localStorage.setItem(`sogi_semanas_${mesKey}`, JSON.stringify({
-      periodos: _periodoSemanaCustom,
-      totalSems
-    }));
+    const dadosSemanas = { periodos: _periodoSemanaCustom, totalSems };
+    localStorage.setItem(`sogi_semanas_${mesKey}`, JSON.stringify(dadosSemanas));
+    setDoc(doc(db,'config',`semanas_${mesKey}`), dadosSemanas).catch(()=>{});
   }catch(e){}
 
   fecharModal('modal-periodo-semana');
@@ -2904,6 +2912,7 @@ window.renderEscala = async function(){
           <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
           ${fotoEsc}
           <span style="flex:1;font-size:12px;font-weight:${_isResp?'700':'500'}">${m}${_isResp?` <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>${_respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${_respTel}</span>`:''}`:''}</span>
+          ${_isResp ? `<button onclick="enviarLinkPresenca('${m.replace(/'/g,"")}','${APP_URL}/?presresp=${tipo==='dom'?`dom-${_horarioParaCodigo(hora)}-${getMesAtual()}`:`sem-${sem}-${_horarioParaCodigo(hora)}-${getMesAtual()}`}')" title="Enviar link de presença deste horário" style="border:1.5px solid #185FA5;background:#eef5fb;color:#185FA5;font-size:10px;font-weight:700;padding:4px 8px;border-radius:14px;cursor:pointer;flex-shrink:0;white-space:nowrap">📤 Link</button>` : ''}
           <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
         </div>`;
       }).join('')}
@@ -7815,6 +7824,324 @@ window.enviarProximaCarteirinha = async function(){
   await enviarCarteirinhaPara(proximo.id);
 };
 
+// ===== LINK DO RESPONSÁVEL: painel de presença do horário que ele responde =====
+// Código do link: dominical = "dom-<horario_sem_dois_pontos>-<mesKey>" ex: dom-1200h-ago2026
+//                 semanal   = "sem-<numero_semana>-<horario_sem_dois_pontos>-<mesKey>" ex: sem-3-1800h-ago2026
+async function modoPresencaResponsavel(codigo){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
+  try{
+    const partes = (codigo||'').split('-');
+    const tipo = partes[0];
+    let semana=null, horarioEnc, mesKey;
+    if(tipo==='sem'){ semana=partes[1]; horarioEnc=partes[2]; mesKey=partes[3]; }
+    else if(tipo==='dom'){ horarioEnc=partes[1]; mesKey=partes[2]; }
+    const mMes = (mesKey||'').match(/^([a-z]{3})(\d{4})$/);
+    if(!horarioEnc || !mMes || (tipo==='sem' && !semana)){
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido.<br>Fale com a Coordenação MESCE.</div>';
+      return;
+    }
+    const horario = horarioEnc.replace(/^(\d\d)(\d\d)h$/, '$1:$2h');
+    const mesIdx = _MESES_KEY_INIT.indexOf(mMes[1]);
+    const ano = parseInt(mMes[2]);
+
+    const escKey = tipo==='dom' ? `escala_dom_${mesKey}` : `escala_sem_sem${semana}_${mesKey}`;
+    let esc = {};
+    try{ const d = await getDoc(doc(db,'escalas',escKey)); esc = d.exists()?d.data():{}; }catch(e){}
+    const grupo = esc[horario] || {ministros:[], responsavel:''};
+
+    // Datas em que esse horário acontece neste período
+    let datas = [];
+    if(tipo==='dom'){
+      const cal = calcularCalendario(ano, mesIdx);
+      datas = cal.domingos.map(d=>({ data:d, label:'Domingo '+d }));
+    } else {
+      let periodos = {};
+      try{ const d = await getDoc(doc(db,'config',`semanas_${mesKey}`)); periodos = d.exists()?(d.data().periodos||{}):{}; }catch(e){}
+      const per = periodos[semana];
+      if(per){
+        const DIAS_NOME=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+        const fmt=dd=>`${String(dd.getDate()).padStart(2,'0')}/${String(dd.getMonth()+1).padStart(2,'0')}`;
+        const dIni=new Date(per.ini+'T12:00:00'), dFim=new Date(per.fim+'T12:00:00');
+        let cursor=new Date(dIni);
+        while(cursor<=dFim){
+          const diaNome = DIAS_NOME[cursor.getDay()];
+          if((MISSAS_SEM_DIAS[diaNome]||[]).includes(horario)){
+            datas.push({ data:fmt(cursor), label:diaNome+' '+fmt(cursor) });
+          }
+          cursor.setDate(cursor.getDate()+1);
+        }
+      }
+    }
+
+    if(!datas.length){
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Não encontrei datas para esse horário nesse período.<br>Fale com a Coordenação MESCE.</div>';
+      return;
+    }
+
+    // Busca cadastro completo dos ministros (fotos, telefones) pra exibir e pra achar o ID (registros são gravados por ID)
+    let todosMinistros = [];
+    try{ const snap = await getDocs(collection(db,'ministros')); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
+    const porNome = {}; todosMinistros.forEach(mm=>{ porNome[mm.nome]=mm; });
+    const escaladosObjs = (grupo.ministros||[]).map(nome=>porNome[nome]).filter(Boolean);
+
+    renderPainelPresencaResponsavel({ tipo, horario, mesKey, semana, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros });
+  }catch(e){
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: '+e.message+'</div>';
+  }
+}
+
+let _presRespCtx = null; // guarda o contexto atual (tipo, horario, mesKey, datas, escalados) pra reaproveitar nos cliques
+
+function renderPainelPresencaResponsavel(ctx){
+  _presRespCtx = ctx;
+  const registranteSalvo = localStorage.getItem('sogi_registrante_nome') || '';
+  const tituloHorario = `${ctx.horario}${ctx.tipo==='sem' ? ' — '+ctx.semana+'ª semana' : ' — Dominical'}`;
+
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:20px 14px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:16px">
+      <img src="${LOGO_BASILICA}" style="width:52px;height:52px;object-fit:contain">
+      <p style="font-size:13px;color:#085041;font-weight:700;margin:6px 0 0">Coordenação MESCE — Basílica de Nazaré</p>
+    </div>
+    <div style="background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px">
+      <p style="font-size:17px;font-weight:800;color:#085041;margin:0">📋 Presença — ${tituloHorario}</p>
+      <p style="font-size:12px;color:#888;margin:4px 0 0">Responsável: ${ctx.responsavel||'—'}</p>
+    </div>
+    <div id="pr-quem-registra" style="background:#FFF3CD;border:1.5px solid #F0C000;border-radius:12px;padding:14px;margin-bottom:14px;${registranteSalvo?'display:none':''}">
+      <p style="font-size:13px;font-weight:700;color:#5a3c00;margin:0 0 8px">Antes de começar: quem está registrando?</p>
+      <input type="text" id="pr-nome-registrante" placeholder="Seu nome completo" style="width:100%;padding:11px;border:1.5px solid #e0c060;border-radius:9px;font-size:14px;box-sizing:border-box;margin-bottom:8px">
+      <button onclick="salvarRegistrante()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer">Confirmar</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 10px" id="pr-registrante-atual">${registranteSalvo?`Registrando como: <strong>${registranteSalvo}</strong> · <a href="#" onclick="trocarRegistrante();return false" style="color:#185FA5">trocar</a>`:''}</p>
+    <div id="pr-datas"></div>
+  </div>
+  <div id="toast"></div>`;
+
+  renderDatasPresencaResponsavel();
+}
+
+window.salvarRegistrante = function(){
+  const nome = document.getElementById('pr-nome-registrante')?.value.trim();
+  if(!nome || nome.length<3){ toast('Digite seu nome completo.','warn'); return; }
+  localStorage.setItem('sogi_registrante_nome', nome);
+  document.getElementById('pr-quem-registra').style.display='none';
+  document.getElementById('pr-registrante-atual').innerHTML = `Registrando como: <strong>${nome}</strong> · <a href="#" onclick="trocarRegistrante();return false" style="color:#185FA5">trocar</a>`;
+};
+
+window.trocarRegistrante = function(){
+  localStorage.removeItem('sogi_registrante_nome');
+  document.getElementById('pr-quem-registra').style.display='block';
+  document.getElementById('pr-registrante-atual').innerHTML = '';
+};
+
+function renderDatasPresencaResponsavel(){
+  const ctx = _presRespCtx;
+  const cont = document.getElementById('pr-datas');
+  if(!cont) return;
+  cont.innerHTML = ctx.datas.map((dt,i)=>`
+    <div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleDataPresenca(${i})">
+        <p style="font-size:14px;font-weight:700;color:#085041;margin:0">${dt.label}</p>
+        <span id="pr-seta-${i}" style="font-size:12px;color:#888">▾</span>
+      </div>
+      <div id="pr-corpo-${i}" style="display:none;margin-top:10px"></div>
+    </div>`).join('');
+}
+
+window.toggleDataPresenca = async function(i){
+  const corpo = document.getElementById('pr-corpo-'+i);
+  const seta = document.getElementById('pr-seta-'+i);
+  if(!corpo) return;
+  if(corpo.style.display==='block'){ corpo.style.display='none'; if(seta) seta.textContent='▾'; return; }
+  corpo.style.display='block'; if(seta) seta.textContent='▴';
+  if(corpo.dataset.carregado==='1') return;
+  corpo.innerHTML = '<p style="font-size:12px;color:#888;padding:8px 0">Carregando...</p>';
+
+  const ctx = _presRespCtx;
+  const dt = ctx.datas[i];
+  const docId = `${dt.data.split('/').reverse().join('-')}_${ctx.horario.replace(':','')}`;
+  let jaSalvo = {};
+  try{ const d = await getDoc(doc(db,'presencas',docId)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+
+  renderCorpoDataPresenca(i, docId, jaSalvo);
+};
+
+function renderCorpoDataPresenca(i, docId, registrosSalvos){
+  const ctx = _presRespCtx;
+  const corpo = document.getElementById('pr-corpo-'+i);
+  if(!corpo) return;
+  corpo.dataset.carregado='1';
+  corpo.dataset.docid=docId;
+
+  // Junta escalados originais + qualquer substituto já adicionado antes (registrado mas não escalado)
+  const idsEscalados = new Set(ctx.escaladosObjs.map(m=>m.id));
+  const substitutosSalvos = Object.keys(registrosSalvos).filter(id=>!idsEscalados.has(id) && registrosSalvos[id]?.substituto);
+  const listaCompleta = [...ctx.escaladosObjs, ...substitutosSalvos.map(id=>ctx.todosMinistros.find(m=>m.id===id)).filter(Boolean)];
+
+  corpo.innerHTML = `
+    <div id="pr-lista-${i}">${listaCompleta.map(m=>linhaPresencaResponsavel(m, registrosSalvos[m.id])).join('')}</div>
+    <div style="position:relative;margin-top:10px">
+      <input type="text" id="pr-busca-sub-${i}" placeholder="+ Adicionar quem substituiu..." autocomplete="off"
+        oninput="buscarSubstitutoPresenca(this,${i})"
+        style="width:100%;padding:9px 10px;border:1px dashed #999;border-radius:8px;font-size:12px;box-sizing:border-box">
+      <div id="pr-ac-sub-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:200px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+    </div>`;
+}
+
+function linhaPresencaResponsavel(m, reg){
+  const status = reg?.status || '';
+  const fotoHtml = m.foto
+    ? `<img src="${m.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+    : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${(m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}</div>`;
+  function botao(letra, cor, valor){
+    const ativo = status===valor;
+    return `<button onclick="marcarPresencaResponsavel('${m.id}','${valor}')" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
+  }
+  return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+    ${fotoHtml}
+    <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${m.substitutoMarcado?' <span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700">SUBSTITUTO</span>':''}</span>
+    <div style="display:flex;gap:5px;flex-shrink:0">
+      ${botao('P','#1D9E75','P')}
+      ${botao('F','#A32D2D','F')}
+      ${botao('S','#BA7517','S')}
+    </div>
+  </div>`;
+}
+
+window.marcarPresencaResponsavel = async function(ministroId, status){
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de marcar, informe quem está registrando (no topo da tela).','warn'); return; }
+  const corposAbertos = document.querySelectorAll('[id^="pr-corpo-"]');
+  for(const corpo of corposAbertos){
+    if(corpo.style.display==='block' && corpo.dataset.docid && corpo.innerHTML.includes(`marcarPresencaResponsavel('${ministroId}'`)){
+      await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, status, registrante);
+      const idx = parseInt(corpo.id.replace('pr-corpo-',''));
+      let jaSalvo = {};
+      try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+      renderCorpoDataPresenca(idx, corpo.dataset.docid, jaSalvo);
+      return;
+    }
+  }
+};
+
+async function _salvarPresencaResponsavel(docId, ministroId, status, registrante){
+  const ctx = _presRespCtx;
+  const partesData = docId.split('_')[0]; // yyyy-mm-dd
+  try{
+    await setDoc(doc(db,'presencas',docId), {
+      data: partesData,
+      horario: ctx.horario,
+      registros: { [ministroId]: { status, justificativa:'', registradoPor:registrante, registradoEm: Date.now() } },
+      atualizadoEm: serverTimestamp(),
+      viaResponsavel: true
+    }, {merge:true});
+  }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); }
+}
+
+window.buscarSubstitutoPresenca = function(inp, i){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById('pr-ac-sub-'+i);
+  if(!ac) return;
+  if(v.length<2){ ac.style.display='none'; return; }
+  const ctx = _presRespCtx;
+  const jaNaLista = new Set(ctx.escaladosObjs.map(m=>m.nome));
+  const ms = ctx.todosMinistros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaNaLista.has(m.nome)).slice(0,8);
+  if(!ms.length){ ac.style.display='none'; return; }
+  ac.style.display='block';
+  ac.innerHTML = ms.map(m=>`<div onmousedown="adicionarSubstitutoPresenca('${m.id}',${i})" style="padding:9px 12px;cursor:pointer;font-size:13px">${m.nome}</div>`).join('');
+};
+
+window.adicionarSubstitutoPresenca = async function(ministroId, i){
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de adicionar, informe quem está registrando (no topo da tela).','warn'); return; }
+  const corpo = document.getElementById('pr-corpo-'+i);
+  if(!corpo || !corpo.dataset.docid) return;
+  const ctx = _presRespCtx;
+  const m = ctx.todosMinistros.find(x=>x.id===ministroId);
+  if(!m) return;
+  m.substitutoMarcado = true;
+  try{
+    const partesData = corpo.dataset.docid.split('_')[0];
+    await setDoc(doc(db,'presencas',corpo.dataset.docid), {
+      data: partesData,
+      horario: ctx.horario,
+      registros: { [ministroId]: { status:'P', justificativa:'', registradoPor:registrante, registradoEm: Date.now(), substituto:true } },
+      atualizadoEm: serverTimestamp(),
+      viaResponsavel: true
+    }, {merge:true});
+  }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); return; }
+  const inp = document.getElementById('pr-busca-sub-'+i); if(inp) inp.value='';
+  let jaSalvo = {};
+  try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+  renderCorpoDataPresenca(i, corpo.dataset.docid, jaSalvo);
+};
+
+// ===== ENVIO DE LINKS DE PRESENÇA POR HORÁRIO (RESPONSÁVEIS) =====
+function _horarioParaCodigo(hora){ return hora.replace(':',''); } // "12:00h" -> "1200h"
+
+window.renderEnvioLinksPresenca = async function(){
+  const mesKey = getMesAtual();
+
+  // DOMINICAL
+  const contDom = document.getElementById('ep-lista-dom');
+  if(contDom){
+    contDom.innerHTML = '<p style="font-size:12px;color:#888">Carregando...</p>';
+    let escDom = escalas[`escala_dom_${mesKey}`];
+    if(!escDom){ try{ const d=await getDoc(doc(db,'escalas',`escala_dom_${mesKey}`)); escDom=d.exists()?d.data():{}; escalas[`escala_dom_${mesKey}`]=escDom; }catch(e){ escDom={}; } }
+    const linhasDom = MISSAS_DOM.map(hora=>{
+      const g = escDom[hora]||{};
+      if(!g.responsavel) return '';
+      const link = `${APP_URL}/?presresp=dom-${_horarioParaCodigo(hora)}-${mesKey}`;
+      return _linhaEnvioPresenca(hora, g.responsavel, link);
+    }).join('');
+    contDom.innerHTML = linhasDom.trim() ? linhasDom : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum horário com responsável definido ainda.</p>';
+  }
+
+  // SEMANAL
+  const contSem = document.getElementById('ep-lista-sem');
+  if(contSem){
+    contSem.innerHTML = '<p style="font-size:12px;color:#888">Carregando...</p>';
+    const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(k)).sort((a,b)=>parseInt(a)-parseInt(b));
+    let html = '';
+    for(const s of sems){
+      const key = `escala_sem_sem${s}_${mesKey}`;
+      let esc = escalas[key];
+      if(!esc){ try{ const d=await getDoc(doc(db,'escalas',key)); esc=d.exists()?d.data():{}; escalas[key]=esc; }catch(e){ esc={}; } }
+      const linhasSemana = MISSAS_SEM.map(hora=>{
+        const g = esc[hora]||{};
+        if(!g.responsavel) return '';
+        const link = `${APP_URL}/?presresp=sem-${s}-${_horarioParaCodigo(hora)}-${mesKey}`;
+        return _linhaEnvioPresenca(hora, g.responsavel, link, `${s}ª semana`);
+      }).join('');
+      if(linhasSemana.trim()){
+        html += `<p style="font-size:12px;font-weight:700;color:#185FA5;margin:10px 0 4px">${SEMANAS_MES[s]?.label||s+'ª semana'} — ${SEMANAS_MES[s]?.periodo||''}</p>${linhasSemana}`;
+      }
+    }
+    contSem.innerHTML = html.trim() ? html : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum horário com responsável definido ainda.</p>';
+  }
+};
+
+function _linhaEnvioPresenca(hora, responsavelNome, link, tagExtra){
+  const m = ministros.find(x=>x.nome===responsavelNome);
+  const semTel = !m || !_telValido(m);
+  return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+    <div style="flex:1;min-width:0">
+      <p style="font-size:13px;font-weight:600;margin:0">⏰ ${hora} ${tagExtra?`<span style="font-size:10px;color:#888;font-weight:400">(${tagExtra})</span>`:''}</p>
+      <p style="font-size:11px;color:${semTel?'#A32D2D':'#888'};margin:1px 0 0">${responsavelNome}${semTel?' ⚠️ '+(m?_motivoTelInvalido(m):'não cadastrado'):''}</p>
+    </div>
+    <button onclick="enviarLinkPresenca('${responsavelNome.replace(/'/g,"")}','${link}')" ${semTel?'disabled':''} style="font-size:11px;padding:7px 12px;border:1.5px solid ${semTel?'#ccc':'#185FA5'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#185FA5'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600;flex-shrink:0">📤 Enviar</button>
+  </div>`;
+}
+
+window.enviarLinkPresenca = function(responsavelNome, link){
+  const m = ministros.find(x=>x.nome===responsavelNome);
+  if(!m) return;
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+  if(!tel) return;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui está o *link de presença* do horário que você é responsável:\n\n${link}\n\nAbra pra marcar quem esteve presente em cada data — pode fazer isso direto do seu celular, mesmo depois da missa/reunião. Se você for substituído(a), é só repassar este mesmo link pra quem assumir. 🕊️\n_Coordenação MESCE — Basílica de Nazaré_`;
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`, 'sogi_zap_envio');
+};
+
 window.imprimirQR = function(){
   if(!qrMinistroAtual) return;
   const canvas = document.querySelector('#qr-canvas canvas');
@@ -10469,6 +10796,24 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <!-- MAIS -->
 <!-- ENVIO EM LOTE DE CARTEIRINHAS -->
+<!-- ENVIO DE LINKS DE PRESENÇA (RESPONSÁVEIS) -->
+<div id="s-envio-presenca" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #185FA5;background:#eef5fb">
+    <p class="ct" style="color:#185FA5">📋 Links de Presença por Horário</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 4px">Envie pro responsável de cada horário o link que mostra só os ministros escalados ali — ele marca a presença direto do celular dele, sem precisar de aparelho na sacristia.</p>
+    <p style="font-size:11px;color:#888;line-height:1.6;margin:0">O link não expira e continua o mesmo mesmo se o responsável for substituído — ele só repassa pra quem assumir.</p>
+  </div>
+  <div class="card">
+    <p class="ct">☀️ Escala Dominical</p>
+    <div id="ep-lista-dom"></div>
+  </div>
+  <div class="card">
+    <p class="ct">📆 Escala Semanal</p>
+    <div id="ep-lista-sem"></div>
+  </div>
+</div>
+
 <div id="s-envio-cart" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card" style="border:1.5px solid #0A6E58;background:#f0faf7">
@@ -10504,6 +10849,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <div id="s-mais" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #185FA5;background:#eef5fb">
+    <p class="ct" style="color:#185FA5">📋 Links de Presença por Horário</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Mande pro responsável de cada horário o link que só mostra os ministros dele — ele marca a presença no celular dele mesmo, sem precisar de aparelho na sacristia.</p>
+    <button onclick="nav('envio-presenca')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer">📤 Abrir envio de links</button>
+  </div>
   <div class="card" style="border:1.5px solid #0A6E58;background:#f0faf7">
     <p class="ct" style="color:#0A6E58">📲 Envio em Lote de Carteirinhas</p>
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Envie a carteirinha digital pra todos os ministros de uma vez, em fila — sem precisar procurar cada um na lista.</p>
