@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.27.0';
+const APP_VERSAO = '19.27.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4419,6 +4419,9 @@ window.finalizarEscalaSemanal = async function(){
     function dadosDaSemanaFinal(s){
       const info = SEMANAS_MES[s];
       const escOriginal = escalasPorSem[s]||{};
+      // Semana só existe de verdade se JÁ tinha alguém escalado nela — reforço nunca cria semana do nada
+      const temAlgumEscalado = Object.values(escOriginal).some(g=>(g?.ministros||[]).length>0);
+      if(!temAlgumEscalado) return null;
       // Cópia local — nunca mexe no cache da escala ao vivo (evita corromper a tela de edição)
       const esc = {};
       Object.keys(escOriginal).forEach(h=>{ esc[h] = { ...escOriginal[h], ministros: [...(escOriginal[h].ministros||[])] }; });
