@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.26.0';
+const APP_VERSAO = '19.26.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4410,7 +4410,11 @@ window.finalizarEscalaSemanal = async function(){
     const reforcoSab12 = await lerReforco('sab12');
     const reforcoSab17 = await lerReforco('sab17');
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
-    const reforcosPorHora = { '18:00h': [...reforcoQui18, ...reforcoSab17], '12:00h': [...reforcoSab12] };
+    // Cada nome guarda o rótulo exato do reforço (pra mostrar "REFORÇO Missa Quinta 18h" etc — igual à tela de montar escala)
+    const reforcosPorHora = {
+      '18:00h': [...reforcoQui18.map(n=>({nome:n, label:'Missa Quinta 18h'})), ...reforcoSab17.map(n=>({nome:n, label:'Missa Sábado 17h'}))],
+      '12:00h': [...reforcoSab12.map(n=>({nome:n, label:'Missa Sábado 12h'}))]
+    };
 
     function dadosDaSemanaFinal(s){
       const info = SEMANAS_MES[s];
@@ -4418,12 +4422,16 @@ window.finalizarEscalaSemanal = async function(){
       // Cópia local — nunca mexe no cache da escala ao vivo (evita corromper a tela de edição)
       const esc = {};
       Object.keys(escOriginal).forEach(h=>{ esc[h] = { ...escOriginal[h], ministros: [...(escOriginal[h].ministros||[])] }; });
-      const setReforcoPorHora = {};
-      Object.entries(reforcosPorHora).forEach(([hora, nomesReforco])=>{
-        if(!nomesReforco.length) return;
+      const mapaReforcoPorHora = {};
+      Object.entries(reforcosPorHora).forEach(([hora, itensReforco])=>{
+        if(!itensReforco.length) return;
         if(!esc[hora]) esc[hora] = {ministros:[], responsavel:''};
-        setReforcoPorHora[hora] = new Set(nomesReforco);
-        nomesReforco.forEach(nome=>{ if(!esc[hora].ministros.includes(nome)) esc[hora].ministros.push(nome); });
+        const mapa = new Map();
+        itensReforco.forEach(({nome,label})=>{
+          mapa.set(nome, label);
+          if(!esc[hora].ministros.includes(nome)) esc[hora].ministros.push(nome);
+        });
+        mapaReforcoPorHora[hora] = mapa;
       });
       const horasComMin = MISSAS_SEM.filter(h=>(esc[h]?.ministros||[]).length);
       if(!horasComMin.length) return null;
@@ -4432,7 +4440,7 @@ window.finalizarEscalaSemanal = async function(){
         const responsavel = g.responsavel||'';
         const respObj = ministros.find(x=>x.nome===responsavel);
         const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
-        const setReforco = setReforcoPorHora[hora] || new Set();
+        const mapaReforco = mapaReforcoPorHora[hora] || new Map();
         const ordenados = [...(g.ministros||[])].sort((a,b)=>{
           if(a===responsavel) return -1;
           if(b===responsavel) return 1;
@@ -4443,7 +4451,7 @@ window.finalizarEscalaSemanal = async function(){
           hora, responsavel, respTel,
           dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
           ministros: ordenados.map((nome,i)=>{
-            return { num:i+1, nome, isResp: nome===responsavel, isReforco: setReforco.has(nome) };
+            return { num:i+1, nome, isResp: nome===responsavel, isReforco: mapaReforco.has(nome), reforcoLabel: mapaReforco.get(nome)||'' };
           })
         };
       });
@@ -4499,7 +4507,7 @@ function cardHorarioFin(hObj){
     const fotoHtml = m.foto
       ? `<img src="${m.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
       : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
-    const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:10px;background:#F0C000;color:#5a3c00;font-size:16px;font-weight:800;padding:3px 12px;border-radius:20px;vertical-align:middle">☆ REFORÇO</span>` : '';
+    const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:10px;background:#F0C000;color:#5a3c00;font-size:16px;font-weight:800;padding:3px 12px;border-radius:20px;vertical-align:middle">☆ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
     return `<tr style="${m.isReforco?'background:#FFF3CD':''}">
       <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${m.num}</td>
       <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
@@ -4706,12 +4714,15 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
         xDepoisNome += 5;
       }
       if(m.isReforco){
-        pdf.setFillColor(240,192,0);
-        const badgeW = 20;
+        const textoBadge = 'REFORÇO' + (m.reforcoLabel?' '+m.reforcoLabel:'');
+        pdf.setFont('helvetica','bold'); pdf.setFontSize(5.5);
+        const textW = pdf.getTextWidth(textoBadge);
+        const badgeW = textW + 3;
         const badgeX = Math.min(xDepoisNome+2, xCard+larguraCol-badgeW-2);
+        pdf.setFillColor(240,192,0);
         pdf.roundedRect(badgeX, yl-2.6, badgeW, 4, 1, 1, 'F');
-        pdf.setTextColor(90,60,0); pdf.setFont('helvetica','bold'); pdf.setFontSize(5.5);
-        pdf.text('☆ REFORÇO', badgeX+badgeW/2, yl+0.3, {align:'center'});
+        pdf.setTextColor(90,60,0);
+        pdf.text(textoBadge, badgeX+badgeW/2, yl+0.3, {align:'center'});
       }
       yl += alturaLinha;
     });
