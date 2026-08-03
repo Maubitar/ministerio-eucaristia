@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.27.1';
+const APP_VERSAO = '19.28.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5013,7 +5013,11 @@ async function gerarPDFPresenca(semanas, tipoLabel, acao){
   const alturaUtilPagina = (pageH - M - 4) - (M + 16); // espaço útil de uma página (sem cabeçalho geral)
   let paginaAtualTemConteudo = false; // a página atual já recebeu algum horário?
 
-  semanas.forEach(sem=>{
+  semanas.forEach((sem, semIdx)=>{
+    // Cada semana começa em página nova (menos a primeira, que já está na página que acabou de ser criada)
+    if(semIdx > 0 && paginaAtualTemConteudo){
+      pdf.addPage(); cabecalho(); y = M + 16; paginaAtualTemConteudo = false;
+    }
     const tituloH = 7;
     let tituloPendente = true; // desenha o título só junto com o 1º horário que couber
 
