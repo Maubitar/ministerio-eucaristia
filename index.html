@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.25.0';
+const APP_VERSAO = '19.26.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4418,9 +4418,11 @@ window.finalizarEscalaSemanal = async function(){
       // Cópia local — nunca mexe no cache da escala ao vivo (evita corromper a tela de edição)
       const esc = {};
       Object.keys(escOriginal).forEach(h=>{ esc[h] = { ...escOriginal[h], ministros: [...(escOriginal[h].ministros||[])] }; });
+      const setReforcoPorHora = {};
       Object.entries(reforcosPorHora).forEach(([hora, nomesReforco])=>{
         if(!nomesReforco.length) return;
         if(!esc[hora]) esc[hora] = {ministros:[], responsavel:''};
+        setReforcoPorHora[hora] = new Set(nomesReforco);
         nomesReforco.forEach(nome=>{ if(!esc[hora].ministros.includes(nome)) esc[hora].ministros.push(nome); });
       });
       const horasComMin = MISSAS_SEM.filter(h=>(esc[h]?.ministros||[]).length);
@@ -4430,6 +4432,7 @@ window.finalizarEscalaSemanal = async function(){
         const responsavel = g.responsavel||'';
         const respObj = ministros.find(x=>x.nome===responsavel);
         const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
+        const setReforco = setReforcoPorHora[hora] || new Set();
         const ordenados = [...(g.ministros||[])].sort((a,b)=>{
           if(a===responsavel) return -1;
           if(b===responsavel) return 1;
@@ -4440,7 +4443,7 @@ window.finalizarEscalaSemanal = async function(){
           hora, responsavel, respTel,
           dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
           ministros: ordenados.map((nome,i)=>{
-            return { num:i+1, nome, isResp: nome===responsavel };
+            return { num:i+1, nome, isResp: nome===responsavel, isReforco: setReforco.has(nome) };
           })
         };
       });
@@ -4496,10 +4499,11 @@ function cardHorarioFin(hObj){
     const fotoHtml = m.foto
       ? `<img src="${m.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
       : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
-    return `<tr>
+    const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:10px;background:#F0C000;color:#5a3c00;font-size:16px;font-weight:800;padding:3px 12px;border-radius:20px;vertical-align:middle">☆ REFORÇO</span>` : '';
+    return `<tr style="${m.isReforco?'background:#FFF3CD':''}">
       <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${m.num}</td>
       <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
-      <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${m.isResp?'font-weight:700':''}">${m.nome}</td>
+      <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${m.isResp?'font-weight:700':''}">${m.nome}${badgeReforco}</td>
     </tr>`;
   }).join('');
   const respTop = hObj.responsavel ? `<div style="font-weight:700;font-size:24px;margin-top:5px;line-height:1.3;word-break:break-word">★ ${hObj.responsavel}${hObj.respTel?`<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${hObj.respTel.replace(' — ','')}</span>`:''}</div>` : '';
@@ -4676,6 +4680,10 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
         yl = yy + 3;
       }
       pdf.setTextColor(130,130,130); pdf.setFont('helvetica','normal'); pdf.setFontSize(8);
+      if(m.isReforco){
+        pdf.setFillColor(255,243,205); // amarelo claro, igual ao destaque da tela de montar escala
+        pdf.rect(xCard+0.8, yl-3.1, larguraCol-1.6, alturaLinha-0.6, 'F');
+      }
       pdf.text(String(m.num), xCard+4, yl+1.3, {align:'center'});
       const cx = xCard+11, cy = yl, d = 5.6;
       const foto = m.foto ? fotoCache[m.nome] : null;
@@ -4692,9 +4700,18 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
       }
       pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(9);
       pdf.text(m.nome, xCard+16, yl+1, {maxWidth: larguraCol-19});
+      let xDepoisNome = xCard+16 + pdf.getTextWidth(m.nome);
       if(m.isResp){
-        const tw = pdf.getTextWidth(m.nome);
-        desenharEstrela(pdf, xCard+16+tw+2.5, yl+0.2, 1.4);
+        desenharEstrela(pdf, xDepoisNome+2.5, yl+0.2, 1.4);
+        xDepoisNome += 5;
+      }
+      if(m.isReforco){
+        pdf.setFillColor(240,192,0);
+        const badgeW = 20;
+        const badgeX = Math.min(xDepoisNome+2, xCard+larguraCol-badgeW-2);
+        pdf.roundedRect(badgeX, yl-2.6, badgeW, 4, 1, 1, 'F');
+        pdf.setTextColor(90,60,0); pdf.setFont('helvetica','bold'); pdf.setFontSize(5.5);
+        pdf.text('☆ REFORÇO', badgeX+badgeW/2, yl+0.3, {align:'center'});
       }
       yl += alturaLinha;
     });
