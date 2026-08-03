@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.24.2';
+const APP_VERSAO = '19.24.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4391,8 +4391,11 @@ window.finalizarEscalaDominical = async function(){
 window.finalizarEscalaSemanal = async function(){
   const mesKey = getMesAtual();
   const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(k)).sort((a,b)=>parseInt(a)-parseInt(b));
+  document.body.insertAdjacentHTML('beforeend', `<div id="diag-passo1" style="position:fixed;top:10px;left:10px;right:10px;z-index:99999;background:#134E8E;color:white;padding:10px 14px;border-radius:8px;font-size:12px">🔧 Função chamada. mesKey="${mesKey}" · semanas encontradas=${sems.length} (${sems.join(',')})</div>`);
   if(!sems.length){ toast('Nenhuma semana definida.','warn'); return; }
-  if(!confirm(`Finalizar a Escala Semanal de ${CAL.mesNome}/${CAL.ano} (${sems.length} semana(s))?\n\nOs dados de hoje ficam travados para impressão. Mudanças futuras na escala não vão mais alterar o que foi finalizado.`)) return;
+  const respostaConfirm = confirm(`Finalizar a Escala Semanal de ${CAL.mesNome}/${CAL.ano} (${sems.length} semana(s))?\n\nOs dados de hoje ficam travados para impressão. Mudanças futuras na escala não vão mais alterar o que foi finalizado.`);
+  document.body.insertAdjacentHTML('beforeend', `<div id="diag-passo2" style="position:fixed;top:50px;left:10px;right:10px;z-index:99999;background:#9B4A8C;color:white;padding:10px 14px;border-radius:8px;font-size:12px">🔧 Confirm respondeu: ${respostaConfirm}</div>`);
+  if(!respostaConfirm) return;
   try{
     const escalasPorSem = {};
     for(const s of sems){ escalasPorSem[s] = await _lerEscalaDocRaw(`escala_sem_sem${s}_${mesKey}`); }
