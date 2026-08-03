@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.24.3';
+const APP_VERSAO = '19.25.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4391,11 +4391,8 @@ window.finalizarEscalaDominical = async function(){
 window.finalizarEscalaSemanal = async function(){
   const mesKey = getMesAtual();
   const sems = Object.keys(SEMANAS_MES).filter(k=>!isNaN(k)).sort((a,b)=>parseInt(a)-parseInt(b));
-  document.body.insertAdjacentHTML('beforeend', `<div id="diag-passo1" style="position:fixed;top:10px;left:10px;right:10px;z-index:99999;background:#134E8E;color:white;padding:10px 14px;border-radius:8px;font-size:12px">🔧 Função chamada. mesKey="${mesKey}" · semanas encontradas=${sems.length} (${sems.join(',')})</div>`);
   if(!sems.length){ toast('Nenhuma semana definida.','warn'); return; }
-  const respostaConfirm = confirm(`Finalizar a Escala Semanal de ${CAL.mesNome}/${CAL.ano} (${sems.length} semana(s))?\n\nOs dados de hoje ficam travados para impressão. Mudanças futuras na escala não vão mais alterar o que foi finalizado.`);
-  document.body.insertAdjacentHTML('beforeend', `<div id="diag-passo2" style="position:fixed;top:50px;left:10px;right:10px;z-index:99999;background:#9B4A8C;color:white;padding:10px 14px;border-radius:8px;font-size:12px">🔧 Confirm respondeu: ${respostaConfirm}</div>`);
-  if(!respostaConfirm) return;
+  if(!confirm(`Finalizar a Escala Semanal de ${CAL.mesNome}/${CAL.ano} (${sems.length} semana(s))?\n\nOs dados de hoje ficam travados para impressão. Mudanças futuras na escala não vão mais alterar o que foi finalizado.`)) return;
   try{
     const escalasPorSem = {};
     for(const s of sems){ escalasPorSem[s] = await _lerEscalaDocRaw(`escala_sem_sem${s}_${mesKey}`); }
@@ -4412,22 +4409,6 @@ window.finalizarEscalaSemanal = async function(){
     const reforcoQui18 = await lerReforco('qui18');
     const reforcoSab12 = await lerReforco('sab12');
     const reforcoSab17 = await lerReforco('sab17');
-    // DIAGNÓSTICO TEMPORÁRIO — caixa própria do app (não depende do alert() nativo do navegador, que pode estar bloqueado)
-    const diagHtml = `
-      <div id="diag-reforco-overlay" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px">
-        <div style="background:white;border-radius:14px;padding:22px;max-width:420px;width:100%;max-height:80vh;overflow-y:auto">
-          <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 14px">🔍 Diagnóstico de Reforços</p>
-          <p style="font-size:13px;margin:0 0 4px"><strong>Quinta 18h:</strong> ${reforcoQui18.length} encontrado(s)</p>
-          <p style="font-size:12px;color:#666;margin:0 0 12px">${reforcoQui18.join(', ')||'(nenhum)'}</p>
-          <p style="font-size:13px;margin:0 0 4px"><strong>Sábado 12h:</strong> ${reforcoSab12.length} encontrado(s)</p>
-          <p style="font-size:12px;color:#666;margin:0 0 12px">${reforcoSab12.join(', ')||'(nenhum)'}</p>
-          <p style="font-size:13px;margin:0 0 4px"><strong>Sábado 17h:</strong> ${reforcoSab17.length} encontrado(s)</p>
-          <p style="font-size:12px;color:#666;margin:0 0 16px">${reforcoSab17.join(', ')||'(nenhum)'}</p>
-          <p style="font-size:10px;color:#999;margin:0 0 14px">Chave usada: mesKey = "${mesKey}"</p>
-          <button onclick="document.getElementById('diag-reforco-overlay').remove()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">Fechar</button>
-        </div>
-      </div>`;
-    document.body.insertAdjacentHTML('beforeend', diagHtml);
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
     const reforcosPorHora = { '18:00h': [...reforcoQui18, ...reforcoSab17], '12:00h': [...reforcoSab12] };
 
@@ -4721,17 +4702,11 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
   }
 
   semanas.forEach(sem=>{
-    const tituloFaixa = sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||'');
-    if(tituloFaixa){
-      if(y + 10 > rodapePagina){ pdf.addPage(); cabecalho(); y = M+16; }
-      pdf.setFillColor(8,80,65); pdf.rect(M, y, larguraTotal, 8, 'F');
-      pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(255,255,255);
-      pdf.text(tituloFaixa, pageW/2, y+5.5, {align:'center'});
-      y += 8 + 3;
-    }
-
     const horariosComGente = sem.horarios.filter(h=>h.ministros.length);
     if(!horariosComGente.length) return;
+
+    const tituloFaixa = sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||'');
+    const alturaTitulo = tituloFaixa ? 11 : 0;
 
     // Balanceia os horários em 2 colunas por altura estimada (mesmo critério da imagem colorida)
     const colunas = [[], []];
@@ -4742,6 +4717,21 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
       colunas[menor].push(h);
       alturasAcum[menor] += alt + 4;
     });
+    const alturaNecessaria = alturaTitulo + Math.max(alturasAcum[0], alturasAcum[1]);
+
+    // Se a semana inteira não cabe no resto da página, quebra ANTES de desenhar qualquer coisa dela
+    // (evita cards da mesma semana ficarem espalhados/fragmentados em páginas diferentes)
+    const cabeInteiraNumaPagina = alturaNecessaria <= (rodapePagina - (M+16));
+    if(y + alturaNecessaria > rodapePagina && (cabeInteiraNumaPagina || y > M+16)){
+      pdf.addPage(); cabecalho(); y = M+16;
+    }
+
+    if(tituloFaixa){
+      pdf.setFillColor(8,80,65); pdf.rect(M, y, larguraTotal, 8, 'F');
+      pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(255,255,255);
+      pdf.text(tituloFaixa, pageW/2, y+5.5, {align:'center'});
+      y += 8 + 3;
+    }
 
     const yInicioSemana = y;
     let yMax = yInicioSemana;
