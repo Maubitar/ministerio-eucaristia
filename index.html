@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.31.1';
+const APP_VERSAO = '19.31.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4668,16 +4668,20 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
   }
   const alturaLinha = 7.2;
-  const alturaHeaderCard = 11;
-  const alturaHeaderCard2Linhas = 15;
   const rodapePagina = pageH - M - 4;
 
-  function precisaQuebrarResp(h){
-    const texto = 'Responsável: '+(h.responsavel||'—')+(h.respTel||'');
+  // Calcula de verdade quantas linhas o "Responsável" precisa (nome pode quebrar sozinho, telefone sempre fica numa linha própria)
+  function linhasHeaderResp(h){
     pdf.setFont('helvetica','normal'); pdf.setFontSize(7.6);
-    return pdf.getTextWidth(texto) > (larguraCol-6);
+    const nomeLinhas = pdf.splitTextToSize('Responsável: '+(h.responsavel||'—'), larguraCol-5);
+    const telLinha = h.respTel ? h.respTel.replace(/^\s*—\s*/,'') : '';
+    return { nomeLinhas, telLinha };
   }
-  function alturaHeaderParaCard(h){ return precisaQuebrarResp(h) ? alturaHeaderCard2Linhas : alturaHeaderCard; }
+  function alturaHeaderParaCard(h){
+    const { nomeLinhas, telLinha } = linhasHeaderResp(h);
+    const totalLinhasTexto = nomeLinhas.length + (telLinha ? 1 : 0);
+    return 5 + totalLinhasTexto*3.6 + 1.2;
+  }
 
   function alturaCard(h){
     const temReforco = h.ministros.some(m=>m.isReforco);
@@ -4703,13 +4707,10 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5);
     pdf.text('Horário: '+h.hora, xCard+3, yy+4.5);
     pdf.setFont('helvetica','normal'); pdf.setFontSize(7.6);
-    if(headerH > alturaHeaderCard){
-      // Não coube numa linha só — nome numa linha, telefone na linha de baixo
-      pdf.text('Responsável: '+(h.responsavel||'—'), xCard+3, yy+8.3, {maxWidth: larguraCol-5});
-      if(h.respTel) pdf.text(h.respTel.replace(/^\s*—\s*/,''), xCard+3, yy+12, {maxWidth: larguraCol-5});
-    } else {
-      pdf.text('Responsável: '+(h.responsavel||'—')+(h.respTel||''), xCard+3, yy+8.3, {maxWidth: larguraCol-5});
-    }
+    const { nomeLinhas, telLinha } = linhasHeaderResp(h);
+    let yTexto = yy + 8.3;
+    nomeLinhas.forEach(linha=>{ pdf.text(linha, xCard+3, yTexto); yTexto += 3.6; });
+    if(telLinha){ pdf.text(telLinha, xCard+3, yTexto); }
 
     let yl = yy + headerH + 4.5;
     let jaMostrouDivisorReforco = false;
