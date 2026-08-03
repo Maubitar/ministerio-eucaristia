@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.26.1';
+const APP_VERSAO = '19.27.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4444,6 +4444,8 @@ window.finalizarEscalaSemanal = async function(){
         const ordenados = [...(g.ministros||[])].sort((a,b)=>{
           if(a===responsavel) return -1;
           if(b===responsavel) return 1;
+          const aRef = mapaReforco.has(a), bRef = mapaReforco.has(b);
+          if(aRef !== bRef) return aRef ? 1 : -1; // reforço sempre depois dos escalados normais
           return a.localeCompare(b,'pt-BR');
         });
         const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
@@ -4503,12 +4505,18 @@ const CORES_HORARIO_FIN = {
 function cardHorarioFin(hObj){
   if(!hObj.ministros || !hObj.ministros.length) return '';
   const corH = CORES_HORARIO_FIN[hObj.hora] || {escuro:'#085041',claro:'#eef5f2'};
+  let jaMostrouDivisorReforco = false;
   const linhas = hObj.ministros.map((m)=>{
     const fotoHtml = m.foto
       ? `<img src="${m.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
       : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
-    const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:10px;background:#F0C000;color:#5a3c00;font-size:16px;font-weight:800;padding:3px 12px;border-radius:20px;vertical-align:middle">☆ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
-    return `<tr style="${m.isReforco?'background:#FFF3CD':''}">
+    const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:10px;background:#F0C000;color:#5a3c00;font-size:16px;font-weight:800;padding:3px 12px;border-radius:20px;vertical-align:middle;white-space:nowrap">☆ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
+    let divisor = '';
+    if(m.isReforco && !jaMostrouDivisorReforco){
+      jaMostrouDivisorReforco = true;
+      divisor = `<tr><td colspan="3" style="padding:10px 14px 4px;font-size:18px;font-style:italic;color:#a07d1a;border-top:2px dashed #E8C66B">⭐ Reforço</td></tr>`;
+    }
+    return `${divisor}<tr style="${m.isReforco?'background:#FFF3CD':''}">
       <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${m.num}</td>
       <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
       <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${m.isResp?'font-weight:700':''}">${m.nome}${badgeReforco}</td>
@@ -4658,7 +4666,11 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
   const alturaHeaderCard = 11;
   const rodapePagina = pageH - M - 4;
 
-  function alturaCard(h){ return alturaHeaderCard + h.ministros.length*alturaLinha + 3; }
+  function alturaCard(h){
+    const temReforco = h.ministros.some(m=>m.isReforco);
+    const alturaMinistros = h.ministros.reduce((acc,m)=> acc + (m.isReforco ? alturaLinha+3 : alturaLinha), 0);
+    return alturaHeaderCard + alturaMinistros + 3 + (temReforco ? 5 : 0);
+  }
 
   // Desenha um card (horário + responsável + ministros) numa coluna; devolve o Y final usado (pode ter quebrado página)
   function desenharCard(xCard, yCard, h){
@@ -4680,17 +4692,28 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
     pdf.text('Responsável: '+(h.responsavel||'—')+(h.respTel||''), xCard+3, yy+8.3, {maxWidth: larguraCol-5});
 
     let yl = yy + alturaHeaderCard + 4.5;
+    let jaMostrouDivisorReforco = false;
     h.ministros.forEach((m)=>{
+      const alturaEstaLinha = m.isReforco ? alturaLinha+3 : alturaLinha;
       if(yl + 4 > rodapePagina){
         pdf.addPage(); cabecalho(); yy = M+16;
         pdf.setFillColor(cr,cg,cb); pdf.rect(xCard, yy, larguraCol, rodapePagina-yy, 'F');
         pdf.setDrawColor(er,eg,eb); pdf.rect(xCard, yy, larguraCol, rodapePagina-yy, 'S');
         yl = yy + 3;
       }
+      // Divisória + legenda antes do primeiro reforço — separa visualmente da escala normal
+      if(m.isReforco && !jaMostrouDivisorReforco){
+        jaMostrouDivisorReforco = true;
+        pdf.setDrawColor(220,180,60); pdf.setLineWidth(0.3);
+        pdf.line(xCard+3, yl-2, xCard+larguraCol-3, yl-2);
+        pdf.setFont('helvetica','italic'); pdf.setFontSize(6); pdf.setTextColor(150,120,20);
+        pdf.text('Reforço', xCard+3, yl+1.2);
+        yl += 5;
+      }
       pdf.setTextColor(130,130,130); pdf.setFont('helvetica','normal'); pdf.setFontSize(8);
       if(m.isReforco){
         pdf.setFillColor(255,243,205); // amarelo claro, igual ao destaque da tela de montar escala
-        pdf.rect(xCard+0.8, yl-3.1, larguraCol-1.6, alturaLinha-0.6, 'F');
+        pdf.rect(xCard+0.8, yl-3.1, larguraCol-1.6, alturaEstaLinha-0.6, 'F');
       }
       pdf.text(String(m.num), xCard+4, yl+1.3, {align:'center'});
       const cx = xCard+11, cy = yl, d = 5.6;
@@ -4708,23 +4731,23 @@ async function gerarPDFEscala(semanas, tipoLabel, acao){
       }
       pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(9);
       pdf.text(m.nome, xCard+16, yl+1, {maxWidth: larguraCol-19});
-      let xDepoisNome = xCard+16 + pdf.getTextWidth(m.nome);
       if(m.isResp){
-        desenharEstrela(pdf, xDepoisNome+2.5, yl+0.2, 1.4);
-        xDepoisNome += 5;
+        const tw = pdf.getTextWidth(m.nome);
+        desenharEstrela(pdf, xCard+16+tw+2.5, yl+0.2, 1.4);
       }
       if(m.isReforco){
+        // Etiqueta numa linha própria, embaixo do nome — nunca sobrepõe o texto
         const textoBadge = 'REFORÇO' + (m.reforcoLabel?' '+m.reforcoLabel:'');
         pdf.setFont('helvetica','bold'); pdf.setFontSize(5.5);
         const textW = pdf.getTextWidth(textoBadge);
         const badgeW = textW + 3;
-        const badgeX = Math.min(xDepoisNome+2, xCard+larguraCol-badgeW-2);
+        const badgeY = yl + 2.6;
         pdf.setFillColor(240,192,0);
-        pdf.roundedRect(badgeX, yl-2.6, badgeW, 4, 1, 1, 'F');
+        pdf.roundedRect(xCard+16, badgeY, badgeW, 3.4, 0.9, 0.9, 'F');
         pdf.setTextColor(90,60,0);
-        pdf.text(textoBadge, badgeX+badgeW/2, yl+0.3, {align:'center'});
+        pdf.text(textoBadge, xCard+16+badgeW/2, badgeY+2.4, {align:'center'});
       }
-      yl += alturaLinha;
+      yl += alturaEstaLinha;
     });
     return yl + 4;
   }
