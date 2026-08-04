@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.33.3';
+const APP_VERSAO = '19.33.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4676,7 +4676,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     hex = (hex||'#085041').replace('#','');
     return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
   }
-  const alturaLinha = 8.2;
+  const alturaLinha = 7.2;
   const rodapePagina = pageH - M - 4;
 
   // Calcula de verdade quantas linhas o "Responsável" precisa (nome pode quebrar sozinho, telefone sempre fica numa linha própria)
@@ -4746,7 +4746,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
         pdf.rect(xCard+0.8, yl-3.1, larguraCol-1.6, alturaEstaLinha-0.6, 'F');
       }
       pdf.text(String(m.num), xCard+4, yl+1.3, {align:'center'});
-      const cx = xCard+11, cy = yl, d = 7;
+      const cx = xCard+11, cy = yl, d = 6.2;
       const foto = m.foto ? fotoCache[m.nome] : null;
       if(foto){
         try{
@@ -4756,7 +4756,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
       } else {
         const ini = (m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
         pdf.setFillColor(255,255,255); pdf.circle(cx,cy,d/2,'F');
-        pdf.setTextColor(er,eg,eb); pdf.setFontSize(6.5); pdf.setFont('helvetica','bold');
+        pdf.setTextColor(er,eg,eb); pdf.setFontSize(6); pdf.setFont('helvetica','bold');
         pdf.text(ini, cx, cy+0.9, {align:'center'});
       }
       pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(9);
