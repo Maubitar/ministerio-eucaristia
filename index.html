@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.33.2';
+const APP_VERSAO = '19.33.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4787,46 +4787,32 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     if(!horariosComGente.length) return;
 
     const tituloFaixa = sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||'');
-    const alturaTitulo = tituloFaixa ? 11 : 0;
-
-    // Balanceia os horários em N colunas por altura estimada (3 na dominical, 2 na semanal — mesmo critério da imagem colorida)
-    const colunas = Array.from({length:numColunas}, ()=>[]);
-    const alturasAcum = Array(numColunas).fill(0);
-    horariosComGente.forEach(h=>{
-      const alt = alturaCard(h);
-      let menor = 0;
-      for(let i=1;i<numColunas;i++){ if(alturasAcum[i] < alturasAcum[menor]) menor = i; }
-      colunas[menor].push(h);
-      alturasAcum[menor] += alt + 4;
-    });
-    const alturaNecessaria = alturaTitulo + Math.max(...alturasAcum);
-
-    // Se a semana inteira não cabe no resto da página, quebra ANTES de desenhar qualquer coisa dela
-    // (evita cards da mesma semana ficarem espalhados/fragmentados em páginas diferentes)
-    const cabeInteiraNumaPagina = alturaNecessaria <= (rodapePagina - (M+16));
-    if(y + alturaNecessaria > rodapePagina && (cabeInteiraNumaPagina || y > M+16)){
-      pdf.addPage(); cabecalho(); y = M+16;
-    }
 
     if(tituloFaixa){
+      if(y + 10 > rodapePagina){ pdf.addPage(); cabecalho(); y = M+16; }
       pdf.setFillColor(8,80,65); pdf.rect(M, y, larguraTotal, 8, 'F');
       pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(255,255,255);
       pdf.text(tituloFaixa, pageW/2, y+5.5, {align:'center'});
       y += 8 + 3;
     }
 
-    const yInicioSemana = y;
-    let yMax = yInicioSemana;
-    for(let colIdx=0; colIdx<numColunas; colIdx++){
-      if(!colunas[colIdx].length) continue;
-      let yc = yInicioSemana;
-      const xCard = M + colIdx*(larguraCol+gapCol);
-      colunas[colIdx].forEach(h=>{
-        yc = desenharCard(xCard, yc, h);
-      });
-      yMax = Math.max(yMax, yc);
-    }
-    y = yMax + 1;
+    // Fluxo por colunas: cada card vai pra coluna com menos altura usada até agora.
+    // Todas as colunas compartilham a MESMA noção de página — se uma obriga a virar página, todas viram juntas.
+    const colY = Array(numColunas).fill(y);
+    horariosComGente.forEach(h=>{
+      let col = 0;
+      for(let i=1;i<numColunas;i++){ if(colY[i] < colY[col]) col = i; }
+      const alt = alturaCard(h);
+      // Não cabe na coluna mais vazia desta página? Vira página e reinicia todas as colunas do zero.
+      if(colY[col] + alt > rodapePagina && colY[col] > M+16){
+        pdf.addPage(); cabecalho();
+        for(let i=0;i<numColunas;i++) colY[i] = M+16;
+        col = 0;
+      }
+      const xCard = M + col*(larguraCol+gapCol);
+      colY[col] = desenharCard(xCard, colY[col], h);
+    });
+    y = Math.max(...colY) + 1;
   });
 
   function _paginaVazia(k){
