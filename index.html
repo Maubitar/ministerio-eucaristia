@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.34.0';
+const APP_VERSAO = '19.35.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9484,12 +9484,65 @@ function finRenderPagamentos(){
         <p style="font-size:13px;margin:0"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#fcebeb;border:1px solid #e8b4b4;margin-right:6px"></span>${pendentesCount} faltam</p>
       </div>
     </div>
+    <button onclick="imprimirFolhaColetaPagamentos()" style="width:100%;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖨️ Folha pra Marcar Pagamento (lista única, com valor)</button>
     <button onclick="imprimirRelatorioPagamentos()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">🖨️ Relatório de Pagamentos (quem pagou/falta)</button>
     <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:10px;box-sizing:border-box">
     <p style="font-size:11px;color:#888;margin:0 0 8px">Mensalidade: <strong>${fmt(valor)}</strong> · Toque para marcar/desmarcar quem pagou em ${finMesKeyLegivel(_finMesSel)}.</p>
     <div id="fin-lista-pag"></div>`;
   finRenderPagamentos2('');
 }
+
+// Folha de coleta — lista única de todos os ministros, pra marcar pagamento na hora (reunião), com o valor ao lado
+window.imprimirFolhaColetaPagamentos = function(){
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  const linhas = ativos.map((m,i)=>{
+    const jaPagou = !!_finPagosMes[m.id]?.pago;
+    return `<tr>
+      <td style="text-align:center;color:#888">${i+1}</td>
+      <td>${m.nome}</td>
+      <td style="text-align:center">${fmt(valor)}</td>
+      <td style="text-align:center">${jaPagou ? '<span style="color:#1D9E75;font-weight:700">✓ Pago</span>' : '<span style="display:inline-block;width:16px;height:16px;border:1.5px solid #999;border-radius:3px"></span>'}</td>
+      <td style="width:70px"></td>
+    </tr>`;
+  }).join('');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Folha de Pagamentos</title>
+    <style>
+      @page{ size:portrait; margin:12mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:16px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      th{text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:6px 4px}
+      td{padding:7px 4px;border-bottom:1px solid #eee}
+      .rodape{margin-top:16px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+    </style></head><body>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">💵 Folha de Pagamentos — ${finMesKeyLegivel(_finMesSel)}</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística — ${ativos.length} ministros</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+    <table>
+      <thead><tr><th>Nº</th><th>Nome</th><th style="text-align:center">Valor</th><th style="text-align:center">Pagou</th><th>Assinatura</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <p class="rodape">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
+    <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+};
 
 window.imprimirRelatorioPagamentos = function(){
   const valor = Number(_finConfig.valorMensalidade)||15;
