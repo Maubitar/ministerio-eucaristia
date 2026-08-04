@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.33.1';
+const APP_VERSAO = '19.33.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7852,23 +7852,57 @@ async function modoPresencaResponsavel(codigo){
     // Datas em que esse horário acontece neste período
     let datas = [];
     if(tipo==='dom'){
-      const cal = calcularCalendario(ano, mesIdx);
-      datas = cal.domingos.map(d=>({ data:d, label:'Domingo '+d }));
-    } else {
-      let periodos = {};
-      try{ const d = await getDoc(doc(db,'config',`semanas_${mesKey}`)); periodos = d.exists()?(d.data().periodos||{}):{}; }catch(e){}
-      const per = periodos[semana];
-      if(per){
-        const DIAS_NOME=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
-        const fmt=dd=>`${String(dd.getDate()).padStart(2,'0')}/${String(dd.getMonth()+1).padStart(2,'0')}`;
-        const dIni=new Date(per.ini+'T12:00:00'), dFim=new Date(per.fim+'T12:00:00');
-        let cursor=new Date(dIni);
-        while(cursor<=dFim){
-          const diaNome = DIAS_NOME[cursor.getDay()];
-          if((MISSAS_SEM_DIAS[diaNome]||[]).includes(horario)){
-            datas.push({ data:fmt(cursor), label:diaNome+' '+fmt(cursor) });
+      // PRIORIDADE 1: se a escala já foi finalizada, usa exatamente as datas que estão lá — é a fonte da verdade
+      try{
+        const dFin = await getDoc(doc(db,'escalas_finalizadas',`${mesKey}_dom`));
+        if(dFin.exists()){
+          const horarioFin = (dFin.data().semanas?.[0]?.horarios||[]).find(h=>h.hora===horario);
+          if(horarioFin && horarioFin.dias?.length){
+            datas = horarioFin.dias.map(dStr=>{
+              const dd = dStr.replace(/^dom\s+/,'');
+              return { data: dd, label: 'Domingo '+dd };
+            });
           }
-          cursor.setDate(cursor.getDate()+1);
+        }
+      }catch(e){}
+      // PRIORIDADE 2 (só se ainda não foi finalizada): calcula pelo calendário do mês
+      if(!datas.length){
+        const cal = calcularCalendario(ano, mesIdx);
+        datas = cal.domingos.map(d=>({ data:d, label:'Domingo '+d }));
+      }
+    } else {
+      // PRIORIDADE 1: se a escala semanal já foi finalizada, usa exatamente as datas de lá
+      try{
+        const dFin = await getDoc(doc(db,'escalas_finalizadas',`${mesKey}_sem`));
+        if(dFin.exists()){
+          const semanaFin = (dFin.data().semanas||[]).find(s=>(s.label||'').startsWith(semana+'ª'));
+          const horarioFin = (semanaFin?.horarios||[]).find(h=>h.hora===horario);
+          if(horarioFin && horarioFin.dias?.length){
+            const DIAS_LONGO = {seg:'Segunda',ter:'Terça',qua:'Quarta',qui:'Quinta',sex:'Sexta',sáb:'Sábado',dom:'Domingo'};
+            datas = horarioFin.dias.map(dStr=>{
+              const [abrev, dd] = dStr.split(' ');
+              return { data: dd, label: (DIAS_LONGO[abrev]||abrev)+' '+dd };
+            });
+          }
+        }
+      }catch(e){}
+      // PRIORIDADE 2 (só se ainda não foi finalizada): calcula pelo período configurado
+      if(!datas.length){
+        let periodos = {};
+        try{ const d = await getDoc(doc(db,'config',`semanas_${mesKey}`)); periodos = d.exists()?(d.data().periodos||{}):{}; }catch(e){}
+        const per = periodos[semana];
+        if(per){
+          const DIAS_NOME=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+          const fmt=dd=>`${String(dd.getDate()).padStart(2,'0')}/${String(dd.getMonth()+1).padStart(2,'0')}`;
+          const dIni=new Date(per.ini+'T12:00:00'), dFim=new Date(per.fim+'T12:00:00');
+          let cursor=new Date(dIni);
+          while(cursor<=dFim){
+            const diaNome = DIAS_NOME[cursor.getDay()];
+            if((MISSAS_SEM_DIAS[diaNome]||[]).includes(horario)){
+              datas.push({ data:fmt(cursor), label:diaNome+' '+fmt(cursor) });
+            }
+            cursor.setDate(cursor.getDate()+1);
+          }
         }
       }
     }
