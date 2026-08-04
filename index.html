@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.33.0';
+const APP_VERSAO = '19.33.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7980,11 +7980,12 @@ function renderCorpoDataPresenca(i, docId, registrosSalvos){
 
   corpo.innerHTML = `
     <div id="pr-lista-${i}">${listaCompleta.map(m=>linhaPresencaResponsavel(m, registrosSalvos[m.id])).join('')}</div>
-    <div style="position:relative;margin-top:10px">
-      <input type="text" id="pr-busca-sub-${i}" placeholder="+ Adicionar quem substituiu..." autocomplete="off"
+    <p style="font-size:11px;color:#999;margin:10px 0 4px">Pode adicionar quantos substitutos precisar, um de cada vez:</p>
+    <div style="position:relative;margin-bottom:6px">
+      <input type="text" id="pr-busca-sub-${i}" placeholder="🔍 Buscar ministro que substituiu..." autocomplete="off"
         oninput="buscarSubstitutoPresenca(this,${i})"
-        style="width:100%;padding:9px 10px;border:1px dashed #999;border-radius:8px;font-size:12px;box-sizing:border-box">
-      <div id="pr-ac-sub-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:200px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+        style="width:100%;padding:12px 10px;border:1.5px dashed #999;border-radius:9px;font-size:14px;box-sizing:border-box">
+      <div id="pr-ac-sub-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
     </div>`;
 }
 
@@ -8048,7 +8049,7 @@ window.buscarSubstitutoPresenca = function(inp, i){
   const ms = ctx.todosMinistros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaNaLista.has(m.nome)).slice(0,8);
   if(!ms.length){ ac.style.display='none'; return; }
   ac.style.display='block';
-  ac.innerHTML = ms.map(m=>`<div onmousedown="adicionarSubstitutoPresenca('${m.id}',${i})" style="padding:9px 12px;cursor:pointer;font-size:13px">${m.nome}</div>`).join('');
+  ac.innerHTML = ms.map(m=>`<div onclick="adicionarSubstitutoPresenca('${m.id}',${i})" style="padding:12px;cursor:pointer;font-size:14px;border-bottom:1px solid #f0f0f0">${m.nome}</div>`).join('');
 };
 
 window.adicionarSubstitutoPresenca = async function(ministroId, i){
@@ -8070,6 +8071,7 @@ window.adicionarSubstitutoPresenca = async function(ministroId, i){
       viaResponsavel: true
     }, {merge:true});
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); return; }
+  toast(`✓ ${m.nome.split(' ')[0]} adicionado(a)!`,'ok');
   const inp = document.getElementById('pr-busca-sub-'+i); if(inp) inp.value='';
   let jaSalvo = {};
   try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
