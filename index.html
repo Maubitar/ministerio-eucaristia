@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.33.4';
+const APP_VERSAO = '19.34.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -163,6 +163,7 @@ const MISSAS_SEM_DIAS = {
 };
 
 let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={};
+let _presencaChaveCarregada = null;
 
 // ===== PROTEÇÃO CONTRA PERDA DE DADOS NÃO SALVOS =====
 // Sempre que a escala é alterada em memória (antes de clicar "Salvar"), guardamos
@@ -4195,6 +4196,23 @@ window.renderPresenca = async function(){
     return { hora:h, ministros:g.ministros||[], responsavel:g.responsavel||'', reforco:g._reforco||[] };
   });
 
+  // Carrega da nuvem as presenças já salvas para este dia (uma vez por data — não refaz a cada clique em P/F/S)
+  if(info.iso !== _presencaChaveCarregada){
+    _presencaChaveCarregada = info.iso;
+    Object.keys(presAtual).forEach(k=>delete presAtual[k]); // limpa resíduo de outra data
+    for(const missa of missas){
+      if(!missa.ministros.length) continue;
+      try{
+        const key = `${info.iso}_${missa.hora.replace(':','')}`;
+        const d = await getDoc(doc(db,'presencas',key));
+        if(d.exists()){
+          const registros = d.data().registros||{};
+          Object.entries(registros).forEach(([id,reg])=>{ presAtual[id] = { status:reg.status||'', justificativa:reg.justificativa||'' }; });
+        }
+      }catch(e){}
+    }
+  }
+
   const totalEscalados = missas.reduce((a,m)=>a+m.ministros.length,0);
   presListaAtual = { info, missas };
 
@@ -5285,7 +5303,23 @@ window.setJustReun = function(nome, val){
   presReuniaoMap[nome].justificativa = val;
 };
 
-window.renderReuniao = function(){
+let _reuniaoDataCarregada = null;
+window.renderReuniao = async function(){
+  const data = document.getElementById('reun-data')?.value;
+  if(data && data !== _reuniaoDataCarregada){
+    _reuniaoDataCarregada = data;
+    Object.keys(presReuniaoMap).forEach(k=>delete presReuniaoMap[k]); // limpa resíduo de outra data
+    try{
+      const d = await getDoc(doc(db,'reunioes',data));
+      if(d.exists()){
+        const registros = d.data().registros||{};
+        Object.entries(registros).forEach(([id,reg])=>{
+          const m = ministros.find(x=>x.id===id);
+          if(m) presReuniaoMap[m.nome] = { status:reg.status||'', justificativa:reg.justificativa||'' };
+        });
+      }
+    }catch(e){}
+  }
   const lista = ministros;
   document.getElementById('reun-body').innerHTML = lista.map(m=>{
     const pr = presReuniaoMap[m.nome];
@@ -5390,7 +5424,23 @@ window.setJustAdor = function(nome, val){
   presAdoracaoMap[nome].justificativa = val;
 };
 
-window.renderAdoracao = function(){
+let _adoracaoDataCarregada = null;
+window.renderAdoracao = async function(){
+  const data = document.getElementById('ador-data')?.value;
+  if(data && data !== _adoracaoDataCarregada){
+    _adoracaoDataCarregada = data;
+    Object.keys(presAdoracaoMap).forEach(k=>delete presAdoracaoMap[k]);
+    try{
+      const d = await getDoc(doc(db,'adoracoes',data));
+      if(d.exists()){
+        const registros = d.data().registros||{};
+        Object.entries(registros).forEach(([id,reg])=>{
+          const m = ministros.find(x=>x.id===id);
+          if(m) presAdoracaoMap[m.nome] = { status:reg.status||'', justificativa:reg.justificativa||'' };
+        });
+      }
+    }catch(e){}
+  }
   const lista = ministros;
   document.getElementById('ador-body').innerHTML = lista.map(m=>{
     const pr = presAdoracaoMap[m.nome];
