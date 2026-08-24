@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.36.0';
+const APP_VERSAO = '19.37.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -8075,20 +8075,15 @@ function renderCorpoDataPresenca(i, docId, registrosSalvos){
   // Junta escalados originais + qualquer substituto já adicionado antes (registrado mas não escalado)
   const idsEscalados = new Set(ctx.escaladosObjs.map(m=>m.id));
   const substitutosSalvos = Object.keys(registrosSalvos).filter(id=>!idsEscalados.has(id) && registrosSalvos[id]?.substituto);
-  const listaCompleta = [...ctx.escaladosObjs, ...substitutosSalvos.map(id=>ctx.todosMinistros.find(m=>m.id===id)).filter(Boolean)];
+  const listaCompleta = [
+    ...ctx.escaladosObjs.map(m=>({m, original:true})),
+    ...substitutosSalvos.map(id=>({m:ctx.todosMinistros.find(x=>x.id===id), original:false})).filter(x=>x.m)
+  ];
 
-  corpo.innerHTML = `
-    <div id="pr-lista-${i}">${listaCompleta.map(m=>linhaPresencaResponsavel(m, registrosSalvos[m.id])).join('')}</div>
-    <p style="font-size:11px;color:#999;margin:10px 0 4px">Pode adicionar quantos substitutos precisar, um de cada vez:</p>
-    <div style="position:relative;margin-bottom:6px">
-      <input type="text" id="pr-busca-sub-${i}" placeholder="🔍 Buscar ministro que substituiu..." autocomplete="off"
-        oninput="buscarSubstitutoPresenca(this,${i})"
-        style="width:100%;padding:12px 10px;border:1.5px dashed #999;border-radius:9px;font-size:14px;box-sizing:border-box">
-      <div id="pr-ac-sub-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
-    </div>`;
+  corpo.innerHTML = `<div id="pr-lista-${i}">${listaCompleta.map(({m,original})=>linhaPresencaResponsavel(m, registrosSalvos[m.id], i, original)).join('')}</div>`;
 }
 
-function linhaPresencaResponsavel(m, reg){
+function linhaPresencaResponsavel(m, reg, i, ehOriginal){
   const status = reg?.status || '';
   const fotoHtml = m.foto
     ? `<img src="${m.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0">`
@@ -8097,16 +8092,37 @@ function linhaPresencaResponsavel(m, reg){
     const ativo = status===valor;
     return `<button onclick="marcarPresencaResponsavel('${m.id}','${valor}')" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
   }
-  return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
-    ${fotoHtml}
-    <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${m.substitutoMarcado?' <span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700">SUBSTITUTO</span>':''}</span>
-    <div style="display:flex;gap:5px;flex-shrink:0">
-      ${botao('P','#1D9E75','P')}
-      ${botao('F','#A32D2D','F')}
-      ${botao('S','#BA7517','S')}
+  const tagSubstituto = !ehOriginal ? `<span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700;white-space:nowrap">${reg?.substituiuNome ? 'veio no lugar de '+reg.substituiuNome.split(' ')[0] : 'SUBSTITUTO'}</span>` : '';
+  return `<div>
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:${ehOriginal?'none':'1px solid #eee'}">
+      ${fotoHtml}
+      <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${tagSubstituto?' '+tagSubstituto:''}</span>
+      <div style="display:flex;gap:5px;flex-shrink:0">
+        ${botao('P','#1D9E75','P')}
+        ${botao('F','#A32D2D','F')}
+        ${botao('S','#BA7517','S')}
+      </div>
     </div>
+    ${ehOriginal ? `
+    <div style="padding:0 0 8px 44px">
+      <a href="#" onclick="toggleSubstituirInline('${m.id}',${i});return false" style="font-size:11px;color:#185FA5;text-decoration:none">🔁 Alguém substituiu ${m.nome.split(' ')[0]}?</a>
+      <div id="pr-sub-inline-${m.id}" style="display:none;position:relative;margin-top:6px">
+        <input type="text" id="pr-busca-sub-${m.id}" placeholder="🔍 Buscar quem substituiu ${m.nome.split(' ')[0]}..." autocomplete="off"
+          oninput="buscarSubstitutoPresenca(this,${i},'${m.id}','${m.nome.replace(/'/g,"")}')"
+          style="width:100%;padding:10px;border:1.5px dashed #999;border-radius:9px;font-size:13px;box-sizing:border-box">
+        <div id="pr-ac-sub-${m.id}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+      </div>
+    </div>` : ''}
   </div>`;
 }
+
+window.toggleSubstituirInline = function(ministroId, i){
+  const el = document.getElementById('pr-sub-inline-'+ministroId);
+  if(!el) return;
+  const abrir = el.style.display==='none';
+  el.style.display = abrir ? 'block' : 'none';
+  if(abrir){ const inp=document.getElementById('pr-busca-sub-'+ministroId); if(inp) inp.focus(); }
+};
 
 window.marcarPresencaResponsavel = async function(ministroId, status){
   const registrante = localStorage.getItem('sogi_registrante_nome');
@@ -8138,9 +8154,9 @@ async function _salvarPresencaResponsavel(docId, ministroId, status, registrante
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); }
 }
 
-window.buscarSubstitutoPresenca = function(inp, i){
+window.buscarSubstitutoPresenca = function(inp, i, substituiuId, substituiuNome){
   const v = normalizarBusca(inp.value);
-  const ac = document.getElementById('pr-ac-sub-'+i);
+  const ac = document.getElementById('pr-ac-sub-'+substituiuId);
   if(!ac) return;
   if(v.length<2){ ac.style.display='none'; return; }
   const ctx = _presRespCtx;
@@ -8148,10 +8164,10 @@ window.buscarSubstitutoPresenca = function(inp, i){
   const ms = ctx.todosMinistros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaNaLista.has(m.nome)).slice(0,8);
   if(!ms.length){ ac.style.display='none'; return; }
   ac.style.display='block';
-  ac.innerHTML = ms.map(m=>`<div onclick="adicionarSubstitutoPresenca('${m.id}',${i})" style="padding:12px;cursor:pointer;font-size:14px;border-bottom:1px solid #f0f0f0">${m.nome}</div>`).join('');
+  ac.innerHTML = ms.map(m=>`<div onclick="adicionarSubstitutoPresenca('${m.id}',${i},'${substituiuId}','${(substituiuNome||'').replace(/'/g,"")}')" style="padding:12px;cursor:pointer;font-size:14px;border-bottom:1px solid #f0f0f0">${m.nome}</div>`).join('');
 };
 
-window.adicionarSubstitutoPresenca = async function(ministroId, i){
+window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId, substituiuNome){
   const registrante = localStorage.getItem('sogi_registrante_nome');
   if(!registrante){ toast('Antes de adicionar, informe quem está registrando (no topo da tela).','warn'); return; }
   const corpo = document.getElementById('pr-corpo-'+i);
@@ -8159,19 +8175,17 @@ window.adicionarSubstitutoPresenca = async function(ministroId, i){
   const ctx = _presRespCtx;
   const m = ctx.todosMinistros.find(x=>x.id===ministroId);
   if(!m) return;
-  m.substitutoMarcado = true;
   try{
     const partesData = corpo.dataset.docid.split('_')[0];
     await setDoc(doc(db,'presencas',corpo.dataset.docid), {
       data: partesData,
       horario: ctx.horario,
-      registros: { [ministroId]: { status:'P', justificativa:'', registradoPor:registrante, registradoEm: Date.now(), substituto:true } },
+      registros: { [ministroId]: { status:'P', justificativa:'', registradoPor:registrante, registradoEm: Date.now(), substituto:true, substituiuId:substituiuId||'', substituiuNome:substituiuNome||'' } },
       atualizadoEm: serverTimestamp(),
       viaResponsavel: true
     }, {merge:true});
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); return; }
-  toast(`✓ ${m.nome.split(' ')[0]} adicionado(a)!`,'ok');
-  const inp = document.getElementById('pr-busca-sub-'+i); if(inp) inp.value='';
+  toast(`✓ ${m.nome.split(' ')[0]} adicionado(a) no lugar de ${(substituiuNome||'').split(' ')[0]}!`,'ok');
   let jaSalvo = {};
   try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
   renderCorpoDataPresenca(i, corpo.dataset.docid, jaSalvo);
