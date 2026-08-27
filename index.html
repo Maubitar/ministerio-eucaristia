@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.40.0';
+const APP_VERSAO = '19.41.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -851,6 +851,10 @@ window.renderUsuarios = function(){
         `<button onclick="removerUsuario(${i})" style="border:none;background:none;color:#A32D2D;font-size:16px;cursor:pointer;padding:0 4px">×</button>` : ''}
     </div>`;
   }).join('');
+};
+
+window.abrirEsqueciSenha = function(){
+  document.getElementById('modal-esqueci-senha').style.display='flex';
 };
 
 window.abrirNovoUsuario = function(){
@@ -10808,6 +10812,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <input type="password" id="login-pass" autocomplete="current-password" placeholder="Sua senha" onkeydown="if(event.key==='Enter')fazerLogin()" style="width:100%;padding:12px;border:1.5px solid #e5e5e5;border-radius:10px;font-size:14px;margin-bottom:10px;box-sizing:border-box;transition:border-color .15s" onfocus="this.style.borderColor='#0A6E58'" onblur="this.style.borderColor='#e5e5e5'">
     <p id="login-erro" style="font-size:12px;color:#A32D2D;margin:0 0 10px;display:none;font-weight:600">Usuário ou senha incorretos.</p>
     <button onclick="fazerLogin()" style="width:100%;padding:14px;border:none;border-radius:11px;background:linear-gradient(135deg,#0A6E58,#085041);color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;box-shadow:0 4px 12px rgba(8,80,65,.35)">Entrar</button>
+    <button onclick="abrirEsqueciSenha()" style="width:100%;padding:8px;border:none;background:none;color:#0A6E58;font-size:12px;font-weight:600;cursor:pointer;margin-top:10px;text-decoration:underline">Esqueci meu usuário ou senha</button>
     <p id="login-dica" style="font-size:10px;color:#aaa;text-align:center;margin:14px 0 0;line-height:1.5"></p>
   </div>
   <div style="display:flex;align-items:center;gap:5px;margin-top:22px;opacity:.55">
@@ -11977,6 +11982,31 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha</label>
     <input type="text" id="nu-pass" placeholder="Mínimo 4 caracteres" style="margin-bottom:14px">
     <button style="padding:12px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarNovoUsuario()">💾 Criar acesso</button>
+  </div>
+</div>
+
+<div id="modal-esqueci-senha" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-esqueci-senha')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">🔑 Recuperar acesso</p>
+      <button onclick="fecharModal('modal-esqueci-senha')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12.5px;color:#555;line-height:1.6;margin:0 0 12px">
+      As senhas ficam criptografadas — nem o próprio sistema consegue "ver" qual é a sua, só resetar.
+      Para recuperar o acesso, é preciso resetar direto no banco de dados (Firebase):
+    </p>
+    <ol style="font-size:12.5px;color:#444;line-height:1.9;margin:0 0 14px;padding-left:18px">
+      <li>Acesse <strong>console.firebase.google.com</strong> com a conta Google do projeto.</li>
+      <li>Abra o projeto <strong>ministerio-eucaristia-nazare</strong>.</li>
+      <li>No menu, clique em <strong>Firestore Database</strong>.</li>
+      <li>Abra a coleção <strong>config</strong> → documento <strong>acesso</strong>.</li>
+      <li>Clique nos três pontinhos (⋮) e escolha <strong>Excluir documento</strong>.</li>
+      <li>Volte aqui, atualize a página e entre com <strong>admin</strong> / <strong>admin</strong> — o sistema recria esse acesso padrão sozinho.</li>
+      <li>Depois de entrar, troque a senha em <strong>Mais → Configurações</strong> e guarde num lugar seguro.</li>
+    </ol>
+    <p style="font-size:11px;color:#A32D2D;background:#FBEAEA;padding:8px 10px;border-radius:8px;margin:0">
+      ⚠️ Isso reseta o acesso padrão (coordenação). Acessos de Financeira/Secretária criados antes precisam ser recriados depois em "Mais → Acessos e Perfis".
+    </p>
   </div>
 </div>
 
