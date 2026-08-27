@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.39.0';
+const APP_VERSAO = '19.39.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2315,6 +2315,7 @@ window.iniciarDitadoTexto = function(inputId, btnEl){
   rec.interimResults = false;
   const textoBase = input.value ? input.value + ' ' : '';
   let medidorWrap = null;
+  const textoOriginalBtn = btnEl ? btnEl.textContent : null;
   if(btnEl){
     btnEl.textContent = '🔴 Ouvindo... (toque p/ parar)'; btnEl.style.background='#faeeda';
     medidorWrap = document.createElement('div');
@@ -2335,7 +2336,7 @@ window.iniciarDitadoTexto = function(inputId, btnEl){
     if(ev.error === 'not-allowed'){ toast('Permita o uso do microfone.','warn'); }
   };
   rec.onend = ()=>{
-    if(btnEl){ btnEl.textContent = '🎤 Ditar'; btnEl.style.background='#e6f1fb'; }
+    if(btnEl){ btnEl.textContent = textoOriginalBtn; btnEl.style.background='#e6f1fb'; }
     _pararMedidorVolume();
     if(medidorWrap) medidorWrap.remove();
   };
