@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.39.1';
+const APP_VERSAO = '19.40.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2121,6 +2121,8 @@ window.extrairNomesDaFala = extrairNomesDaFala;
 
 let _vozReconhecimento = null;
 let _vozTranscriptAcumulado = '';
+let _vozSessaoAberta = false;   // true enquanto o painel está no ar (modo contínuo)
+let _vozPausadoManual = false;  // true só quando o usuário aperta "Pausar" de propósito
 
 function _vozSuportada(){
   return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -2132,6 +2134,8 @@ window.iniciarEscalaPorVoz = function(key, hora){
     return;
   }
   _vozTranscriptAcumulado = '';
+  _vozSessaoAberta = true;
+  _vozPausadoManual = false;
   _mostrarPainelVoz(key, hora);
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2153,13 +2157,20 @@ window.iniciarEscalaPorVoz = function(key, hora){
   rec.onerror = (ev)=>{
     if(ev.error === 'not-allowed' || ev.error === 'permission-denied'){
       toast('Permita o uso do microfone para escalar por voz.','warn');
+      _vozSessaoAberta = false;
     } else if(ev.error !== 'no-speech'){
       toast('Erro no reconhecimento de voz: '+ev.error,'warn');
     }
   };
   rec.onend = ()=>{
-    const btn = document.getElementById('voz-btn-toggle');
-    if(btn){ btn.textContent = '🎤 Continuar falando'; btn.style.background='#e6f1fb'; btn.style.color='#185FA5'; }
+    // Modo contínuo: se o painel ainda está aberto e não foi pausado de propósito,
+    // reinicia sozinho (o Chrome às vezes encerra por conta própria após alguns segundos).
+    if(_vozSessaoAberta && !_vozPausadoManual){
+      try{ rec.start(); }catch(e){}
+    } else {
+      const btn = document.getElementById('voz-btn-toggle');
+      if(btn){ btn.textContent = '🎤 Continuar falando'; btn.style.background='#e6f1fb'; btn.style.color='#185FA5'; }
+    }
   };
   rec.start();
   _iniciarMedidorVolume('voz-medidor');
@@ -2224,18 +2235,19 @@ function _mostrarPainelVoz(key, hora){
   painel.innerHTML = `
     <div style="background:white;border-radius:14px;padding:20px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto">
       <h3 style="margin:0 0 4px;color:#085041;font-size:16px">🎤 Escalando por voz — ${hora}</h3>
-      <p style="margin:0 0 12px;font-size:12px;color:#888">Fale os nomes dos ministros. Eles aparecem aqui embaixo pra você conferir antes de escalar.</p>
+      <p style="margin:0 0 12px;font-size:12px;color:#888">Fale um nome, confirme, e já pode falar o próximo — o painel continua ouvindo até você concluir.</p>
       <div style="height:8px;background:#eee;border-radius:4px;overflow:hidden;margin-bottom:4px">
         <div id="voz-medidor" style="height:100%;width:0%;background:#cde8d8;transition:width .08s linear"></div>
       </div>
       <p id="voz-medidor-aviso" style="display:none;font-size:11px;color:#BA7517;margin:0 0 10px;font-weight:600">⚠️ Não estou captando nenhum som — verifique se o microfone certo está selecionado ou se não está mudo.</p>
       <div id="voz-transcript" style="background:#f5f5f3;border-radius:8px;padding:10px;font-size:13px;color:#555;min-height:40px;margin-bottom:12px">Ouvindo...</div>
       <div id="voz-candidatos" style="margin-bottom:12px"></div>
+      <div id="voz-escalados" style="margin-bottom:12px"></div>
       <div style="display:flex;gap:8px">
         <button id="voz-btn-toggle" onclick="_vozPararTemporario()" style="flex:1;padding:11px;border:none;border-radius:8px;background:#faeeda;color:#7a4a06;font-weight:700;cursor:pointer;font-size:13px">⏸️ Pausar</button>
-        <button onclick="_vozConfirmarEscalar('${key}','${hora}')" style="flex:1;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-weight:700;cursor:pointer;font-size:13px">✓ Confirmar e escalar</button>
+        <button onclick="_vozConfirmarEscalar('${key}','${hora}')" style="flex:1;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-weight:700;cursor:pointer;font-size:13px">✓ Escalar e continuar</button>
       </div>
-      <button onclick="_vozCancelar()" style="width:100%;margin-top:8px;padding:9px;border:none;background:none;color:#999;cursor:pointer;font-size:12px">Cancelar</button>
+      <button onclick="_vozCancelar()" style="width:100%;margin-top:8px;padding:9px;border:none;background:#eef7f2;border-radius:8px;color:#085041;cursor:pointer;font-size:13px;font-weight:600">✓ Concluir este horário</button>
     </div>`;
   document.body.appendChild(painel);
 }
@@ -2262,6 +2274,7 @@ window._vozPararTemporario = function(){
   const btn = document.getElementById('voz-btn-toggle');
   if(_vozReconhecimento){
     if(btn && btn.textContent.includes('Pausar')){
+      _vozPausadoManual = true;
       _vozReconhecimento.stop();
       btn.textContent = '🎤 Continuar falando';
       btn.style.background='#e6f1fb'; btn.style.color='#185FA5';
@@ -2271,6 +2284,7 @@ window._vozPararTemporario = function(){
 };
 window._vozRetomar = function(){
   if(_vozReconhecimento){
+    _vozPausadoManual = false;
     try{ _vozReconhecimento.start(); }catch(e){}
     const btn = document.getElementById('voz-btn-toggle');
     if(btn){
@@ -2281,19 +2295,37 @@ window._vozRetomar = function(){
   }
 };
 
+// Escala os nomes confirmados e CONTINUA no painel, limpo e pronto pro próximo ministro
+// — não fecha, não pede pra reabrir o microfone de novo.
 window._vozConfirmarEscalar = function(key, hora){
   const checks = document.querySelectorAll('.voz-check:checked');
   const nomes = Array.from(checks).map(c=>c.value);
-  if(_vozReconhecimento){ try{ _vozReconhecimento.stop(); }catch(e){} }
-  _pararMedidorVolume();
-  const overlay = document.getElementById('voz-painel-overlay');
-  if(overlay) overlay.remove();
-  if(!nomes.length){ toast('Nenhum ministro selecionado.','warn'); return; }
+  if(!nomes.length){ toast('Fale um nome antes de confirmar.','warn'); return; }
+
   nomes.forEach(nome=> addMin(key, hora, nome, null));
-  toast(`✓ ${nomes.length} ministro(s) escalado(s) por voz`,'ok');
+  toast(`✓ ${nomes.length} escalado(s) — pode falar o próximo`,'ok');
+
+  // Marca no painel quem já foi escalado nesta sessão (histórico visual)
+  const elEsc = document.getElementById('voz-escalados');
+  if(elEsc){
+    nomes.forEach(nome=>{
+      const linha = document.createElement('div');
+      linha.style.cssText = 'font-size:12px;color:#085041;padding:3px 0';
+      linha.textContent = '✓ ' + nome;
+      elEsc.appendChild(linha);
+    });
+  }
+
+  // Limpa a busca e os candidatos — pronto pro próximo nome, sem fechar nada
+  _vozTranscriptAcumulado = '';
+  const elT = document.getElementById('voz-transcript');
+  if(elT) elT.textContent = 'Ouvindo...';
+  const elC = document.getElementById('voz-candidatos');
+  if(elC) elC.innerHTML = '<p style="font-size:12px;color:#aaa;text-align:center;padding:8px">Nenhum ministro reconhecido ainda...</p>';
 };
 
 window._vozCancelar = function(){
+  _vozSessaoAberta = false;
   if(_vozReconhecimento){ try{ _vozReconhecimento.stop(); }catch(e){} }
   _pararMedidorVolume();
   const overlay = document.getElementById('voz-painel-overlay');
