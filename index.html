@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.37.0';
+const APP_VERSAO = '19.38.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2094,6 +2094,185 @@ function normalizarBusca(txt){
 }
 window.normalizarBusca = normalizarBusca;
 
+// ===== ESCALAÇÃO POR VOZ (grátis — usa o reconhecimento de voz do próprio navegador) =====
+// Compara o que foi falado com os nomes cadastrados. NUNCA escala sozinho:
+// sempre mostra os nomes reconhecidos e espera confirmação antes de gravar.
+const PALAVRAS_IGNORAR_NOME = new Set(['de','da','do','das','dos','e']);
+
+function extrairNomesDaFala(transcript, listaMinistros){
+  const tokensFala = normalizarBusca(transcript).split(/\s+/).filter(Boolean);
+  if(!tokensFala.length) return [];
+  const candidatos = [];
+  listaMinistros.forEach(m=>{
+    const palavrasNome = normalizarBusca(m.nome).split(/\s+/).filter(p=>p.length>2 && !PALAVRAS_IGNORAR_NOME.has(p));
+    if(!palavrasNome.length) return;
+    let bateram = 0;
+    palavrasNome.forEach(p=>{ if(tokensFala.includes(p)) bateram++; });
+    const score = bateram / palavrasNome.length;
+    const minimoNecessario = palavrasNome.length===1 ? 1 : 2;
+    if(bateram >= minimoNecessario && score >= 0.5){
+      candidatos.push({ nome:m.nome, score, bateram });
+    }
+  });
+  candidatos.sort((a,b)=> b.score-a.score || b.bateram-a.bateram);
+  return candidatos;
+}
+window.extrairNomesDaFala = extrairNomesDaFala;
+
+let _vozReconhecimento = null;
+let _vozTranscriptAcumulado = '';
+
+function _vozSuportada(){
+  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+window.iniciarEscalaPorVoz = function(key, hora){
+  if(!_vozSuportada()){
+    toast('Ditado por voz não é suportado neste navegador. Use o Chrome (Android ou computador).','warn');
+    return;
+  }
+  _vozTranscriptAcumulado = '';
+  _mostrarPainelVoz(key, hora);
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SR();
+  rec.lang = 'pt-BR';
+  rec.continuous = true;
+  rec.interimResults = true;
+  _vozReconhecimento = rec;
+
+  rec.onresult = (ev)=>{
+    let interim = '';
+    for(let i=ev.resultIndex; i<ev.results.length; i++){
+      const texto = ev.results[i][0].transcript;
+      if(ev.results[i].isFinal){ _vozTranscriptAcumulado += ' ' + texto; }
+      else { interim += texto; }
+    }
+    _atualizarPainelVoz(key, hora, (_vozTranscriptAcumulado + ' ' + interim).trim());
+  };
+  rec.onerror = (ev)=>{
+    if(ev.error === 'not-allowed' || ev.error === 'permission-denied'){
+      toast('Permita o uso do microfone para escalar por voz.','warn');
+    } else if(ev.error !== 'no-speech'){
+      toast('Erro no reconhecimento de voz: '+ev.error,'warn');
+    }
+  };
+  rec.onend = ()=>{
+    const btn = document.getElementById('voz-btn-toggle');
+    if(btn){ btn.textContent = '🎤 Continuar falando'; btn.style.background='#e6f1fb'; btn.style.color='#185FA5'; }
+  };
+  rec.start();
+};
+
+function _mostrarPainelVoz(key, hora){
+  const painel = document.createElement('div');
+  painel.id = 'voz-painel-overlay';
+  painel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px';
+  painel.innerHTML = `
+    <div style="background:white;border-radius:14px;padding:20px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto">
+      <h3 style="margin:0 0 4px;color:#085041;font-size:16px">🎤 Escalando por voz — ${hora}</h3>
+      <p style="margin:0 0 12px;font-size:12px;color:#888">Fale os nomes dos ministros. Eles aparecem aqui embaixo pra você conferir antes de escalar.</p>
+      <div id="voz-transcript" style="background:#f5f5f3;border-radius:8px;padding:10px;font-size:13px;color:#555;min-height:40px;margin-bottom:12px">Ouvindo...</div>
+      <div id="voz-candidatos" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px">
+        <button id="voz-btn-toggle" onclick="_vozPararTemporario()" style="flex:1;padding:11px;border:none;border-radius:8px;background:#faeeda;color:#7a4a06;font-weight:700;cursor:pointer;font-size:13px">⏸️ Pausar</button>
+        <button onclick="_vozConfirmarEscalar('${key}','${hora}')" style="flex:1;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-weight:700;cursor:pointer;font-size:13px">✓ Confirmar e escalar</button>
+      </div>
+      <button onclick="_vozCancelar()" style="width:100%;margin-top:8px;padding:9px;border:none;background:none;color:#999;cursor:pointer;font-size:12px">Cancelar</button>
+    </div>`;
+  document.body.appendChild(painel);
+}
+
+function _atualizarPainelVoz(key, hora, transcript){
+  const elT = document.getElementById('voz-transcript');
+  if(elT) elT.textContent = transcript || 'Ouvindo...';
+  const candidatos = extrairNomesDaFala(transcript, ministros);
+  const elC = document.getElementById('voz-candidatos');
+  if(!elC) return;
+  if(!candidatos.length){
+    elC.innerHTML = '<p style="font-size:12px;color:#aaa;text-align:center;padding:8px">Nenhum ministro reconhecido ainda...</p>';
+    return;
+  }
+  elC.innerHTML = `<p style="font-size:11px;color:#888;margin:0 0 6px">Reconhecidos (desmarque quem não deve entrar):</p>` +
+    candidatos.map(c=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#eef7f2;border-radius:6px;margin-bottom:4px;font-size:13px;cursor:pointer">
+        <input type="checkbox" class="voz-check" value="${c.nome.replace(/"/g,'&quot;')}" checked style="width:16px;height:16px">
+        ${c.nome}
+      </label>`).join('');
+}
+
+window._vozPararTemporario = function(){
+  const btn = document.getElementById('voz-btn-toggle');
+  if(_vozReconhecimento){
+    if(btn && btn.textContent.includes('Pausar')){
+      _vozReconhecimento.stop();
+      btn.textContent = '🎤 Continuar falando';
+      btn.style.background='#e6f1fb'; btn.style.color='#185FA5';
+      btn.setAttribute('onclick','_vozRetomar()');
+    }
+  }
+};
+window._vozRetomar = function(){
+  if(_vozReconhecimento){
+    try{ _vozReconhecimento.start(); }catch(e){}
+    const btn = document.getElementById('voz-btn-toggle');
+    if(btn){
+      btn.textContent = '⏸️ Pausar';
+      btn.style.background='#faeeda'; btn.style.color='#7a4a06';
+      btn.setAttribute('onclick','_vozPararTemporario()');
+    }
+  }
+};
+
+window._vozConfirmarEscalar = function(key, hora){
+  const checks = document.querySelectorAll('.voz-check:checked');
+  const nomes = Array.from(checks).map(c=>c.value);
+  if(_vozReconhecimento){ try{ _vozReconhecimento.stop(); }catch(e){} }
+  const overlay = document.getElementById('voz-painel-overlay');
+  if(overlay) overlay.remove();
+  if(!nomes.length){ toast('Nenhum ministro selecionado.','warn'); return; }
+  nomes.forEach(nome=> addMin(key, hora, nome, null));
+  toast(`✓ ${nomes.length} ministro(s) escalado(s) por voz`,'ok');
+};
+
+window._vozCancelar = function(){
+  if(_vozReconhecimento){ try{ _vozReconhecimento.stop(); }catch(e){} }
+  const overlay = document.getElementById('voz-painel-overlay');
+  if(overlay) overlay.remove();
+};
+
+// ===== DITADO SIMPLES (para campos de texto livre, como o recado aos responsáveis) =====
+window.iniciarDitadoTexto = function(inputId, btnEl){
+  if(!_vozSuportada()){
+    toast('Ditado por voz não é suportado neste navegador. Use o Chrome.','warn');
+    return;
+  }
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SR();
+  rec.lang = 'pt-BR';
+  rec.continuous = true;
+  rec.interimResults = false;
+  const textoBase = input.value ? input.value + ' ' : '';
+  if(btnEl){ btnEl.textContent = '🔴 Ouvindo... (toque p/ parar)'; btnEl.style.background='#faeeda'; }
+  rec.onresult = (ev)=>{
+    let novoTexto = '';
+    for(let i=0; i<ev.results.length; i++){ novoTexto += ev.results[i][0].transcript; }
+    input.value = textoBase + novoTexto;
+  };
+  rec.onerror = (ev)=>{
+    if(ev.error === 'not-allowed'){ toast('Permita o uso do microfone.','warn'); }
+  };
+  rec.onend = ()=>{
+    if(btnEl){ btnEl.textContent = '🎤 Ditar'; btnEl.style.background='#e6f1fb'; }
+  };
+  if(btnEl){
+    btnEl.onclick = ()=>{ rec.stop(); };
+  }
+  rec.start();
+};
+
 const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 let SEMANAS_SERVICO = 5;
 
@@ -2935,6 +3114,8 @@ window.renderEscala = async function(){
             style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin:0">
           <div id="ac-${key}-${hora.replace(':','')}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
         </div>
+        <button onclick="iniciarEscalaPorVoz('${key}','${hora}')" title="Escalar por voz"
+          style="flex-shrink:0;width:34px;height:30px;border:1px solid #cde8d8;border-radius:6px;background:#eef7f2;color:#085041;cursor:pointer;font-size:14px">🎤</button>
       </div>
     </div>`;
   }).join('');
@@ -11169,7 +11350,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="usarModeloResp(3)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">📢 Aviso geral</button>
       <button onclick="usarModeloResp(4)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">🙏 Boas-vindas</button>
     </div>
-    <textarea id="resp-mensagem" placeholder="Digite a mensagem que será enviada a todos os responsáveis..." style="width:100%;min-height:120px;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+    <div style="position:relative">
+      <textarea id="resp-mensagem" placeholder="Digite a mensagem que será enviada a todos os responsáveis..." style="width:100%;min-height:120px;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+      <button onclick="iniciarDitadoTexto('resp-mensagem', this)" title="Ditar mensagem por voz"
+        style="position:absolute;bottom:8px;right:8px;padding:5px 10px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:11px;font-weight:600">🎤 Ditar</button>
+    </div>
     <p style="font-size:11px;color:#888;margin:4px 0 8px">A mensagem será personalizada com o nome e horário de cada responsável.</p>
 
     <!-- Foto opcional -->
