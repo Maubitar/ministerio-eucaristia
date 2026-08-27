@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.41.0';
+const APP_VERSAO = '19.43.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9605,6 +9605,12 @@ let _finMesSel = null;       // mesKey selecionado (ex: 'jun2026')
 
 const FIN_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const FIN_MESES_NOME = {jan:'Janeiro',fev:'Fevereiro',mar:'Março',abr:'Abril',mai:'Maio',jun:'Junho',jul:'Julho',ago:'Agosto',set:'Setembro',out:'Outubro',nov:'Novembro',dez:'Dezembro'};
+let _finPagosTodos = {}; // { mesKey: {ministroId:{pago,data,forma}} } — TODOS os meses já carregados de uma vez
+
+function finAnoDoMesKey(mk){
+  const m = (mk||'').match(/(\d{4})$/);
+  return m ? m[1] : String(new Date().getFullYear());
+}
 
 function finMesKeyLegivel(mk){
   const m=(mk||'').match(/^([a-z]{3})(\d{4})$/);
@@ -9661,15 +9667,19 @@ window.renderFinanceiro = async function(){
   const mensalidadesPorConta = {cofre:0, banco1:0, banco2:0};
   try{
     const snapPag = await getDocs(collection(db,'financeiro'));
+    _finPagosTodos = {};
     snapPag.docs.forEach(d=>{
       if(d.id.startsWith('pag_')){
+        const mesKey = d.id.slice(4);
         const pagos = d.data().pagos||{};
+        _finPagosTodos[mesKey] = pagos;
         const qtd = Object.values(pagos).filter(p=>p.pago).length;
         const valorMes = qtd * valor;
         totalArrecadadoGeral += valorMes;
         mensalidadesPorConta[localMensalidade] = (mensalidadesPorConta[localMensalidade]||0) + valorMes;
       }
     });
+    _finPagosMes = _finPagosTodos[_finMesSel] || (_finPagosTodos[_finMesSel] = {});
   }catch(e){}
 
   function porConta(lista){
@@ -9819,8 +9829,12 @@ function finRenderPagamentos(){
     </div>
     <button onclick="imprimirFolhaColetaPagamentos()" style="width:100%;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖨️ Folha pra Marcar Pagamento (lista única, com valor)</button>
     <button onclick="imprimirRelatorioPagamentos()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">🖨️ Relatório de Pagamentos (quem pagou/falta)</button>
-    <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:10px;box-sizing:border-box">
-    <p style="font-size:11px;color:#888;margin:0 0 8px">Mensalidade: <strong>${fmt(valor)}</strong> · Toque para marcar/desmarcar quem pagou em ${finMesKeyLegivel(_finMesSel)}.</p>
+    <div style="position:relative;margin-bottom:10px">
+      <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;padding-right:66px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:0;box-sizing:border-box">
+      <button onclick="iniciarDitadoTexto('fin-busca', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
+    <p style="font-size:11px;color:#888;margin:0 0 8px">Mensalidade: <strong>${fmt(valor)}</strong> · Toque no mês pra marcar — 1º toque <span style="color:#1D9E75;font-weight:700">💵 Dinheiro</span>, 2º toque <span style="color:#185FA5;font-weight:700">📱 Pix</span>, 3º toque volta a pendente. Pode marcar vários meses de uma vez.</p>
     <div id="fin-lista-pag"></div>`;
   finRenderPagamentos2('');
 }
@@ -9936,29 +9950,171 @@ window.finRenderPagamentos2 = function(filtro){
   const f = normalizarBusca(filtro||'');
   const ativos = ministros.filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(f))
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const anoSel = finAnoDoMesKey(_finMesSel);
   lista.innerHTML = ativos.map(m=>{
-    const pago = _finPagosMes[m.id]?.pago;
-    return `<div onclick="finTogglePago('${m.id}')" style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
-      <div style="width:26px;height:26px;border-radius:6px;border:2px solid ${pago?'#1D9E75':'#ccc'};background:${pago?'#1D9E75':'white'};display:flex;align-items:center;justify-content:center;color:white;font-size:14px;flex-shrink:0">${pago?'✓':''}</div>
-      <span style="flex:1;font-size:13px;${pago?'color:#085041;font-weight:600':''}">${m.nome}</span>
-      <span style="font-size:11px;font-weight:700;color:${pago?'#1D9E75':'#bbb'}">${pago?'PAGO':'pendente'}</span>
+    return `<div style="padding:9px 0;border-bottom:1px solid #f0f0f0">
+      <div onclick="abrirExtratoMinistro('${m.id}')" style="font-size:13px;font-weight:600;margin-bottom:6px;cursor:pointer;color:#085041">${m.nome} <span style="font-size:10px;color:#999;font-weight:400;text-decoration:underline">ver extrato</span></div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">${finChipsDoMinistro(m.id, anoSel)}</div>
     </div>`;
   }).join('') || '<p style="font-size:12px;color:#888;padding:10px 0">Nenhum ministro encontrado.</p>';
 };
 
+// Desenha os 12 "chips" de mês pra um ministro. Toque cicla: pendente → Dinheiro → Pix → pendente.
+function finChipsDoMinistro(ministroId, anoSel){
+  return FIN_MESES.map(mes=>{
+    const mk = mes+anoSel;
+    const reg = _finPagosTodos[mk]?.[ministroId];
+    const label = mes.charAt(0).toUpperCase()+mes.slice(1);
+    let cor='#f0f0f0', txtCor='#999', conteudo=label;
+    if(reg?.pago){
+      if(reg.forma==='pix'){ cor='#185FA5'; txtCor='white'; conteudo='📱'; }
+      else { cor='#1D9E75'; txtCor='white'; conteudo='💵'; }
+    }
+    return `<button onclick="event.stopPropagation();finToggleMesMinistro('${ministroId}','${mk}')" title="${FIN_MESES_NOME[mes]}/${anoSel}"
+      style="min-width:32px;height:26px;padding:0 4px;border:none;border-radius:5px;background:${cor};color:${txtCor};font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">${conteudo}</button>`;
+  }).join('');
+}
+
+// Cicla o pagamento de UM mês específico de UM ministro: pendente → Dinheiro (💵) → Pix (📱) → pendente.
+// Funciona pra qualquer mês do ano, não só o mês selecionado no topo — é isso que elimina a fila.
+window.finToggleMesMinistro = async function(ministroId, mesKey){
+  if(!_finPagosTodos[mesKey]) _finPagosTodos[mesKey] = {};
+  const atual = _finPagosTodos[mesKey][ministroId];
+  if(!atual || !atual.pago){
+    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'dinheiro', data:new Date().toISOString()};
+  } else if(atual.forma!=='pix'){
+    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'pix', data:atual.data||new Date().toISOString()};
+  } else {
+    delete _finPagosTodos[mesKey][ministroId];
+  }
+  // re-render rápido (otimista) — só a lista, sem recarregar tudo
+  finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
+  if(mesKey===_finMesSel){ _finPagosMes = _finPagosTodos[mesKey]; atualizarTotaisFin(); }
+  try{
+    await setDoc(doc(db,'financeiro','pag_'+mesKey), {pagos:_finPagosTodos[mesKey], mesKey, atualizadoEm:serverTimestamp()});
+  }catch(e){ toast('Erro ao salvar pagamento.','err'); }
+};
+
+// Mantida por compatibilidade (não é mais chamada pela lista nova, que usa os chips de mês).
 window.finTogglePago = async function(id){
   const atual = _finPagosMes[id]?.pago;
   if(atual){ delete _finPagosMes[id]; }
   else { _finPagosMes[id] = {pago:true, data:new Date().toISOString()}; }
-  // re-render rápido (otimista)
   finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
-  // salva
   try{
     await setDoc(doc(db,'financeiro','pag_'+_finMesSel), {pagos:_finPagosMes, mesKey:_finMesSel, atualizadoEm:serverTimestamp()});
   }catch(e){ toast('Erro ao salvar pagamento.','err'); }
-  // atualiza os totais do topo
   atualizarTotaisFin();
 };
+
+// ===== EXTRATO INDIVIDUAL — quanto cada ministro já pagou, mês a mês =====
+window.abrirExtratoMinistro = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  let totalPago = 0;
+  const linhas = FIN_MESES.map(mes=>{
+    const mk = mes+anoSel;
+    const reg = _finPagosTodos[mk]?.[id];
+    let status = '<span style="color:#A32D2D">Pendente</span>';
+    let dataFmt = '—';
+    if(reg?.pago){
+      totalPago++;
+      const forma = reg.forma==='pix' ? '📱 Pix' : '💵 Dinheiro';
+      status = `<span style="color:#1D9E75;font-weight:600">✓ Pago — ${forma}</span>`;
+      if(reg.data){ try{ dataFmt = new Date(reg.data).toLocaleDateString('pt-BR'); }catch(e){} }
+    }
+    return `<tr><td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">${FIN_MESES_NOME[mes]}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">${status}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;text-align:right;color:#888;font-size:11px">${dataFmt}</td></tr>`;
+  }).join('');
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const existente = document.getElementById('modal-extrato-ministro');
+  if(existente) existente.remove();
+  const modal = document.createElement('div');
+  modal.id = 'modal-extrato-ministro';
+  modal.className = 'modal-bg';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700">📄 Extrato — ${m.nome}</p>
+      <button onclick="document.getElementById('modal-extrato-ministro').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 10px">${anoSel} · ${totalPago} de 12 meses pagos · Total: ${fmt(totalPago*valor)}</p>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Mês</th>
+        <th style="text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Situação</th>
+        <th style="text-align:right;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Data</th>
+      </tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <button onclick="imprimirExtratoMinistro('${id}')" style="width:100%;margin-top:14px;padding:11px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir extrato</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display='flex';
+};
+
+window.imprimirExtratoMinistro = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  let totalPago = 0;
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const linhas = FIN_MESES.map(mes=>{
+    const mk = mes+anoSel;
+    const reg = _finPagosTodos[mk]?.[id];
+    let status = '<span style="color:#A32D2D">Pendente</span>';
+    let dataFmt = '—';
+    if(reg?.pago){
+      totalPago++;
+      const forma = reg.forma==='pix' ? 'Pix' : 'Dinheiro';
+      status = `<span style="color:#1D9E75;font-weight:700">✓ Pago (${forma})</span>`;
+      if(reg.data){ try{ dataFmt = new Date(reg.data).toLocaleDateString('pt-BR'); }catch(e){} }
+    }
+    return `<tr><td>${FIN_MESES_NOME[mes]}</td><td>${status}</td><td style="text-align:right;color:#888">${dataFmt}</td></tr>`;
+  }).join('');
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Extrato — ${m.nome}</title>
+    <style>
+      @page{ size:portrait; margin:14mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:18px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      .resumo{font-size:12px;color:#555;margin-bottom:14px}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      th{text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:6px 4px}
+      td{padding:7px 4px;border-bottom:1px solid #eee}
+      .rodape{margin-top:20px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+    </style></head><body>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">📄 Extrato de Pagamentos — ${m.nome}</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística — ${anoSel}</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+    <p class="resumo">Mensalidade: <strong>${fmt(valor)}</strong> · ${totalPago} de 12 meses pagos em ${anoSel} · Total pago: <strong>${fmt(totalPago*valor)}</strong></p>
+    <table>
+      <thead><tr><th>Mês</th><th>Situação</th><th style="text-align:right">Data</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
+    <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+};
+
 
 async function atualizarTotaisFin(){
   // recalcula só os números do topo sem recarregar tudo
@@ -11248,7 +11404,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </div>
     <p id="min-sem-disp" style="font-size:11px;color:#BA7517;margin:0 0 10px"></p>
     <button onclick="nav('tel-rapido')" style="width:100%;padding:10px;border:none;border-radius:9px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px">📱 Preencher telefones em massa</button>
-    <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()">
+    <div style="position:relative;margin-bottom:8px">
+      <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()" style="margin-bottom:0;padding-right:66px">
+      <button onclick="iniciarDitadoTexto('busca-min', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
     <div id="min-body"></div>
   </div>
 </div>
