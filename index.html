@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.38.0';
+const APP_VERSAO = '19.38.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2260,6 +2260,8 @@ window.iniciarDitadoTexto = function(inputId, btnEl){
     let novoTexto = '';
     for(let i=0; i<ev.results.length; i++){ novoTexto += ev.results[i][0].transcript; }
     input.value = textoBase + novoTexto;
+    // Dispara o evento de input — assim campos com filtro ao vivo (oninput) reagem sozinhos enquanto fala
+    input.dispatchEvent(new Event('input', { bubbles:true }));
   };
   rec.onerror = (ev)=>{
     if(ev.error === 'not-allowed'){ toast('Permita o uso do microfone.','warn'); }
@@ -11601,7 +11603,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="fecharModal('modal-vd')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <p id="vd-count" style="font-size:12px;color:#1D9E75;margin-bottom:12px"></p>
-    <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:10px">
+    <div style="position:relative;margin-bottom:10px">
+      <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:0;padding-right:66px">
+      <button onclick="iniciarDitadoTexto('vd-busca', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
     <div id="vd-body"></div>
   </div>
 </div>
@@ -11613,7 +11619,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="fecharModal('modal-envio')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <p id="envio-info" style="font-size:12px;color:#888;margin-bottom:10px"></p>
-    <input type="text" id="envio-busca" placeholder="Filtrar por nome..." oninput="filtrarEnvio()" style="margin-bottom:10px">
+    <div style="position:relative;margin-bottom:10px">
+      <input type="text" id="envio-busca" placeholder="Filtrar por nome..." oninput="filtrarEnvio()" style="margin-bottom:0;padding-right:66px">
+      <button onclick="iniciarDitadoTexto('envio-busca', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
     <div id="envio-body" style="overflow-y:auto;flex:1"></div>
   </div>
 </div>
