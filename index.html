@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.44.0';
+const APP_VERSAO = '19.45.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9602,6 +9602,8 @@ let _finPagosMes = {};       // {ministroId:{pago:true,data}} do mês selecionad
 let _finDespesas = [];       // todas as saídas
 let _finReceitas = [];       // todas as entradas avulsas (fora da mensalidade)
 let _finMesSel = null;       // mesKey selecionado (ex: 'jun2026')
+let _finCreditos = {};       // {ministroId: valorEmReais} — saldo de troco/crédito acumulado
+let _finObservacoes = {};    // {ministroId: 'texto livre'} — observações do financeiro sobre o ministro
 
 const FIN_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const FIN_MESES_NOME = {jan:'Janeiro',fev:'Fevereiro',mar:'Março',abr:'Abril',mai:'Maio',jun:'Junho',jul:'Julho',ago:'Agosto',set:'Setembro',out:'Outubro',nov:'Novembro',dez:'Dezembro'};
@@ -9652,6 +9654,16 @@ async function carregarFinanceiro(){
     const snapR = await getDocs(collection(db,'receitas'));
     _finReceitas = snapR.docs.map(d=>({id:d.id, local:'cofre', ...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   }catch(e){ _finReceitas=[]; }
+  // saldo de crédito por ministro (troco não devolvido, aplicável em meses futuros)
+  try{
+    const dc = await getDoc(doc(db,'financeiro','creditos'));
+    _finCreditos = dc.exists() ? (dc.data().saldos||{}) : {};
+  }catch(e){ _finCreditos={}; }
+  // observações livres por ministro
+  try{
+    const dob = await getDoc(doc(db,'financeiro','observacoes'));
+    _finObservacoes = dob.exists() ? (dob.data().notas||{}) : {};
+  }catch(e){ _finObservacoes={}; }
 }
 
 async function carregarPagamentosMes(mesKey){
@@ -9971,9 +9983,12 @@ window.finRenderPagamentos2 = function(filtro){
   const ativos = ministros.filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(f))
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   const anoSel = finAnoDoMesKey(_finMesSel);
+  const fmtBadge = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
   lista.innerHTML = ativos.map(m=>{
+    const credito = _finCreditos[m.id]||0;
+    const badgeCredito = credito>0 ? ` <span style="background:#faeeda;color:#7a4a06;font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px">💰 ${fmtBadge(credito)}</span>` : '';
     return `<div style="padding:9px 0;border-bottom:1px solid #f0f0f0">
-      <div onclick="abrirExtratoMinistro('${m.id}')" style="font-size:13px;font-weight:600;margin-bottom:6px;cursor:pointer;color:#085041">${m.nome} <span style="font-size:10px;color:#999;font-weight:400;text-decoration:underline">ver extrato</span></div>
+      <div onclick="abrirExtratoMinistro('${m.id}')" style="font-size:13px;font-weight:600;margin-bottom:6px;cursor:pointer;color:#085041">${m.nome}${badgeCredito} <span style="font-size:10px;color:#999;font-weight:400;text-decoration:underline">ver extrato</span></div>
       <div style="display:flex;gap:4px;flex-wrap:wrap">${finChipsDoMinistro(m.id, anoSel)}</div>
     </div>`;
   }).join('') || '<p style="font-size:12px;color:#888;padding:10px 0">Nenhum ministro encontrado.</p>';
@@ -9988,9 +10003,10 @@ function finChipsDoMinistro(ministroId, anoSel){
     let cor='#f0f0f0', txtCor='#999', conteudo=label;
     if(reg?.pago){
       if(reg.forma==='pix'){ cor='#185FA5'; txtCor='white'; conteudo='📱'; }
+      else if(reg.forma==='credito'){ cor='#BA7517'; txtCor='white'; conteudo='💰'; }
       else { cor='#1D9E75'; txtCor='white'; conteudo='💵'; }
     }
-    return `<button onclick="event.stopPropagation();finToggleMesMinistro('${ministroId}','${mk}')" title="${FIN_MESES_NOME[mes]}/${anoSel}"
+    return `<button onclick="event.stopPropagation();finToggleMesMinistro('${ministroId}','${mk}')" title="${FIN_MESES_NOME[mes]}/${anoSel}${reg?.forma==='credito'?' — coberto por crédito':''}"
       style="min-width:32px;height:26px;padding:0 4px;border:none;border-radius:5px;background:${cor};color:${txtCor};font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">${conteudo}</button>`;
   }).join('');
 }
@@ -10001,7 +10017,14 @@ window.finToggleMesMinistro = async function(ministroId, mesKey){
   if(!_finPagosTodos[mesKey]) _finPagosTodos[mesKey] = {};
   const atual = _finPagosTodos[mesKey][ministroId];
   const dataEscolhida = _finDataLancamento || finDataHojeISO();
-  if(!atual || !atual.pago){
+  if(atual?.pago && atual.forma==='credito'){
+    // Mês estava coberto por crédito: desfaz e devolve o valor pro saldo do ministro (não vira Pix por engano)
+    const valorMensal = Number(_finConfig.valorMensalidade)||15;
+    _finCreditos[ministroId] = (_finCreditos[ministroId]||0) + valorMensal;
+    await salvarCreditos();
+    delete _finPagosTodos[mesKey][ministroId];
+    toast('Mês desfeito — crédito devolvido ao saldo do ministro.','ok');
+  } else if(!atual || !atual.pago){
     _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'dinheiro', data:dataEscolhida};
   } else if(atual.forma!=='pix'){
     _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'pix', data:atual.data||dataEscolhida};
@@ -10029,6 +10052,90 @@ window.finTogglePago = async function(id){
 };
 
 // ===== EXTRATO INDIVIDUAL — quanto cada ministro já pagou, mês a mês =====
+async function salvarCreditos(){
+  try{ await setDoc(doc(db,'financeiro','creditos'), {saldos:_finCreditos, atualizadoEm:serverTimestamp()}); }
+  catch(e){ toast('Erro ao salvar crédito.','err'); }
+}
+
+async function salvarObservacoesFin(){
+  try{ await setDoc(doc(db,'financeiro','observacoes'), {notas:_finObservacoes, atualizadoEm:serverTimestamp()}); }
+  catch(e){ toast('Erro ao salvar observação.','err'); }
+}
+
+// Abre um mini-modal pra lançar troco/crédito (ex.: pagou com nota de R$100 e não tinha troco de R$85)
+window.abrirLancarCredito = function(ministroId){
+  const m = ministros.find(x=>x.id===ministroId);
+  if(!m) return;
+  const existente = document.getElementById('modal-lancar-credito');
+  if(existente) existente.remove();
+  const modal = document.createElement('div');
+  modal.id = 'modal-lancar-credito';
+  modal.className = 'modal-bg';
+  modal.style.zIndex = '9500';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box" style="max-width:380px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <p style="font-size:15px;font-weight:700">💰 Lançar troco/crédito</p>
+      <button onclick="document.getElementById('modal-lancar-credito').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 10px">${m.nome} — use quando sobra troco (ex.: pagou com nota de R$100 e não tinha os R$85 de troco).</p>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Valor do troco/crédito (R$)</label>
+    <input type="text" id="lc-valor" inputmode="decimal" placeholder="Ex: 85,00" style="margin-bottom:14px">
+    <button onclick="confirmarLancarCredito('${ministroId}')" style="width:100%;padding:11px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:13px;font-weight:700;cursor:pointer">💾 Adicionar ao saldo</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display='flex';
+  setTimeout(()=>document.getElementById('lc-valor')?.focus(), 50);
+};
+
+window.confirmarLancarCredito = async function(ministroId){
+  const input = document.getElementById('lc-valor');
+  const valor = Number((input?.value||'').replace(',','.'))||0;
+  if(valor<=0){ toast('Digite um valor válido.','warn'); return; }
+  _finCreditos[ministroId] = (_finCreditos[ministroId]||0) + valor;
+  await salvarCreditos();
+  document.getElementById('modal-lancar-credito')?.remove();
+  toast(`💰 Crédito de R$ ${valor.toFixed(2).replace('.',',')} lançado.`,'ok');
+  finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
+  if(document.getElementById('modal-extrato-ministro')) abrirExtratoMinistro(ministroId);
+};
+
+// Aplica o saldo de crédito automaticamente, cobrindo o máximo de meses futuros ainda pendentes
+window.aplicarCreditoAutomatico = async function(ministroId){
+  const valorMensal = Number(_finConfig.valorMensalidade)||15;
+  let saldo = _finCreditos[ministroId]||0;
+  if(saldo < valorMensal){ toast('Saldo de crédito insuficiente pra cobrir um mês inteiro.','warn'); return; }
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const dataEscolhida = _finDataLancamento || finDataHojeISO();
+  let mesesCobertos = 0;
+  for(const mes of FIN_MESES){
+    if(saldo < valorMensal) break;
+    const mk = mes+anoSel;
+    if(!_finPagosTodos[mk]) _finPagosTodos[mk] = {};
+    const reg = _finPagosTodos[mk][ministroId];
+    if(reg?.pago) continue; // já pago (de qualquer forma), pula esse mês
+    _finPagosTodos[mk][ministroId] = {pago:true, forma:'credito', data:dataEscolhida};
+    saldo -= valorMensal;
+    mesesCobertos++;
+    try{ await setDoc(doc(db,'financeiro','pag_'+mk), {pagos:_finPagosTodos[mk], mesKey:mk, atualizadoEm:serverTimestamp()}); }catch(e){}
+  }
+  _finCreditos[ministroId] = saldo;
+  await salvarCreditos();
+  if(mesesCobertos===0){ toast('Todos os meses já estavam pagos — nenhum aplicado.','warn'); return; }
+  if(_finPagosTodos[_finMesSel]){ _finPagosMes = _finPagosTodos[_finMesSel]; atualizarTotaisFin(); }
+  toast(`✓ ${mesesCobertos} mês(es) coberto(s) pelo crédito. Saldo restante: R$ ${saldo.toFixed(2).replace('.',',')}`,'ok');
+  finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
+  if(document.getElementById('modal-extrato-ministro')) abrirExtratoMinistro(ministroId);
+};
+
+window.salvarObservacaoMinistro = async function(ministroId){
+  const el = document.getElementById('extrato-observacao');
+  if(!el) return;
+  _finObservacoes[ministroId] = el.value;
+  await salvarObservacoesFin();
+  toast('📝 Observação salva.','ok');
+};
+
 window.abrirExtratoMinistro = function(id){
   const m = ministros.find(x=>x.id===id);
   if(!m) return;
@@ -10042,7 +10149,7 @@ window.abrirExtratoMinistro = function(id){
     let dataFmt = '—';
     if(reg?.pago){
       totalPago++;
-      const forma = reg.forma==='pix' ? '📱 Pix' : '💵 Dinheiro';
+      const forma = reg.forma==='pix' ? '📱 Pix' : reg.forma==='credito' ? '💰 Crédito' : '💵 Dinheiro';
       status = `<span style="color:#1D9E75;font-weight:600">✓ Pago — ${forma}</span>`;
       if(reg.data){ dataFmt = finFormatarDataBR(reg.data); }
     }
@@ -10051,6 +10158,8 @@ window.abrirExtratoMinistro = function(id){
       <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;text-align:right;color:#888;font-size:11px">${dataFmt}</td></tr>`;
   }).join('');
   const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const creditoAtual = _finCreditos[id]||0;
+  const observacaoAtual = _finObservacoes[id]||'';
   const existente = document.getElementById('modal-extrato-ministro');
   if(existente) existente.remove();
   const modal = document.createElement('div');
@@ -10063,6 +10172,15 @@ window.abrirExtratoMinistro = function(id){
       <button onclick="document.getElementById('modal-extrato-ministro').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <p style="font-size:12px;color:#888;margin:0 0 10px">${anoSel} · ${totalPago} de 12 meses pagos · Total: ${fmt(totalPago*valor)}</p>
+
+    <div style="background:#faeeda;border-radius:9px;padding:10px 12px;margin-bottom:12px">
+      <p style="font-size:12px;color:#7a4a06;font-weight:700;margin:0 0 8px">💰 Saldo de troco/crédito: ${fmt(creditoAtual)}</p>
+      <div style="display:flex;gap:6px">
+        <button onclick="abrirLancarCredito('${id}')" style="flex:1;padding:8px;border:1.5px solid #BA7517;border-radius:7px;background:white;color:#BA7517;font-size:11.5px;font-weight:700;cursor:pointer">+ Lançar troco</button>
+        <button onclick="aplicarCreditoAutomatico('${id}')" style="flex:1;padding:8px;border:none;border-radius:7px;background:#BA7517;color:white;font-size:11.5px;font-weight:700;cursor:pointer" ${creditoAtual<valor?'disabled title="Saldo insuficiente pra cobrir um mês"':''}>Usar no próximo mês</button>
+      </div>
+    </div>
+
     <table style="width:100%;border-collapse:collapse">
       <thead><tr>
         <th style="text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Mês</th>
@@ -10071,7 +10189,12 @@ window.abrirExtratoMinistro = function(id){
       </tr></thead>
       <tbody>${linhas}</tbody>
     </table>
-    <button onclick="imprimirExtratoMinistro('${id}')" style="width:100%;margin-top:14px;padding:11px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir extrato</button>
+
+    <p style="font-size:11px;color:#888;font-weight:600;margin:14px 0 4px">📝 Observação</p>
+    <textarea id="extrato-observacao" placeholder="Ex: costuma pagar em dia, prefere pagar o ano todo em janeiro..." style="width:100%;min-height:60px;padding:8px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:12.5px;font-family:inherit;resize:vertical;box-sizing:border-box;margin-bottom:6px">${observacaoAtual}</textarea>
+    <button onclick="salvarObservacaoMinistro('${id}')" style="width:100%;padding:8px;border:1px solid #cde8d8;border-radius:7px;background:#eef7f2;color:#085041;font-size:11.5px;font-weight:700;cursor:pointer;margin-bottom:12px">💾 Salvar observação</button>
+
+    <button onclick="imprimirExtratoMinistro('${id}')" style="width:100%;padding:11px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir extrato</button>
   </div>`;
   document.body.appendChild(modal);
   modal.style.display='flex';
@@ -10091,7 +10214,7 @@ window.imprimirExtratoMinistro = function(id){
     let dataFmt = '—';
     if(reg?.pago){
       totalPago++;
-      const forma = reg.forma==='pix' ? 'Pix' : 'Dinheiro';
+      const forma = reg.forma==='pix' ? 'Pix' : reg.forma==='credito' ? 'Crédito' : 'Dinheiro';
       status = `<span style="color:#1D9E75;font-weight:700">✓ Pago (${forma})</span>`;
       if(reg.data){ dataFmt = finFormatarDataBR(reg.data); }
     }
@@ -10142,12 +10265,12 @@ function finDadosExtratoGeral(){
   const valor = Number(_finConfig.valorMensalidade)||15;
   const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   const linhas = ativos.map(m=>{
-    let pagos=0, dinheiro=0, pix=0;
+    let pagos=0, dinheiro=0, pix=0, credito=0;
     FIN_MESES.forEach(mes=>{
       const reg = _finPagosTodos[mes+anoSel]?.[m.id];
-      if(reg?.pago){ pagos++; if(reg.forma==='pix') pix++; else dinheiro++; }
+      if(reg?.pago){ pagos++; if(reg.forma==='pix') pix++; else if(reg.forma==='credito') credito++; else dinheiro++; }
     });
-    return { id:m.id, nome:m.nome, pagos, dinheiro, pix, pendentes:12-pagos, total:pagos*valor };
+    return { id:m.id, nome:m.nome, pagos, dinheiro, pix, credito, pendentes:12-pagos, total:pagos*valor };
   });
   const totalGeralPago = linhas.reduce((s,l)=>s+l.total,0);
   const totalGeralMesesPagos = linhas.reduce((s,l)=>s+l.pagos,0);
@@ -10164,6 +10287,7 @@ window.abrirExtratoGeral = function(){
       <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center">${l.pagos}/12</td>
       <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#1D9E75">💵${l.dinheiro}</td>
       <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#185FA5">📱${l.pix}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#BA7517">💰${l.credito}</td>
       <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:right;font-weight:600">${fmt(l.total)}</td>
     </tr>`).join('');
   const modal = document.createElement('div');
@@ -10183,6 +10307,7 @@ window.abrirExtratoGeral = function(){
         <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Meses</th>
         <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Dinh.</th>
         <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Pix</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Créd.</th>
         <th style="text-align:right;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Total</th>
       </tr></thead>
       <tbody>${linhasHtml}</tbody>
@@ -10203,6 +10328,7 @@ window.imprimirExtratoGeral = function(){
       <td style="text-align:center">${l.pagos}/12</td>
       <td style="text-align:center">${l.dinheiro}</td>
       <td style="text-align:center">${l.pix}</td>
+      <td style="text-align:center">${l.credito}</td>
       <td style="text-align:right;font-weight:600">${fmt(l.total)}</td>
     </tr>`).join('');
   const w = window.open('', '_blank');
@@ -10235,7 +10361,7 @@ window.imprimirExtratoGeral = function(){
     </div>
     <p class="resumo">Saldo total arrecadado em ${anoSel}: ${fmt(totalGeralPago)}</p>
     <table>
-      <thead><tr><th>Nº</th><th>Ministro</th><th style="text-align:center">Meses</th><th style="text-align:center">Dinh.</th><th style="text-align:center">Pix</th><th style="text-align:right">Total</th></tr></thead>
+      <thead><tr><th>Nº</th><th>Ministro</th><th style="text-align:center">Meses</th><th style="text-align:center">Dinh.</th><th style="text-align:center">Pix</th><th style="text-align:center">Créd.</th><th style="text-align:right">Total</th></tr></thead>
       <tbody>${linhasHtml}</tbody>
     </table>
     <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
