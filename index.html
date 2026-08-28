@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.43.0';
+const APP_VERSAO = '19.44.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9606,10 +9606,24 @@ let _finMesSel = null;       // mesKey selecionado (ex: 'jun2026')
 const FIN_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const FIN_MESES_NOME = {jan:'Janeiro',fev:'Fevereiro',mar:'Março',abr:'Abril',mai:'Maio',jun:'Junho',jul:'Julho',ago:'Agosto',set:'Setembro',out:'Outubro',nov:'Novembro',dez:'Dezembro'};
 let _finPagosTodos = {}; // { mesKey: {ministroId:{pago,data,forma}} } — TODOS os meses já carregados de uma vez
+let _finDataLancamento = null; // data (YYYY-MM-DD) usada nos próximos toques — pra lançar pagamentos retroativos
+window.finSetDataLancamento = function(v){ _finDataLancamento = v; };
 
 function finAnoDoMesKey(mk){
   const m = (mk||'').match(/(\d{4})$/);
   return m ? m[1] : String(new Date().getFullYear());
+}
+function finDataHojeISO(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+// Formata 'YYYY-MM-DD' pra DD/MM/AAAA sem passar por conversão de fuso (evita errar o dia).
+// Também aceita datas antigas em formato ISO completo (de antes desta versão).
+function finFormatarDataBR(dataStr){
+  if(!dataStr) return '—';
+  const m = String(dataStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[3]}/${m[2]}/${m[1]}`;
+  try{ return new Date(dataStr).toLocaleDateString('pt-BR'); }catch(e){ return '—'; }
 }
 
 function finMesKeyLegivel(mk){
@@ -9828,7 +9842,13 @@ function finRenderPagamentos(){
       </div>
     </div>
     <button onclick="imprimirFolhaColetaPagamentos()" style="width:100%;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖨️ Folha pra Marcar Pagamento (lista única, com valor)</button>
-    <button onclick="imprimirRelatorioPagamentos()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">🖨️ Relatório de Pagamentos (quem pagou/falta)</button>
+    <button onclick="imprimirRelatorioPagamentos()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖨️ Relatório de Pagamentos (quem pagou/falta)</button>
+    <button onclick="abrirExtratoGeral()" style="width:100%;padding:11px;border:1.5px solid #0A6E58;border-radius:8px;background:white;color:#0A6E58;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">📋 Extrato Geral (todos os ministros)</button>
+    <div style="background:#faeeda;border-radius:9px;padding:10px 12px;margin-bottom:12px">
+      <label style="font-size:11px;color:#7a4a06;font-weight:700;display:block;margin-bottom:4px">📅 Data deste lançamento (pra pagamentos retroativos)</label>
+      <input type="date" id="fin-data-lancamento" value="${_finDataLancamento||finDataHojeISO()}" onchange="finSetDataLancamento(this.value)" style="width:100%;padding:8px;border:1.5px solid #e0c896;border-radius:7px;font-size:13px;margin-bottom:0;box-sizing:border-box">
+      <p style="font-size:10.5px;color:#8a6416;margin:5px 0 0">Os meses que você marcar agora vão ficar registrados com esta data. Mude antes de lançar pagamentos de outro dia.</p>
+    </div>
     <div style="position:relative;margin-bottom:10px">
       <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;padding-right:66px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:0;box-sizing:border-box">
       <button onclick="iniciarDitadoTexto('fin-busca', this)" title="Falar o nome"
@@ -9980,10 +10000,11 @@ function finChipsDoMinistro(ministroId, anoSel){
 window.finToggleMesMinistro = async function(ministroId, mesKey){
   if(!_finPagosTodos[mesKey]) _finPagosTodos[mesKey] = {};
   const atual = _finPagosTodos[mesKey][ministroId];
+  const dataEscolhida = _finDataLancamento || finDataHojeISO();
   if(!atual || !atual.pago){
-    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'dinheiro', data:new Date().toISOString()};
+    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'dinheiro', data:dataEscolhida};
   } else if(atual.forma!=='pix'){
-    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'pix', data:atual.data||new Date().toISOString()};
+    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'pix', data:atual.data||dataEscolhida};
   } else {
     delete _finPagosTodos[mesKey][ministroId];
   }
@@ -10023,7 +10044,7 @@ window.abrirExtratoMinistro = function(id){
       totalPago++;
       const forma = reg.forma==='pix' ? '📱 Pix' : '💵 Dinheiro';
       status = `<span style="color:#1D9E75;font-weight:600">✓ Pago — ${forma}</span>`;
-      if(reg.data){ try{ dataFmt = new Date(reg.data).toLocaleDateString('pt-BR'); }catch(e){} }
+      if(reg.data){ dataFmt = finFormatarDataBR(reg.data); }
     }
     return `<tr><td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">${FIN_MESES_NOME[mes]}</td>
       <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">${status}</td>
@@ -10072,7 +10093,7 @@ window.imprimirExtratoMinistro = function(id){
       totalPago++;
       const forma = reg.forma==='pix' ? 'Pix' : 'Dinheiro';
       status = `<span style="color:#1D9E75;font-weight:700">✓ Pago (${forma})</span>`;
-      if(reg.data){ try{ dataFmt = new Date(reg.data).toLocaleDateString('pt-BR'); }catch(e){} }
+      if(reg.data){ dataFmt = finFormatarDataBR(reg.data); }
     }
     return `<tr><td>${FIN_MESES_NOME[mes]}</td><td>${status}</td><td style="text-align:right;color:#888">${dataFmt}</td></tr>`;
   }).join('');
@@ -10108,6 +10129,114 @@ window.imprimirExtratoMinistro = function(id){
     <table>
       <thead><tr><th>Mês</th><th>Situação</th><th style="text-align:right">Data</th></tr></thead>
       <tbody>${linhas}</tbody>
+    </table>
+    <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
+    <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+};
+
+// ===== EXTRATO GERAL — todos os ministros de uma vez, com quantos meses cada um pagou e o saldo total =====
+function finDadosExtratoGeral(){
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const linhas = ativos.map(m=>{
+    let pagos=0, dinheiro=0, pix=0;
+    FIN_MESES.forEach(mes=>{
+      const reg = _finPagosTodos[mes+anoSel]?.[m.id];
+      if(reg?.pago){ pagos++; if(reg.forma==='pix') pix++; else dinheiro++; }
+    });
+    return { id:m.id, nome:m.nome, pagos, dinheiro, pix, pendentes:12-pagos, total:pagos*valor };
+  });
+  const totalGeralPago = linhas.reduce((s,l)=>s+l.total,0);
+  const totalGeralMesesPagos = linhas.reduce((s,l)=>s+l.pagos,0);
+  return { anoSel, valor, linhas, totalGeralPago, totalGeralMesesPagos };
+}
+
+window.abrirExtratoGeral = function(){
+  const { anoSel, valor, linhas, totalGeralPago } = finDadosExtratoGeral();
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const existente = document.getElementById('modal-extrato-geral');
+  if(existente) existente.remove();
+  const linhasHtml = linhas.map(l=>`<tr>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px">${l.nome}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center">${l.pagos}/12</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#1D9E75">💵${l.dinheiro}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#185FA5">📱${l.pix}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:right;font-weight:600">${fmt(l.total)}</td>
+    </tr>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'modal-extrato-geral';
+  modal.className = 'modal-bg';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box" style="max-width:560px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700">📋 Extrato Geral — ${anoSel}</p>
+      <button onclick="document.getElementById('modal-extrato-geral').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 10px">Saldo total arrecadado em ${anoSel}: <strong style="color:#085041">${fmt(totalGeralPago)}</strong></p>
+    <div style="max-height:55vh;overflow-y:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Ministro</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Meses</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Dinh.</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Pix</th>
+        <th style="text-align:right;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Total</th>
+      </tr></thead>
+      <tbody>${linhasHtml}</tbody>
+    </table>
+    </div>
+    <button onclick="imprimirExtratoGeral()" style="width:100%;margin-top:14px;padding:11px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir extrato geral</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display='flex';
+};
+
+window.imprimirExtratoGeral = function(){
+  const { anoSel, valor, linhas, totalGeralPago } = finDadosExtratoGeral();
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const linhasHtml = linhas.map((l,i)=>`<tr>
+      <td style="text-align:center;color:#888">${i+1}</td>
+      <td>${l.nome}</td>
+      <td style="text-align:center">${l.pagos}/12</td>
+      <td style="text-align:center">${l.dinheiro}</td>
+      <td style="text-align:center">${l.pix}</td>
+      <td style="text-align:right;font-weight:600">${fmt(l.total)}</td>
+    </tr>`).join('');
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Extrato Geral — ${anoSel}</title>
+    <style>
+      @page{ size:portrait; margin:12mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:16px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      .resumo{font-size:13px;color:#085041;font-weight:700;margin-bottom:14px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th{text-align:left;font-size:10.5px;color:#555;border-bottom:2px solid #333;padding:5px 4px}
+      td{padding:5px 4px;border-bottom:1px solid #eee}
+      .rodape{margin-top:18px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+    </style></head><body>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">📋 Extrato Geral de Pagamentos — ${anoSel}</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística — ${linhas.length} ministros</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+    <p class="resumo">Saldo total arrecadado em ${anoSel}: ${fmt(totalGeralPago)}</p>
+    <table>
+      <thead><tr><th>Nº</th><th>Ministro</th><th style="text-align:center">Meses</th><th style="text-align:center">Dinh.</th><th style="text-align:center">Pix</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>${linhasHtml}</tbody>
     </table>
     <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
     <script>window.onload=()=>window.print();<\/script>
