@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.57.0';
+const APP_VERSAO = '19.58.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3322,6 +3322,7 @@ window.renderEscala = async function(){
       </div>
     </div>`;
   }).join('');
+  if(typeof atualizarAlertaNaoEscalados==='function') atualizarAlertaNaoEscalados();
 };
 
 // Renderiza os ministros de REFORÇO dentro do quadrante do horário (marca-texto + selo)
@@ -4803,6 +4804,52 @@ async function _lerEscalaDocRaw(key){
   catch(e){ escalas[key] = {}; }
   return escalas[key];
 }
+
+// Verifica, pro mês atual, quais ministros têm disponibilidade declarada mas não aparecem
+// escalados em NENHUM horário compatível — nem na dominical, nem em nenhuma semana da semanal.
+// Ajuda a não esquecer ninguém na hora de montar a escala.
+async function calcularMinistrosNaoEscalados(){
+  const mesKey = getMesAtual();
+  const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
+  const semanasKeys = Object.keys(SEMANAS_MES);
+  const docsSem = await Promise.all(semanasKeys.map(s=>_lerEscalaDocRaw(`escala_sem_sem${s}_${mesKey}`)));
+
+  const naoEscaladosDom = [];
+  const naoEscaladosSem = [];
+
+  ministros.filter(m=>m.ativo!==false).forEach(m=>{
+    if((m.dispDom||[]).length){
+      const escaladoEmAlgum = (m.dispDom).some(hora => (docDom?.[hora]?.ministros||[]).includes(m.nome));
+      if(!escaladoEmAlgum) naoEscaladosDom.push(m.nome);
+    }
+    if((m.dispSem||[]).length){
+      const escaladoEmAlgum = docsSem.some(docSemana =>
+        (m.dispSem).some(hora => (docSemana?.[hora]?.ministros||[]).includes(m.nome))
+      );
+      if(!escaladoEmAlgum) naoEscaladosSem.push(m.nome);
+    }
+  });
+
+  return { mesKey, naoEscaladosDom, naoEscaladosSem };
+}
+
+window.atualizarAlertaNaoEscalados = async function(){
+  const cont = document.getElementById('esc-alerta-nao-escalados');
+  if(!cont) return;
+  try{
+    const { naoEscaladosDom, naoEscaladosSem } = await calcularMinistrosNaoEscalados();
+    const total = naoEscaladosDom.length + naoEscaladosSem.length;
+    if(!total){ cont.innerHTML = ''; return; }
+    const listaDom = naoEscaladosDom.length ? `<p style="margin:6px 0 2px;font-weight:600">⛪ Dominical (${naoEscaladosDom.length}):</p><p style="margin:0">${naoEscaladosDom.join(', ')}</p>` : '';
+    const listaSem = naoEscaladosSem.length ? `<p style="margin:6px 0 2px;font-weight:600">📆 Semanal (${naoEscaladosSem.length}):</p><p style="margin:0">${naoEscaladosSem.join(', ')}</p>` : '';
+    cont.innerHTML = `<div style="background:#FFF3CD;border:1.5px solid #F0DE9A;border-radius:8px;padding:10px 12px">
+      <button onclick="const d=document.getElementById('esc-nao-escalados-detalhe'); d.style.display = d.style.display==='none'?'block':'none';" style="width:100%;text-align:left;border:none;background:none;padding:0;cursor:pointer;font-size:12px;font-weight:700;color:#856404">
+        ⚠️ ${total} ministro(s) disponível(is) não escalado(s) este mês — toque para ver ▾
+      </button>
+      <div id="esc-nao-escalados-detalhe" style="display:none;font-size:11.5px;color:#856404;margin-top:8px;line-height:1.6">${listaDom}${listaSem}</div>
+    </div>`;
+  }catch(e){ cont.innerHTML = ''; }
+};
 
 window.finalizarEscalaDominical = async function(){
   const mesKey = getMesAtual();
@@ -11815,6 +11862,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5;display:none">
       📌 Escala mensal — mesmos ministros em todos os domingos de junho
     </p>
+    <div id="esc-alerta-nao-escalados" style="margin-bottom:10px"></div>
     <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
       👁 Visualizar todas as escalas do mês
     </button>
