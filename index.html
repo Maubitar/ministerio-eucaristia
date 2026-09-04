@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.49.0';
+const APP_VERSAO = '19.50.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4934,7 +4934,7 @@ function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
    </div>`;
 }
 
-// Retorna um ARRAY de páginas (uma por semana, no caso semanal — sempre no mesmo tamanho/proporção da dominical)
+// Retorna um ARRAY de páginas — uma por semana (na semanal) ou uma pro domingo inteiro (na dominical).
 function montarPaginasEscalaFinalizada(info){
   const paginas = [];
   (info.semanasComFoto||[]).forEach(sem=>{
@@ -5235,6 +5235,21 @@ async function gerarBlobDePaginaEscala(paginaHtml){
   }
 }
 
+// Transmite UMA página (uma semana, ou o domingo inteiro) por vez, com clique próprio —
+// evita juntar várias imagens no mesmo envio, o que preserva mais qualidade em cada uma.
+window.transmitirPaginaIndividual = async function(docId, indice){
+  try{
+    const info = await montarDadosEscalaFinalizada(docId);
+    if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
+    const paginas = montarPaginasEscalaFinalizada(info);
+    const pagina = paginas[indice];
+    if(!pagina){ toast('Página não encontrada.','warn'); return; }
+    toast('Gerando imagem...','ok');
+    const blob = await gerarBlobDePaginaEscala(pagina);
+    await compartilharVariasImagens([{ blob, nomeArq:`escala_${docId}_${indice+1}.png` }], 'Escala MESCE', info.rotulo);
+  }catch(e){ toast('Erro ao transmitir: '+e.message,'warn'); }
+};
+
 window.compartilharEscalaFinalizada = async function(docId){
   try{
     const info = await montarDadosEscalaFinalizada(docId);
@@ -5343,7 +5358,12 @@ window.renderEscalasFinalizadas = async function(){
             <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🖨️ Lista de Presença</button>
             <button onclick="excluirEscalaFinalizada('${it.id}')" style="padding:10px 14px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer">🗑️</button>
           </div>
-          <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Transmitir só esta via WhatsApp</button>
+          <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📲 Transmitir tudo junto via WhatsApp</button>
+          ${(it.semanas||[]).length>1 ? `
+          <p style="font-size:11px;color:#888;margin:0 0 6px">🔍 Ou uma de cada vez (mais qualidade em cada imagem):</p>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${(it.semanas||[]).map((s,i)=>`<button onclick="transmitirPaginaIndividual('${it.id}',${i})" style="padding:7px 12px;border:1px solid #25D366;border-radius:20px;background:white;color:#1ba34d;font-size:11.5px;font-weight:600;cursor:pointer">📲 ${s.label||('Parte '+(i+1))}</button>`).join('')}
+          </div>` : ''}
         </div>`;
       }).join('');
       return botaoTudo + cards;
