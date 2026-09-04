@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.47.1';
+const APP_VERSAO = '19.47.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4026,7 +4026,7 @@ async function compartilharOuBaixarImagem(blob, nomeArq){
 // primeira imagem ir — o navegador só permite abrir a caixinha de compartilhar em resposta direta
 // ao toque; chamando várias vezes seguidas, só a primeira funciona de verdade).
 async function compartilharVariasImagens(itens, tituloShare, textoShare){
-  // itens: [{blob, nomeArq}, ...] já na ordem certa (semana 1, 2, 3, 4, depois dominical)
+  // itens: [{blob, nomeArq}, ...] já na ordem certa de leitura (ex.: Dominical, depois semana 1, 2, 3, 4)
   const files = itens.map(it => new File([it.blob], it.nomeArq, {type:'image/png'}));
   if(navigator.canShare && navigator.canShare({files})){
     try{
@@ -4037,9 +4037,14 @@ async function compartilharVariasImagens(itens, tituloShare, textoShare){
       // se falhar tentando todas juntas, cai no baixar uma a uma abaixo
     }
   }
-  // Sem suporte a compartilhar várias de uma vez (ex.: computador): baixa todas, uma por uma
-  toast(`Seu navegador não permite enviar ${files.length} imagens de uma vez — baixando todas pra você anexar no WhatsApp.`,'warn');
-  for(const f of files){
+  // Sem suporte a compartilhar várias de uma vez (ex.: computador): baixa todas, uma por uma.
+  // Baixa em ordem INVERSA de propósito: como as pastas do Windows costumam mostrar por data
+  // (mais recente primeiro), baixar o último item primeiro faz o PRIMEIRO item (ex.: Dominical)
+  // ficar no topo da pasta sem precisar reordenar nada manualmente. Os nomes também vêm numerados
+  // (01-, 02-...), então ordenar por Nome também funciona, caso a pasta não esteja por data.
+  toast(`Seu navegador não permite enviar ${files.length} imagens de uma vez — baixando todas pra você anexar no WhatsApp (já na ordem certa se a pasta estiver por data, mais recente primeiro).`,'warn');
+  for(let i=files.length-1; i>=0; i--){
+    const f = files[i];
     const a=document.createElement('a');
     a.href=URL.createObjectURL(f);
     a.download=f.name;
