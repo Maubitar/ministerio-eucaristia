@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.48.1';
+const APP_VERSAO = '19.49.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1998,7 +1998,9 @@ async function renderInicio(){
     elEsc.textContent = cont;
   }
 
-  const alertas = ministros.filter(m=>(m.faltasReuniao||0)+(m.faltasAdoracao||0)>=3);
+  let dadosConsolidados = [];
+  try{ dadosConsolidados = await calcularFaltasConsolidadas(); }catch(e){ dadosConsolidados = []; }
+  const alertas = dadosConsolidados.filter(m=>m.totalF>0).sort((a,b)=>b.totalF-a.totalF);
   document.getElementById('m-alertas').textContent = alertas.length;
 
   // Aniversariantes de HOJE
@@ -2039,13 +2041,25 @@ async function renderInicio(){
 
   document.getElementById('dash-alertas').innerHTML = alertas.length
     ? alertas.slice(0,5).map(m=>{
-        const tot = (m.faltasReuniao||0)+(m.faltasAdoracao||0);
+        const partes = [];
+        if(m.c.missaF) partes.push(`⛪${m.c.missaF}`);
+        if(m.c.reunF) partes.push(`📋${m.c.reunF}`);
+        if(m.c.adorF) partes.push(`🙏${m.c.adorF}`);
         return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
           <span style="flex:1;font-size:13px">${primeiroNomes(m.nome)}</span>
-          <span style="font-size:11px;padding:2px 8px;background:${tot>=3?'#fcebeb':'#faeeda'};color:${tot>=3?'#A32D2D':'#BA7517'};border-radius:20px;font-weight:600">${tot>=3?'🟡 Cartão amarelo':'⚠️ '+tot+' faltas'}</span>
+          <span style="font-size:10px;color:#999">${partes.join(' ')}</span>
+          <span style="font-size:11px;padding:2px 8px;background:${m.totalF>=3?'#fcebeb':'#faeeda'};color:${m.totalF>=3?'#A32D2D':'#BA7517'};border-radius:20px;font-weight:600">${m.totalF} falta${m.totalF>1?'s':''}</span>
         </div>`;
-      }).join('')
-    : '<p style="font-size:12px;color:#1D9E75">✓ Nenhum ministro em situação disciplinar.</p>';
+      }).join('') + `<button onclick="nav('relatorios');setTimeout(()=>selecionarRelatorio('consolidado'),150)" style="width:100%;margin-top:10px;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:12px;font-weight:700;cursor:pointer">📋 Ver relatório completo (todos os setores)</button>`
+    : '<p style="font-size:12px;color:#1D9E75">✓ Nenhum ministro com faltas registradas.</p>';
+
+  // Destaque visual sutil quando há casos que merecem atenção (3+ faltas) — mesmo padrão do card de aniversário
+  const cardAlertasEl = document.getElementById('card-alertas');
+  if(cardAlertasEl){
+    const grave = alertas.some(m=>m.totalF>=3);
+    cardAlertasEl.style.border = grave ? '1.5px solid #F0B0B0' : '';
+    cardAlertasEl.style.background = grave ? 'linear-gradient(135deg,#fffafa 0%,#fdf3f3 100%)' : '';
+  }
 }
 
 function iniciais(nome){ return nome.split(' ').map(x=>x[0]).slice(0,2).join(''); }
@@ -6583,7 +6597,9 @@ window.toggleDetalheFreq = function(i){
   if(el) el.style.display = el.style.display==='none' ? 'table-row' : 'none';
 };
 
-async function relConsolidado(){
+// Calcula faltas cruzadas de TODOS os setores (missa + reunião + adoração) por ministro.
+// Usada tanto no relatório consolidado quanto no resumo da tela inicial — uma só fonte de verdade.
+async function calcularFaltasConsolidadas(){
   const [snapM, snapR, snapA] = await Promise.all([
     getDocs(collection(db,'presencas')),
     getDocs(collection(db,'reunioes')),
@@ -6631,6 +6647,11 @@ async function relConsolidado(){
     return {...m, c, totalP, totalF, tot, pct: tot>0?Math.round(totalP/tot*100):0};
   }).filter(m=>m.tot>0).sort((a,b)=>b.pct-a.pct || b.tot-a.tot);
 
+  return dados;
+}
+
+async function relConsolidado(){
+  const dados = await calcularFaltasConsolidadas();
   const semRegistro = ministros.length - dados.length;
   window._relConsolidadoAtual = dados;
 
@@ -11343,6 +11364,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .hm-tx span{font-size:11px;color:#999;line-height:1.2}
 .hm-seta{color:#ccc;font-size:18px;flex-shrink:0}
 .home-sec-titulo{font-size:12px;font-weight:700;color:#9a9a9a;text-transform:uppercase;letter-spacing:.6px;margin:0 0 8px 4px}
+/* Entrada suave — só na tela inicial, pra não afetar re-renderizações frequentes de outras telas */
+@keyframes sogiFadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+#s-inicio > .dash-hero,#s-inicio > .home-acoes,#s-inicio > .home-menu,#s-inicio > .card{animation:sogiFadeUp .45s ease both}
+#s-inicio > .dash-hero{animation-delay:0s}
+#s-inicio > .home-acoes{animation-delay:.06s}
+#s-inicio > .home-menu{animation-delay:.12s}
+#s-inicio > .card:nth-of-type(1){animation-delay:.18s}
+#s-inicio > .card:nth-of-type(2){animation-delay:.23s}
+#s-inicio > .card:nth-of-type(3){animation-delay:.28s}
+#s-inicio > .card:nth-of-type(4){animation-delay:.33s}
+@media (prefers-reduced-motion: reduce){#s-inicio > .dash-hero,#s-inicio > .home-acoes,#s-inicio > .home-menu,#s-inicio > .card{animation:none}}
 .btn-voltar{display:none;align-items:center;gap:5px;background:white;border:1.5px solid #e8e8e8;border-radius:20px;padding:7px 14px 7px 11px;font-size:13px;font-weight:600;color:#085041;cursor:pointer;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);transition:transform .1s,background .15s}
 .btn-voltar:hover{background:#f5faf8}
 .btn-voltar:active{transform:scale(.96)}
@@ -11580,8 +11612,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </button>
   </div>
 
-  <div class="card">
-    <p class="ct">🟡 Alertas disciplinares <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
+  <div class="card" id="card-alertas">
+    <p class="ct">⚠️ Ministros com faltas <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
     <div id="dash-alertas"></div>
   </div>
   <div class="card" id="card-aniv-hoje" style="display:none;border:1.5px solid #E8C66B;background:linear-gradient(135deg,#fffdf7 0%,#fdf6e3 100%)">
