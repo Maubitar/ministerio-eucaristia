@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.47.0';
+const APP_VERSAO = '19.47.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5255,21 +5255,25 @@ window.transmitirTudoEscalaWhats = async function(mesKey){
     ]);
     if(!infoSem && !infoDom){ toast('Nenhuma escala finalizada encontrada pra esse mês.','warn'); return; }
 
+    // Ordem fixa: Dominical primeiro, depois as semanas em ordem crescente (1ª, 2ª, 3ª, 4ª...)
     const paginasComNome = [];
-    if(infoSem){
-      montarPaginasEscalaFinalizada(infoSem).forEach((html,i)=> paginasComNome.push({html, nome:`semana${i+1}`}));
-    }
     if(infoDom){
       montarPaginasEscalaFinalizada(infoDom).forEach((html,i)=> paginasComNome.push({html, nome:`dominical${i>0?'_'+(i+1):''}`}));
+    }
+    if(infoSem){
+      montarPaginasEscalaFinalizada(infoSem).forEach((html,i)=> paginasComNome.push({html, nome:`semana${i+1}`}));
     }
     if(!paginasComNome.length){ toast('Nenhum ministro escalado ainda pra esse mês.','warn'); return; }
     toast(`Gerando ${paginasComNome.length} imagem(ns), na ordem certa...`,'ok');
 
+    // Numera o nome do arquivo (1-, 2-, 3-...) pra garantir a ordem certa mesmo se o WhatsApp
+    // Desktop pedir pra selecionar os arquivos manualmente numa pasta (aí a ordenação por nome já ajuda)
     const itens = [];
     for(let i=0;i<paginasComNome.length;i++){
       try{
         const blob = await gerarBlobDePaginaEscala(paginasComNome[i].html);
-        itens.push({ blob, nomeArq:`escala_${mesKey}_${paginasComNome[i].nome}.png` });
+        const numero = String(i+1).padStart(2,'0');
+        itens.push({ blob, nomeArq:`${numero}-escala_${mesKey}_${paginasComNome[i].nome}.png` });
       }catch(e){
         toast('Erro ao gerar imagem '+(i+1)+': '+e.message,'err');
       }
