@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.58.0';
+const APP_VERSAO = '19.58.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4840,13 +4840,11 @@ window.atualizarAlertaNaoEscalados = async function(){
     const { naoEscaladosDom, naoEscaladosSem } = await calcularMinistrosNaoEscalados();
     const total = naoEscaladosDom.length + naoEscaladosSem.length;
     if(!total){ cont.innerHTML = ''; return; }
-    const listaDom = naoEscaladosDom.length ? `<p style="margin:6px 0 2px;font-weight:600">⛪ Dominical (${naoEscaladosDom.length}):</p><p style="margin:0">${naoEscaladosDom.join(', ')}</p>` : '';
-    const listaSem = naoEscaladosSem.length ? `<p style="margin:6px 0 2px;font-weight:600">📆 Semanal (${naoEscaladosSem.length}):</p><p style="margin:0">${naoEscaladosSem.join(', ')}</p>` : '';
+    const listaDom = naoEscaladosDom.length ? `<p style="margin:8px 0 2px;font-weight:600">⛪ Dominical (${naoEscaladosDom.length}):</p><p style="margin:0">${naoEscaladosDom.join(', ')}</p>` : '';
+    const listaSem = naoEscaladosSem.length ? `<p style="margin:8px 0 2px;font-weight:600">📆 Semanal (${naoEscaladosSem.length}):</p><p style="margin:0">${naoEscaladosSem.join(', ')}</p>` : '';
     cont.innerHTML = `<div style="background:#FFF3CD;border:1.5px solid #F0DE9A;border-radius:8px;padding:10px 12px">
-      <button onclick="const d=document.getElementById('esc-nao-escalados-detalhe'); d.style.display = d.style.display==='none'?'block':'none';" style="width:100%;text-align:left;border:none;background:none;padding:0;cursor:pointer;font-size:12px;font-weight:700;color:#856404">
-        ⚠️ ${total} ministro(s) disponível(is) não escalado(s) este mês — toque para ver ▾
-      </button>
-      <div id="esc-nao-escalados-detalhe" style="display:none;font-size:11.5px;color:#856404;margin-top:8px;line-height:1.6">${listaDom}${listaSem}</div>
+      <p style="margin:0;font-size:12px;font-weight:700;color:#856404">⚠️ ${total} ministro(s) disponível(is) não escalado(s) este mês:</p>
+      <div style="font-size:11.5px;color:#856404;line-height:1.6">${listaDom}${listaSem}</div>
     </div>`;
   }catch(e){ cont.innerHTML = ''; }
 };
