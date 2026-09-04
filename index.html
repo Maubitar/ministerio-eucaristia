@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.51.0';
+const APP_VERSAO = '19.54.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3908,7 +3908,7 @@ window.compartilharEscala = async function(){
 // Nenhuma configuração externa pode degradar tamanho, resolução ou conteúdo.
 // Padrões MÍNIMOS garantidos por contrato interno:
 const SOGI_QUALIDADE = Object.freeze({
-  ESCALA_ALVO: 6,           // multiplicador de resolução desejado
+  ESCALA_ALVO: 8,           // multiplicador de resolução desejado
   ESCALA_MINIMA: 3,         // NUNCA gera abaixo disto (blindagem)
   LADO_MAXIMO: 16000,       // limite físico do navegador
   TAMANHO_MINIMO_BYTES: 5000 // abaixo disto = falha, tenta de novo
@@ -4904,11 +4904,15 @@ function cardHorarioFin(hObj){
 // Monta UMA "PÁGINA" (mesmo tamanho/proporção da dominical: 1900px, cabeçalho com logos) para um conjunto de cards
 function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
   if(!cards.length) return null;
-  // 2 colunas balanceadas por altura (mesmo padrão da semanal ao vivo) — cards ficam do mesmo tamanho da dominical
-  const cols = ['',''];
-  const alturas = [0,0];
+  // Colunas balanceadas por altura. Usa mais colunas quando há muitos horários juntos (ex.: a
+  // Dominical, que junta o mês inteiro numa faixa só) — assim a imagem fica mais larga e menos
+  // alta, o que ajuda a preservar nitidez sem precisar dividir em várias páginas.
+  const numColunas = cards.length > 4 ? 3 : 2;
+  const cols = Array(numColunas).fill('');
+  const alturas = Array(numColunas).fill(0);
   cards.forEach(c=>{
-    const menor = alturas[0] <= alturas[1] ? 0 : 1;
+    let menor = 0;
+    for(let i=1;i<numColunas;i++){ if(alturas[i] < alturas[menor]) menor = i; }
     cols[menor] += c.html;
     alturas[menor] += c.peso;
   });
@@ -4925,12 +4929,14 @@ function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
       <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
     </div>
     ${banda}
-    <div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols[0]}</div><div style="flex:1;min-width:0">${cols[1]}</div></div>
+    <div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box">${cols.map(c=>`<div style="flex:1;min-width:0">${c}</div>`).join('')}</div>
     <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré (escala finalizada)</p>
    </div>`;
 }
 
-// Retorna um ARRAY de páginas — uma por semana (na semanal) ou uma pro domingo inteiro (na dominical).
+// Retorna um ARRAY de páginas — SEMPRE uma por semana/domingo, nunca dividida em partes.
+// Escalas com muitos horários juntos (Dominical) usam mais colunas em vez de mais páginas.
+// limite físico do navegador e a resolução cai sozinha pra caber).
 function montarPaginasEscalaFinalizada(info){
   const paginas = [];
   (info.semanasComFoto||[]).forEach(sem=>{
@@ -5143,6 +5149,21 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     if(!horariosComGente.length) return;
 
     const tituloFaixa = sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||'');
+
+    // Estima se a semana INTEIRA cabe a partir da posição atual, simulando o mesmo fluxo por
+    // colunas usado no desenho de verdade — sem desenhar nada ainda. Se não couber, começa
+    // página nova ANTES de desenhar qualquer coisa dessa semana, pra nunca cortar ela ao meio.
+    const alturaTitulo = tituloFaixa ? 11 : 0;
+    const colYSim = Array(numColunas).fill(y + alturaTitulo);
+    horariosComGente.forEach(h=>{
+      let col = 0;
+      for(let i=1;i<numColunas;i++){ if(colYSim[i] < colYSim[col]) col = i; }
+      colYSim[col] += alturaCard(h);
+    });
+    const alturaEstimada = Math.max(...colYSim) - y;
+    if(y > M+16 && y + alturaEstimada > rodapePagina){
+      pdf.addPage(); cabecalho(); y = M+16;
+    }
 
     if(tituloFaixa){
       if(y + 10 > rodapePagina){ pdf.addPage(); cabecalho(); y = M+16; }
