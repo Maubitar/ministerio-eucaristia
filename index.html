@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.47.2';
+const APP_VERSAO = '19.48.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9408,12 +9408,24 @@ function qLerFrame(video){
       lado = Math.round(Math.min(vw,vh) * 0.75);
       sx = Math.round((vw-lado)/2); sy = Math.round((vh-lado)/2);
     }
-    const tam = 560; // resolução de trabalho — leve o bastante pra não travar o celular, nítida o bastante pra ler bem
+    const tam = 720; // resolução de trabalho maior — mais nítido pra ler QR mostrado numa tela de celular
     canvas.width=tam; canvas.height=tam;
     ctx.drawImage(video, sx, sy, lado, lado, 0, 0, tam, tam);
     if(window.jsQR){
       const imageData=ctx.getImageData(0,0,tam,tam);
-      const code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'attemptBoth'});
+      // Tenta ler normal primeiro
+      let code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'attemptBoth'});
+      // Se não leu, reforça contraste e tenta de novo — ajuda muito quando o QR está na tela
+      // de um celular (brilho da tela, reflexo) em vez de impresso no papel
+      if(!code){
+        const data = imageData.data;
+        for(let i=0; i<data.length; i+=4){
+          const avg = (data[i]+data[i+1]+data[i+2])/3;
+          const v = avg > 128 ? Math.min(255, avg*1.3) : Math.max(0, avg*0.7);
+          data[i] = data[i+1] = data[i+2] = v;
+        }
+        code = jsQR(data, tam, tam, {inversionAttempts:'attemptBoth'});
+      }
       if(code && code.data && code.data.includes('ministro=')){
         let id=null;
         try{ id=new URL(code.data).searchParams.get('ministro'); }catch(e){
@@ -9465,6 +9477,61 @@ function tocarBeep(tipo){
     }
   }catch(e){}
 }
+
+// ===== BUSCA MANUAL — alternativa quando o QR simplesmente não lê (tela reflete luz, foco ruim, etc.) =====
+// Nunca deixa a pessoa travada sem conseguir registrar presença.
+window.abrirBuscaManualQuiosque = function(){
+  _qPausado = true; // pausa a leitura de câmera enquanto a busca manual está aberta
+  const existente = document.getElementById('q-busca-manual');
+  if(existente) existente.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'q-busca-manual';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(10,10,10,.94);display:flex;flex-direction:column;padding:20px;box-sizing:border-box';
+  overlay.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="color:white;font-size:16px;font-weight:700;margin:0">🔎 Buscar meu nome</p>
+      <button onclick="fecharBuscaManualQuiosque()" style="border:none;background:none;color:#ccc;font-size:26px;cursor:pointer">×</button>
+    </div>
+    <input type="text" id="q-busca-input" placeholder="Digite seu nome..."
+      oninput="filtrarBuscaManualQuiosque(this.value)"
+      style="width:100%;padding:14px;border-radius:10px;border:none;font-size:16px;margin-bottom:14px;box-sizing:border-box">
+    <div id="q-busca-lista" style="flex:1;overflow-y:auto"></div>
+  `;
+  document.body.appendChild(overlay);
+  setTimeout(()=>document.getElementById('q-busca-input')?.focus(), 100);
+};
+
+window.fecharBuscaManualQuiosque = function(){
+  document.getElementById('q-busca-manual')?.remove();
+  _qPausado = false; // retoma a leitura de câmera
+};
+
+window.filtrarBuscaManualQuiosque = function(txt){
+  const lista = document.getElementById('q-busca-lista');
+  if(!lista) return;
+  const f = normalizarBusca(txt||'');
+  if(f.length < 2){ lista.innerHTML = '<p style="color:#888;text-align:center;padding:20px;font-size:13px">Digite pelo menos 2 letras...</p>'; return; }
+  const encontrados = (ministros||[]).filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(f)).slice(0,8);
+  lista.innerHTML = encontrados.map(m=>`
+    <button onclick="confirmarPresencaManualQuiosque('${m.id}')" style="display:block;width:100%;text-align:left;padding:14px;margin-bottom:8px;border:none;border-radius:10px;background:white;color:#1a1a1a;font-size:15px;font-weight:600;cursor:pointer">${m.nome}</button>
+  `).join('') || '<p style="color:#888;text-align:center;padding:20px;font-size:13px">Ninguém encontrado com esse nome.</p>';
+};
+
+// Registra a presença pelo caminho manual — mesma lógica segura (evita duplicado, salva, dá feedback)
+// usada quando o QR lê normalmente, então nada fica inconsistente entre os dois caminhos.
+window.confirmarPresencaManualQuiosque = function(id){
+  const m = (ministros||[]).find(x=>x.id===id);
+  if(!m) return;
+  fecharBuscaManualQuiosque();
+  if(_qLidos.has(id)){ qFeedback(m, true); }
+  else{
+    _qLidos.add(id);
+    if(!_qConfig.registros) _qConfig.registros={};
+    _qConfig.registros[id] = {status:'P', justificativa:''};
+    qSalvarParcial();
+    qFeedback(m, false);
+  }
+};
 
 function qFeedback(m, jaLido){
   _qPausado=true;
@@ -12729,7 +12796,8 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
   <div style="position:absolute;bottom:0;left:0;right:0;text-align:center;padding:20px 16px 22px;background:linear-gradient(transparent,rgba(0,0,0,.6))">
     <p style="color:white;font-size:20px;font-weight:700;margin:0;text-shadow:0 1px 4px rgba(0,0,0,.6)">Aproxime sua carteirinha</p>
     <p id="q-status-cam" style="color:#3ddb9a;font-size:12px;margin:5px 0 0">Iniciando câmera...</p>
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+    <button onclick="abrirBuscaManualQuiosque()" style="margin-top:12px;padding:10px 22px;border:none;border-radius:22px;background:#1D9E75;color:white;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)">🔎 Não leu? Buscar meu nome</button>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:10px">
       <button onclick="trocarCameraQuiosque()" style="padding:7px 16px;border:1px solid rgba(255,255,255,.3);border-radius:20px;background:rgba(255,255,255,.08);color:#ccc;font-size:11px;cursor:pointer">🔄 Trocar câmera</button>
       <button onclick="tentarSairQuiosque()" style="padding:7px 16px;border:1px solid rgba(255,255,255,.3);border-radius:20px;background:rgba(255,255,255,.08);color:#999;font-size:11px;cursor:pointer">🔒 Sair do quiosque</button>
     </div>
