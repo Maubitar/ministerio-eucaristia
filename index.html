@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.50.2';
+const APP_VERSAO = '19.51.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4041,22 +4041,18 @@ async function compartilharOuBaixarImagem(blob, nomeArq){
 // ao toque; chamando várias vezes seguidas, só a primeira funciona de verdade).
 async function compartilharVariasImagens(itens, tituloShare, textoShare){
   // itens: [{blob, nomeArq}, ...] já na ordem certa de leitura (ex.: Dominical, depois semana 1, 2, 3, 4)
+  // Baixa direto (sem tentar o compartilhamento automático do navegador) — o compartilhamento automático
+  // manda pro WhatsApp pelo caminho de "Foto/Galeria", que comprime bastante. Baixando e anexando como
+  // "Documento" manualmente no WhatsApp preserva a qualidade da imagem.
   const files = itens.map(it => new File([it.blob], it.nomeArq, {type:'image/png'}));
-  if(navigator.canShare && navigator.canShare({files})){
-    try{
-      await navigator.share({ files, title:tituloShare, text:textoShare });
-      return;
-    }catch(e){
-      if(e.name==='AbortError') return;
-      // se falhar tentando todas juntas, cai no baixar uma a uma abaixo
-    }
-  }
-  // Sem suporte a compartilhar várias de uma vez (ex.: computador): baixa todas, uma por uma.
+  const msg = files.length>1
+    ? `${files.length} imagens baixadas. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade, e selecione todas.`
+    : `Imagem baixada. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade.`;
+  toast(msg, 'ok');
   // Baixa em ordem INVERSA de propósito: como as pastas do Windows costumam mostrar por data
   // (mais recente primeiro), baixar o último item primeiro faz o PRIMEIRO item (ex.: Dominical)
   // ficar no topo da pasta sem precisar reordenar nada manualmente. Os nomes também vêm numerados
   // (01-, 02-...), então ordenar por Nome também funciona, caso a pasta não esteja por data.
-  toast(`Seu navegador não permite enviar ${files.length} imagens de uma vez — baixando todas pra você anexar no WhatsApp (já na ordem certa se a pasta estiver por data, mais recente primeiro).`,'warn');
   for(let i=files.length-1; i>=0; i--){
     const f = files[i];
     const a=document.createElement('a');
