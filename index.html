@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.48.0';
+const APP_VERSAO = '19.48.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4728,11 +4728,7 @@ window.finalizarEscalaDominical = async function(){
       const responsavel = g.responsavel||'';
       const respObj = ministros.find(x=>x.nome===responsavel);
       const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
-      const ordenados = [...g.ministros].sort((a,b)=>{
-        if(a===responsavel) return -1;
-        if(b===responsavel) return 1;
-        return a.localeCompare(b,'pt-BR');
-      });
+      const ordenados = [...g.ministros].sort((a,b)=>a.localeCompare(b,'pt-BR'));
       return {
         hora, responsavel, respTel,
         dias: DOMINGOS_MES.map(d=>`dom ${d}`),
@@ -4807,8 +4803,6 @@ window.finalizarEscalaSemanal = async function(){
         const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
         const mapaReforco = mapaReforcoPorHora[hora] || new Map();
         const ordenados = [...(g.ministros||[])].sort((a,b)=>{
-          if(a===responsavel) return -1;
-          if(b===responsavel) return 1;
           const aRef = mapaReforco.has(a), bRef = mapaReforco.has(b);
           if(aRef !== bRef) return aRef ? 1 : -1; // reforço sempre depois dos escalados normais
           return a.localeCompare(b,'pt-BR');
