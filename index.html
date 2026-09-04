@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.37.0';
+const APP_VERSAO = '19.46.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -851,6 +851,10 @@ window.renderUsuarios = function(){
         `<button onclick="removerUsuario(${i})" style="border:none;background:none;color:#A32D2D;font-size:16px;cursor:pointer;padding:0 4px">×</button>` : ''}
     </div>`;
   }).join('');
+};
+
+window.abrirEsqueciSenha = function(){
+  document.getElementById('modal-esqueci-senha').style.display='flex';
 };
 
 window.abrirNovoUsuario = function(){
@@ -1973,7 +1977,8 @@ async function renderInicio(){
   if(elTotal) elTotal.textContent = ativos.length;
 
   const mes = agora.getMonth()+1;
-  const aniv = ministros.filter(m=>m.nascimento && parseInt(m.nascimento.split('-')[1])===mes);
+  const aniv = ministros.filter(m=>m.nascimento && parseInt(m.nascimento.split('-')[1])===mes)
+    .sort((a,b)=>parseInt(a.nascimento.split('-')[2]) - parseInt(b.nascimento.split('-')[2]));
   document.getElementById('m-aniv').textContent = aniv.length;
 
   // Conta escalas montadas no mês (dominical + semanas)
@@ -2028,6 +2033,8 @@ async function renderInicio(){
           <p style="font-size:11px;color:#888;margin:0">${(m.nascimento.startsWith('1900-')? m.nascimento.slice(5).split('-').reverse().join('/') : m.nascimento.split('-').reverse().join('/'))}</p></div>
           <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:5px 10px;border:1.5px solid #e1f5ee;border-radius:20px;background:#f5faf8;color:#085041;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
         </div>`).join('')
+      + (aniv.length>8 ? `<button onclick="abrirTodosAniversariantes()" style="width:100%;margin-top:8px;padding:8px;border:none;background:none;color:#085041;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline">Ver todos os ${aniv.length} aniversariantes do mês →</button>` : '')
+      + (aniv.length ? `<button onclick="compartilharAniversariosWhats()" style="width:100%;margin-top:6px;padding:9px;border:1.5px solid #1D9E75;border-radius:9px;background:white;color:#1D9E75;font-size:12px;font-weight:700;cursor:pointer">📤 Enviar lista por WhatsApp</button>` : '')
     : '<p style="font-size:12px;color:#888">Cadastre nascimentos para ver aniversariantes.</p>';
 
   document.getElementById('dash-alertas').innerHTML = alertas.length
@@ -2093,6 +2100,290 @@ function normalizarBusca(txt){
   return (txt||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 }
 window.normalizarBusca = normalizarBusca;
+
+// ===== ESCALAÇÃO POR VOZ (grátis — usa o reconhecimento de voz do próprio navegador) =====
+// Compara o que foi falado com os nomes cadastrados. NUNCA escala sozinho:
+// sempre mostra os nomes reconhecidos e espera confirmação antes de gravar.
+const PALAVRAS_IGNORAR_NOME = new Set(['de','da','do','das','dos','e']);
+
+function extrairNomesDaFala(transcript, listaMinistros){
+  const tokensFala = normalizarBusca(transcript).split(/\s+/).filter(Boolean);
+  if(!tokensFala.length) return [];
+  const candidatos = [];
+  listaMinistros.forEach(m=>{
+    const palavrasNome = normalizarBusca(m.nome).split(/\s+/).filter(p=>p.length>2 && !PALAVRAS_IGNORAR_NOME.has(p));
+    if(!palavrasNome.length) return;
+    let bateram = 0;
+    palavrasNome.forEach(p=>{ if(tokensFala.includes(p)) bateram++; });
+    const score = bateram / palavrasNome.length;
+    const minimoNecessario = palavrasNome.length===1 ? 1 : 2;
+    if(bateram >= minimoNecessario && score >= 0.5){
+      candidatos.push({ nome:m.nome, score, bateram });
+    }
+  });
+  candidatos.sort((a,b)=> b.score-a.score || b.bateram-a.bateram);
+  return candidatos;
+}
+window.extrairNomesDaFala = extrairNomesDaFala;
+
+let _vozReconhecimento = null;
+let _vozTranscriptAcumulado = '';
+let _vozSessaoAberta = false;   // true enquanto o painel está no ar (modo contínuo)
+let _vozPausadoManual = false;  // true só quando o usuário aperta "Pausar" de propósito
+
+function _vozSuportada(){
+  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+window.iniciarEscalaPorVoz = function(key, hora){
+  if(!_vozSuportada()){
+    toast('Ditado por voz não é suportado neste navegador. Use o Chrome (Android ou computador).','warn');
+    return;
+  }
+  _vozTranscriptAcumulado = '';
+  _vozSessaoAberta = true;
+  _vozPausadoManual = false;
+  _mostrarPainelVoz(key, hora);
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SR();
+  rec.lang = 'pt-BR';
+  rec.continuous = true;
+  rec.interimResults = true;
+  _vozReconhecimento = rec;
+
+  rec.onresult = (ev)=>{
+    let interim = '';
+    for(let i=ev.resultIndex; i<ev.results.length; i++){
+      const texto = ev.results[i][0].transcript;
+      if(ev.results[i].isFinal){ _vozTranscriptAcumulado += ' ' + texto; }
+      else { interim += texto; }
+    }
+    _atualizarPainelVoz(key, hora, (_vozTranscriptAcumulado + ' ' + interim).trim());
+  };
+  rec.onerror = (ev)=>{
+    if(ev.error === 'not-allowed' || ev.error === 'permission-denied'){
+      toast('Permita o uso do microfone para escalar por voz.','warn');
+      _vozSessaoAberta = false;
+    } else if(ev.error !== 'no-speech'){
+      toast('Erro no reconhecimento de voz: '+ev.error,'warn');
+    }
+  };
+  rec.onend = ()=>{
+    // Modo contínuo: se o painel ainda está aberto e não foi pausado de propósito,
+    // reinicia sozinho (o Chrome às vezes encerra por conta própria após alguns segundos).
+    if(_vozSessaoAberta && !_vozPausadoManual){
+      try{ rec.start(); }catch(e){}
+    } else {
+      const btn = document.getElementById('voz-btn-toggle');
+      if(btn){ btn.textContent = '🎤 Continuar falando'; btn.style.background='#e6f1fb'; btn.style.color='#185FA5'; }
+    }
+  };
+  rec.start();
+  _iniciarMedidorVolume('voz-medidor');
+};
+
+// ===== MEDIDOR DE VOLUME (prova visual de que o microfone está captando som de verdade,
+// independente do reconhecimento de fala funcionar ou não) =====
+let _medidorAudioCtx = null;
+let _medidorStream = null;
+let _medidorRAF = null;
+
+async function _iniciarMedidorVolume(elId){
+  _pararMedidorVolume(); // encerra qualquer medidor anterior
+  const barra = document.getElementById(elId);
+  if(!barra) return;
+  try{
+    _medidorStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    _medidorAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = _medidorAudioCtx.createMediaStreamSource(_medidorStream);
+    const analyser = _medidorAudioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    const dados = new Uint8Array(analyser.frequencyBinCount);
+    let semSomContagem = 0;
+    function loop(){
+      analyser.getByteFrequencyData(dados);
+      const media = dados.reduce((a,b)=>a+b,0) / dados.length;
+      const pct = Math.min(100, Math.round((media/60)*100));
+      const el = document.getElementById(elId);
+      if(el){
+        el.style.width = pct + '%';
+        el.style.background = pct > 8 ? '#1D9E75' : '#cde8d8';
+      }
+      // Se ficar muito tempo sem captar NENHUM som, avisa (mic mudo/errado)
+      const avisoEl = document.getElementById(elId+'-aviso');
+      if(avisoEl){
+        if(media < 2){ semSomContagem++; } else { semSomContagem = 0; }
+        avisoEl.style.display = semSomContagem > 240 ? 'block' : 'none'; // ~4s sem nenhum som
+      }
+      _medidorRAF = requestAnimationFrame(loop);
+    }
+    loop();
+  }catch(e){
+    const el = document.getElementById(elId);
+    if(el && el.parentElement){
+      el.parentElement.innerHTML = '<p style="font-size:11px;color:#A32D2D;margin:0">⚠️ Não consegui acessar o microfone (permissão negada ou indisponível).</p>';
+    }
+  }
+}
+
+function _pararMedidorVolume(){
+  if(_medidorRAF){ cancelAnimationFrame(_medidorRAF); _medidorRAF = null; }
+  if(_medidorStream){ _medidorStream.getTracks().forEach(t=>t.stop()); _medidorStream = null; }
+  if(_medidorAudioCtx){ try{ _medidorAudioCtx.close(); }catch(e){} _medidorAudioCtx = null; }
+}
+window._pararMedidorVolume = _pararMedidorVolume;
+
+function _mostrarPainelVoz(key, hora){
+  const painel = document.createElement('div');
+  painel.id = 'voz-painel-overlay';
+  painel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px';
+  painel.innerHTML = `
+    <div style="background:white;border-radius:14px;padding:20px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto">
+      <h3 style="margin:0 0 4px;color:#085041;font-size:16px">🎤 Escalando por voz — ${hora}</h3>
+      <p style="margin:0 0 12px;font-size:12px;color:#888">Fale um nome, confirme, e já pode falar o próximo — o painel continua ouvindo até você concluir.</p>
+      <div style="height:8px;background:#eee;border-radius:4px;overflow:hidden;margin-bottom:4px">
+        <div id="voz-medidor" style="height:100%;width:0%;background:#cde8d8;transition:width .08s linear"></div>
+      </div>
+      <p id="voz-medidor-aviso" style="display:none;font-size:11px;color:#BA7517;margin:0 0 10px;font-weight:600">⚠️ Não estou captando nenhum som — verifique se o microfone certo está selecionado ou se não está mudo.</p>
+      <div id="voz-transcript" style="background:#f5f5f3;border-radius:8px;padding:10px;font-size:13px;color:#555;min-height:40px;margin-bottom:12px">Ouvindo...</div>
+      <div id="voz-candidatos" style="margin-bottom:12px"></div>
+      <div id="voz-escalados" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px">
+        <button id="voz-btn-toggle" onclick="_vozPararTemporario()" style="flex:1;padding:11px;border:none;border-radius:8px;background:#faeeda;color:#7a4a06;font-weight:700;cursor:pointer;font-size:13px">⏸️ Pausar</button>
+        <button onclick="_vozConfirmarEscalar('${key}','${hora}')" style="flex:1;padding:11px;border:none;border-radius:8px;background:#1D9E75;color:white;font-weight:700;cursor:pointer;font-size:13px">✓ Escalar e continuar</button>
+      </div>
+      <button onclick="_vozCancelar()" style="width:100%;margin-top:8px;padding:9px;border:none;background:#eef7f2;border-radius:8px;color:#085041;cursor:pointer;font-size:13px;font-weight:600">✓ Concluir este horário</button>
+    </div>`;
+  document.body.appendChild(painel);
+}
+
+function _atualizarPainelVoz(key, hora, transcript){
+  const elT = document.getElementById('voz-transcript');
+  if(elT) elT.textContent = transcript || 'Ouvindo...';
+  const candidatos = extrairNomesDaFala(transcript, ministros);
+  const elC = document.getElementById('voz-candidatos');
+  if(!elC) return;
+  if(!candidatos.length){
+    elC.innerHTML = '<p style="font-size:12px;color:#aaa;text-align:center;padding:8px">Nenhum ministro reconhecido ainda...</p>';
+    return;
+  }
+  elC.innerHTML = `<p style="font-size:11px;color:#888;margin:0 0 6px">Reconhecidos (desmarque quem não deve entrar):</p>` +
+    candidatos.map(c=>`
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#eef7f2;border-radius:6px;margin-bottom:4px;font-size:13px;cursor:pointer">
+        <input type="checkbox" class="voz-check" value="${c.nome.replace(/"/g,'&quot;')}" checked style="width:16px;height:16px">
+        ${c.nome}
+      </label>`).join('');
+}
+
+window._vozPararTemporario = function(){
+  const btn = document.getElementById('voz-btn-toggle');
+  if(_vozReconhecimento){
+    if(btn && btn.textContent.includes('Pausar')){
+      _vozPausadoManual = true;
+      _vozReconhecimento.stop();
+      btn.textContent = '🎤 Continuar falando';
+      btn.style.background='#e6f1fb'; btn.style.color='#185FA5';
+      btn.setAttribute('onclick','_vozRetomar()');
+    }
+  }
+};
+window._vozRetomar = function(){
+  if(_vozReconhecimento){
+    _vozPausadoManual = false;
+    try{ _vozReconhecimento.start(); }catch(e){}
+    const btn = document.getElementById('voz-btn-toggle');
+    if(btn){
+      btn.textContent = '⏸️ Pausar';
+      btn.style.background='#faeeda'; btn.style.color='#7a4a06';
+      btn.setAttribute('onclick','_vozPararTemporario()');
+    }
+  }
+};
+
+// Escala os nomes confirmados e CONTINUA no painel, limpo e pronto pro próximo ministro
+// — não fecha, não pede pra reabrir o microfone de novo.
+window._vozConfirmarEscalar = function(key, hora){
+  const checks = document.querySelectorAll('.voz-check:checked');
+  const nomes = Array.from(checks).map(c=>c.value);
+  if(!nomes.length){ toast('Fale um nome antes de confirmar.','warn'); return; }
+
+  nomes.forEach(nome=> addMin(key, hora, nome, null));
+  toast(`✓ ${nomes.length} escalado(s) — pode falar o próximo`,'ok');
+
+  // Marca no painel quem já foi escalado nesta sessão (histórico visual)
+  const elEsc = document.getElementById('voz-escalados');
+  if(elEsc){
+    nomes.forEach(nome=>{
+      const linha = document.createElement('div');
+      linha.style.cssText = 'font-size:12px;color:#085041;padding:3px 0';
+      linha.textContent = '✓ ' + nome;
+      elEsc.appendChild(linha);
+    });
+  }
+
+  // Limpa a busca e os candidatos — pronto pro próximo nome, sem fechar nada
+  _vozTranscriptAcumulado = '';
+  const elT = document.getElementById('voz-transcript');
+  if(elT) elT.textContent = 'Ouvindo...';
+  const elC = document.getElementById('voz-candidatos');
+  if(elC) elC.innerHTML = '<p style="font-size:12px;color:#aaa;text-align:center;padding:8px">Nenhum ministro reconhecido ainda...</p>';
+};
+
+window._vozCancelar = function(){
+  _vozSessaoAberta = false;
+  if(_vozReconhecimento){ try{ _vozReconhecimento.stop(); }catch(e){} }
+  _pararMedidorVolume();
+  const overlay = document.getElementById('voz-painel-overlay');
+  if(overlay) overlay.remove();
+};
+
+// ===== DITADO SIMPLES (para campos de texto livre, como o recado aos responsáveis) =====
+window.iniciarDitadoTexto = function(inputId, btnEl){
+  if(!_vozSuportada()){
+    toast('Ditado por voz não é suportado neste navegador. Use o Chrome.','warn');
+    return;
+  }
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SR();
+  rec.lang = 'pt-BR';
+  rec.continuous = true;
+  rec.interimResults = false;
+  const textoBase = input.value ? input.value + ' ' : '';
+  let medidorWrap = null;
+  const textoOriginalBtn = btnEl ? btnEl.textContent : null;
+  if(btnEl){
+    btnEl.textContent = '🔴 Ouvindo... (toque p/ parar)'; btnEl.style.background='#faeeda';
+    medidorWrap = document.createElement('div');
+    medidorWrap.id = 'ditado-medidor-wrap-'+inputId;
+    medidorWrap.style.cssText = 'display:inline-block;width:40px;height:4px;background:#eee;border-radius:2px;overflow:hidden;vertical-align:middle;margin-left:6px';
+    medidorWrap.innerHTML = '<div id="ditado-medidor-'+inputId+'" style="height:100%;width:0%;background:#1D9E75;transition:width .08s linear"></div>';
+    btnEl.insertAdjacentElement('afterend', medidorWrap);
+    _iniciarMedidorVolume('ditado-medidor-'+inputId);
+  }
+  rec.onresult = (ev)=>{
+    let novoTexto = '';
+    for(let i=0; i<ev.results.length; i++){ novoTexto += ev.results[i][0].transcript; }
+    input.value = textoBase + novoTexto;
+    // Dispara o evento de input — assim campos com filtro ao vivo (oninput) reagem sozinhos enquanto fala
+    input.dispatchEvent(new Event('input', { bubbles:true }));
+  };
+  rec.onerror = (ev)=>{
+    if(ev.error === 'not-allowed'){ toast('Permita o uso do microfone.','warn'); }
+  };
+  rec.onend = ()=>{
+    if(btnEl){ btnEl.textContent = textoOriginalBtn; btnEl.style.background='#e6f1fb'; }
+    _pararMedidorVolume();
+    if(medidorWrap) medidorWrap.remove();
+  };
+  if(btnEl){
+    btnEl.onclick = ()=>{ rec.stop(); };
+  }
+  rec.start();
+};
 
 const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 let SEMANAS_SERVICO = 5;
@@ -2935,6 +3226,8 @@ window.renderEscala = async function(){
             style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin:0">
           <div id="ac-${key}-${hora.replace(':','')}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
         </div>
+        <button onclick="iniciarEscalaPorVoz('${key}','${hora}')" title="Escalar por voz"
+          style="flex-shrink:0;width:34px;height:30px;border:1px solid #cde8d8;border-radius:6px;background:#eef7f2;color:#085041;cursor:pointer;font-size:14px">🎤</button>
       </div>
     </div>`;
   }).join('');
@@ -7646,6 +7939,67 @@ window.importarAniversarios = async function(){
   if(typeof renderInicio==='function') renderInicio();
 };
 
+// Abre um modal com TODOS os aniversariantes do mês, ordenados por dia (não corta em 8, ao contrário do resumo da página inicial)
+window.abrirTodosAniversariantes = function(){
+  const agora = new Date();
+  const mes = agora.getMonth()+1, diaHoje = agora.getDate();
+  const doMes = ministros.filter(m=>{
+    if(!m.nascimento) return false;
+    const partes = m.nascimento.split('-');
+    if(partes.length<3) return false;
+    return parseInt(partes[1])===mes;
+  }).sort((a,b)=>parseInt(a.nascimento.split('-')[2]) - parseInt(b.nascimento.split('-')[2]));
+
+  const nomesMeses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const linhas = doMes.map(m=>{
+    const dia = parseInt(m.nascimento.split('-')[2]);
+    const ehHoje = dia===diaHoje;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0;${ehHoje?'background:#fffdf7':''}">
+      <div style="width:32px;height:32px;border-radius:8px;background:${ehHoje?'#BA7517':'#f0e6da'};color:${ehHoje?'white':'#BA7517'};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">${dia}</div>
+      <span style="flex:1;font-size:13px;${ehHoje?'font-weight:700;color:#BA7517':''}">${m.nome}${ehHoje?' 🎉':''}</span>
+      <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:5px 10px;border:1.5px solid #e1f5ee;border-radius:20px;background:#f5faf8;color:#085041;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
+    </div>`;
+  }).join('') || '<p style="font-size:12px;color:#888">Nenhum aniversariante neste mês.</p>';
+
+  const existente = document.getElementById('modal-todos-aniv');
+  if(existente) existente.remove();
+  const modal = document.createElement('div');
+  modal.id = 'modal-todos-aniv';
+  modal.className = 'modal-bg';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700">🎂 Aniversariantes de ${nomesMeses[mes-1]} (${doMes.length})</p>
+      <button onclick="document.getElementById('modal-todos-aniv').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <div style="max-height:55vh;overflow-y:auto;margin-bottom:12px">${linhas}</div>
+    <button onclick="compartilharAniversariosWhats()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:13px;font-weight:700;cursor:pointer">📤 Enviar lista por WhatsApp</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display='flex';
+};
+
+// Monta o texto da lista de aniversariantes do mês e abre o WhatsApp pra enviar
+window.compartilharAniversariosWhats = function(){
+  const agora = new Date();
+  const mes = agora.getMonth()+1;
+  const doMes = ministros.filter(m=>{
+    if(!m.nascimento) return false;
+    const partes = m.nascimento.split('-');
+    if(partes.length<3) return false;
+    return parseInt(partes[1])===mes;
+  }).sort((a,b)=>parseInt(a.nascimento.split('-')[2]) - parseInt(b.nascimento.split('-')[2]));
+
+  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  if(!doMes.length){ toast('Nenhum aniversariante neste mês.','warn'); return; }
+  let texto = `🎂 *Aniversariantes de ${nomesMeses[mes-1]}* — Ministério da Eucaristia\n\n`;
+  doMes.forEach(m=>{
+    const dia = String(m.nascimento.split('-')[2]).padStart(2,'0');
+    texto += `${dia}/${String(mes).padStart(2,'0')} — ${m.nome}\n`;
+  });
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+};
+
 // Gera um cartão de aniversário sereno/religioso (tons dourados) com o nome do ministro,
 // como imagem PNG para baixar e enviar no WhatsApp.
 window.gerarCartaoAniversario = async function(id){
@@ -9312,9 +9666,31 @@ let _finPagosMes = {};       // {ministroId:{pago:true,data}} do mês selecionad
 let _finDespesas = [];       // todas as saídas
 let _finReceitas = [];       // todas as entradas avulsas (fora da mensalidade)
 let _finMesSel = null;       // mesKey selecionado (ex: 'jun2026')
+let _finCreditos = {};       // {ministroId: valorEmReais} — saldo de troco/crédito acumulado
+let _finObservacoes = {};    // {ministroId: 'texto livre'} — observações do financeiro sobre o ministro
 
 const FIN_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const FIN_MESES_NOME = {jan:'Janeiro',fev:'Fevereiro',mar:'Março',abr:'Abril',mai:'Maio',jun:'Junho',jul:'Julho',ago:'Agosto',set:'Setembro',out:'Outubro',nov:'Novembro',dez:'Dezembro'};
+let _finPagosTodos = {}; // { mesKey: {ministroId:{pago,data,forma}} } — TODOS os meses já carregados de uma vez
+let _finDataLancamento = null; // data (YYYY-MM-DD) usada nos próximos toques — pra lançar pagamentos retroativos
+window.finSetDataLancamento = function(v){ _finDataLancamento = v; };
+
+function finAnoDoMesKey(mk){
+  const m = (mk||'').match(/(\d{4})$/);
+  return m ? m[1] : String(new Date().getFullYear());
+}
+function finDataHojeISO(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+// Formata 'YYYY-MM-DD' pra DD/MM/AAAA sem passar por conversão de fuso (evita errar o dia).
+// Também aceita datas antigas em formato ISO completo (de antes desta versão).
+function finFormatarDataBR(dataStr){
+  if(!dataStr) return '—';
+  const m = String(dataStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[3]}/${m[2]}/${m[1]}`;
+  try{ return new Date(dataStr).toLocaleDateString('pt-BR'); }catch(e){ return '—'; }
+}
 
 function finMesKeyLegivel(mk){
   const m=(mk||'').match(/^([a-z]{3})(\d{4})$/);
@@ -9342,6 +9718,16 @@ async function carregarFinanceiro(){
     const snapR = await getDocs(collection(db,'receitas'));
     _finReceitas = snapR.docs.map(d=>({id:d.id, local:'cofre', ...d.data()})).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   }catch(e){ _finReceitas=[]; }
+  // saldo de crédito por ministro (troco não devolvido, aplicável em meses futuros)
+  try{
+    const dc = await getDoc(doc(db,'financeiro','creditos'));
+    _finCreditos = dc.exists() ? (dc.data().saldos||{}) : {};
+  }catch(e){ _finCreditos={}; }
+  // observações livres por ministro
+  try{
+    const dob = await getDoc(doc(db,'financeiro','observacoes'));
+    _finObservacoes = dob.exists() ? (dob.data().notas||{}) : {};
+  }catch(e){ _finObservacoes={}; }
 }
 
 async function carregarPagamentosMes(mesKey){
@@ -9371,15 +9757,19 @@ window.renderFinanceiro = async function(){
   const mensalidadesPorConta = {cofre:0, banco1:0, banco2:0};
   try{
     const snapPag = await getDocs(collection(db,'financeiro'));
+    _finPagosTodos = {};
     snapPag.docs.forEach(d=>{
       if(d.id.startsWith('pag_')){
+        const mesKey = d.id.slice(4);
         const pagos = d.data().pagos||{};
+        _finPagosTodos[mesKey] = pagos;
         const qtd = Object.values(pagos).filter(p=>p.pago).length;
         const valorMes = qtd * valor;
         totalArrecadadoGeral += valorMes;
         mensalidadesPorConta[localMensalidade] = (mensalidadesPorConta[localMensalidade]||0) + valorMes;
       }
     });
+    _finPagosMes = _finPagosTodos[_finMesSel] || (_finPagosTodos[_finMesSel] = {});
   }catch(e){}
 
   function porConta(lista){
@@ -9528,9 +9918,19 @@ function finRenderPagamentos(){
       </div>
     </div>
     <button onclick="imprimirFolhaColetaPagamentos()" style="width:100%;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖨️ Folha pra Marcar Pagamento (lista única, com valor)</button>
-    <button onclick="imprimirRelatorioPagamentos()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">🖨️ Relatório de Pagamentos (quem pagou/falta)</button>
-    <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:10px;box-sizing:border-box">
-    <p style="font-size:11px;color:#888;margin:0 0 8px">Mensalidade: <strong>${fmt(valor)}</strong> · Toque para marcar/desmarcar quem pagou em ${finMesKeyLegivel(_finMesSel)}.</p>
+    <button onclick="imprimirRelatorioPagamentos()" style="width:100%;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">🖨️ Relatório de Pagamentos (quem pagou/falta)</button>
+    <button onclick="abrirExtratoGeral()" style="width:100%;padding:11px;border:1.5px solid #0A6E58;border-radius:8px;background:white;color:#0A6E58;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">📋 Extrato Geral (todos os ministros)</button>
+    <div style="background:#faeeda;border-radius:9px;padding:10px 12px;margin-bottom:12px">
+      <label style="font-size:11px;color:#7a4a06;font-weight:700;display:block;margin-bottom:4px">📅 Data deste lançamento (pra pagamentos retroativos)</label>
+      <input type="date" id="fin-data-lancamento" value="${_finDataLancamento||finDataHojeISO()}" onchange="finSetDataLancamento(this.value)" style="width:100%;padding:8px;border:1.5px solid #e0c896;border-radius:7px;font-size:13px;margin-bottom:0;box-sizing:border-box">
+      <p style="font-size:10.5px;color:#8a6416;margin:5px 0 0">Os meses que você marcar agora vão ficar registrados com esta data. Mude antes de lançar pagamentos de outro dia.</p>
+    </div>
+    <div style="position:relative;margin-bottom:10px">
+      <input type="text" id="fin-busca" oninput="finRenderPagamentos2(this.value)" placeholder="🔎 Buscar ministro..." style="width:100%;padding:10px;padding-right:66px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;margin-bottom:0;box-sizing:border-box">
+      <button onclick="iniciarDitadoTexto('fin-busca', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
+    <p style="font-size:11px;color:#888;margin:0 0 8px">Mensalidade: <strong>${fmt(valor)}</strong> · Toque no mês pra marcar — 1º toque <span style="color:#1D9E75;font-weight:700">💵 Dinheiro</span>, 2º toque <span style="color:#185FA5;font-weight:700">📱 Pix</span>, 3º toque volta a pendente. Pode marcar vários meses de uma vez.</p>
     <div id="fin-lista-pag"></div>`;
   finRenderPagamentos2('');
 }
@@ -9646,29 +10046,394 @@ window.finRenderPagamentos2 = function(filtro){
   const f = normalizarBusca(filtro||'');
   const ativos = ministros.filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(f))
     .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const fmtBadge = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
   lista.innerHTML = ativos.map(m=>{
-    const pago = _finPagosMes[m.id]?.pago;
-    return `<div onclick="finTogglePago('${m.id}')" style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
-      <div style="width:26px;height:26px;border-radius:6px;border:2px solid ${pago?'#1D9E75':'#ccc'};background:${pago?'#1D9E75':'white'};display:flex;align-items:center;justify-content:center;color:white;font-size:14px;flex-shrink:0">${pago?'✓':''}</div>
-      <span style="flex:1;font-size:13px;${pago?'color:#085041;font-weight:600':''}">${m.nome}</span>
-      <span style="font-size:11px;font-weight:700;color:${pago?'#1D9E75':'#bbb'}">${pago?'PAGO':'pendente'}</span>
+    const credito = _finCreditos[m.id]||0;
+    const badgeCredito = credito>0 ? ` <span style="background:#faeeda;color:#7a4a06;font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px">💰 ${fmtBadge(credito)}</span>` : '';
+    return `<div style="padding:9px 0;border-bottom:1px solid #f0f0f0">
+      <div onclick="abrirExtratoMinistro('${m.id}')" style="font-size:13px;font-weight:600;margin-bottom:6px;cursor:pointer;color:#085041">${m.nome}${badgeCredito} <span style="font-size:10px;color:#999;font-weight:400;text-decoration:underline">ver extrato</span></div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">${finChipsDoMinistro(m.id, anoSel)}</div>
     </div>`;
   }).join('') || '<p style="font-size:12px;color:#888;padding:10px 0">Nenhum ministro encontrado.</p>';
 };
 
+// Desenha os 12 "chips" de mês pra um ministro. Toque cicla: pendente → Dinheiro → Pix → pendente.
+function finChipsDoMinistro(ministroId, anoSel){
+  return FIN_MESES.map(mes=>{
+    const mk = mes+anoSel;
+    const reg = _finPagosTodos[mk]?.[ministroId];
+    const label = mes.charAt(0).toUpperCase()+mes.slice(1);
+    let cor='#f0f0f0', txtCor='#999', conteudo=label;
+    if(reg?.pago){
+      if(reg.forma==='pix'){ cor='#185FA5'; txtCor='white'; conteudo='📱'; }
+      else if(reg.forma==='credito'){ cor='#BA7517'; txtCor='white'; conteudo='💰'; }
+      else { cor='#1D9E75'; txtCor='white'; conteudo='💵'; }
+    }
+    return `<button onclick="event.stopPropagation();finToggleMesMinistro('${ministroId}','${mk}')" title="${FIN_MESES_NOME[mes]}/${anoSel}${reg?.forma==='credito'?' — coberto por crédito':''}"
+      style="min-width:32px;height:26px;padding:0 4px;border:none;border-radius:5px;background:${cor};color:${txtCor};font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0">${conteudo}</button>`;
+  }).join('');
+}
+
+// Cicla o pagamento de UM mês específico de UM ministro: pendente → Dinheiro (💵) → Pix (📱) → pendente.
+// Funciona pra qualquer mês do ano, não só o mês selecionado no topo — é isso que elimina a fila.
+window.finToggleMesMinistro = async function(ministroId, mesKey){
+  if(!_finPagosTodos[mesKey]) _finPagosTodos[mesKey] = {};
+  const atual = _finPagosTodos[mesKey][ministroId];
+  const dataEscolhida = _finDataLancamento || finDataHojeISO();
+  if(atual?.pago && atual.forma==='credito'){
+    // Mês estava coberto por crédito: desfaz e devolve o valor pro saldo do ministro (não vira Pix por engano)
+    const valorMensal = Number(_finConfig.valorMensalidade)||15;
+    _finCreditos[ministroId] = (_finCreditos[ministroId]||0) + valorMensal;
+    await salvarCreditos();
+    delete _finPagosTodos[mesKey][ministroId];
+    toast('Mês desfeito — crédito devolvido ao saldo do ministro.','ok');
+  } else if(!atual || !atual.pago){
+    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'dinheiro', data:dataEscolhida};
+  } else if(atual.forma!=='pix'){
+    _finPagosTodos[mesKey][ministroId] = {pago:true, forma:'pix', data:atual.data||dataEscolhida};
+  } else {
+    delete _finPagosTodos[mesKey][ministroId];
+  }
+  // re-render rápido (otimista) — só a lista, sem recarregar tudo
+  finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
+  if(mesKey===_finMesSel){ _finPagosMes = _finPagosTodos[mesKey]; atualizarTotaisFin(); }
+  try{
+    await setDoc(doc(db,'financeiro','pag_'+mesKey), {pagos:_finPagosTodos[mesKey], mesKey, atualizadoEm:serverTimestamp()});
+  }catch(e){ toast('Erro ao salvar pagamento.','err'); }
+};
+
+// Mantida por compatibilidade (não é mais chamada pela lista nova, que usa os chips de mês).
 window.finTogglePago = async function(id){
   const atual = _finPagosMes[id]?.pago;
   if(atual){ delete _finPagosMes[id]; }
   else { _finPagosMes[id] = {pago:true, data:new Date().toISOString()}; }
-  // re-render rápido (otimista)
   finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
-  // salva
   try{
     await setDoc(doc(db,'financeiro','pag_'+_finMesSel), {pagos:_finPagosMes, mesKey:_finMesSel, atualizadoEm:serverTimestamp()});
   }catch(e){ toast('Erro ao salvar pagamento.','err'); }
-  // atualiza os totais do topo
   atualizarTotaisFin();
 };
+
+// ===== EXTRATO INDIVIDUAL — quanto cada ministro já pagou, mês a mês =====
+async function salvarCreditos(){
+  try{ await setDoc(doc(db,'financeiro','creditos'), {saldos:_finCreditos, atualizadoEm:serverTimestamp()}); }
+  catch(e){ toast('Erro ao salvar crédito.','err'); }
+}
+
+async function salvarObservacoesFin(){
+  try{ await setDoc(doc(db,'financeiro','observacoes'), {notas:_finObservacoes, atualizadoEm:serverTimestamp()}); }
+  catch(e){ toast('Erro ao salvar observação.','err'); }
+}
+
+// Abre um mini-modal pra lançar troco/crédito (ex.: pagou com nota de R$100 e não tinha troco de R$85)
+window.abrirLancarCredito = function(ministroId){
+  const m = ministros.find(x=>x.id===ministroId);
+  if(!m) return;
+  const existente = document.getElementById('modal-lancar-credito');
+  if(existente) existente.remove();
+  const modal = document.createElement('div');
+  modal.id = 'modal-lancar-credito';
+  modal.className = 'modal-bg';
+  modal.style.zIndex = '9500';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box" style="max-width:380px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <p style="font-size:15px;font-weight:700">💰 Lançar troco/crédito</p>
+      <button onclick="document.getElementById('modal-lancar-credito').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 10px">${m.nome} — use quando sobra troco (ex.: pagou com nota de R$100 e não tinha os R$85 de troco).</p>
+    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Valor do troco/crédito (R$)</label>
+    <input type="text" id="lc-valor" inputmode="decimal" placeholder="Ex: 85,00" style="margin-bottom:14px">
+    <button onclick="confirmarLancarCredito('${ministroId}')" style="width:100%;padding:11px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:13px;font-weight:700;cursor:pointer">💾 Adicionar ao saldo</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display='flex';
+  setTimeout(()=>document.getElementById('lc-valor')?.focus(), 50);
+};
+
+window.confirmarLancarCredito = async function(ministroId){
+  const input = document.getElementById('lc-valor');
+  const valor = Number((input?.value||'').replace(',','.'))||0;
+  if(valor<=0){ toast('Digite um valor válido.','warn'); return; }
+  _finCreditos[ministroId] = (_finCreditos[ministroId]||0) + valor;
+  await salvarCreditos();
+  document.getElementById('modal-lancar-credito')?.remove();
+  toast(`💰 Crédito de R$ ${valor.toFixed(2).replace('.',',')} lançado.`,'ok');
+  finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
+  if(document.getElementById('modal-extrato-ministro')) abrirExtratoMinistro(ministroId);
+};
+
+// Aplica o saldo de crédito automaticamente, cobrindo o máximo de meses futuros ainda pendentes
+window.aplicarCreditoAutomatico = async function(ministroId){
+  const valorMensal = Number(_finConfig.valorMensalidade)||15;
+  let saldo = _finCreditos[ministroId]||0;
+  if(saldo < valorMensal){ toast('Saldo de crédito insuficiente pra cobrir um mês inteiro.','warn'); return; }
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const dataEscolhida = _finDataLancamento || finDataHojeISO();
+  let mesesCobertos = 0;
+  for(const mes of FIN_MESES){
+    if(saldo < valorMensal) break;
+    const mk = mes+anoSel;
+    if(!_finPagosTodos[mk]) _finPagosTodos[mk] = {};
+    const reg = _finPagosTodos[mk][ministroId];
+    if(reg?.pago) continue; // já pago (de qualquer forma), pula esse mês
+    _finPagosTodos[mk][ministroId] = {pago:true, forma:'credito', data:dataEscolhida};
+    saldo -= valorMensal;
+    mesesCobertos++;
+    try{ await setDoc(doc(db,'financeiro','pag_'+mk), {pagos:_finPagosTodos[mk], mesKey:mk, atualizadoEm:serverTimestamp()}); }catch(e){}
+  }
+  _finCreditos[ministroId] = saldo;
+  await salvarCreditos();
+  if(mesesCobertos===0){ toast('Todos os meses já estavam pagos — nenhum aplicado.','warn'); return; }
+  if(_finPagosTodos[_finMesSel]){ _finPagosMes = _finPagosTodos[_finMesSel]; atualizarTotaisFin(); }
+  toast(`✓ ${mesesCobertos} mês(es) coberto(s) pelo crédito. Saldo restante: R$ ${saldo.toFixed(2).replace('.',',')}`,'ok');
+  finRenderPagamentos2(document.getElementById('fin-busca')?.value||'');
+  if(document.getElementById('modal-extrato-ministro')) abrirExtratoMinistro(ministroId);
+};
+
+window.salvarObservacaoMinistro = async function(ministroId){
+  const el = document.getElementById('extrato-observacao');
+  if(!el) return;
+  _finObservacoes[ministroId] = el.value;
+  await salvarObservacoesFin();
+  toast('📝 Observação salva.','ok');
+};
+
+window.abrirExtratoMinistro = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  let totalPago = 0;
+  const linhas = FIN_MESES.map(mes=>{
+    const mk = mes+anoSel;
+    const reg = _finPagosTodos[mk]?.[id];
+    let status = '<span style="color:#A32D2D">Pendente</span>';
+    let dataFmt = '—';
+    if(reg?.pago){
+      totalPago++;
+      const forma = reg.forma==='pix' ? '📱 Pix' : reg.forma==='credito' ? '💰 Crédito' : '💵 Dinheiro';
+      status = `<span style="color:#1D9E75;font-weight:600">✓ Pago — ${forma}</span>`;
+      if(reg.data){ dataFmt = finFormatarDataBR(reg.data); }
+    }
+    return `<tr><td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">${FIN_MESES_NOME[mes]}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:13px">${status}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;text-align:right;color:#888;font-size:11px">${dataFmt}</td></tr>`;
+  }).join('');
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const creditoAtual = _finCreditos[id]||0;
+  const observacaoAtual = _finObservacoes[id]||'';
+  const existente = document.getElementById('modal-extrato-ministro');
+  if(existente) existente.remove();
+  const modal = document.createElement('div');
+  modal.id = 'modal-extrato-ministro';
+  modal.className = 'modal-bg';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700">📄 Extrato — ${m.nome}</p>
+      <button onclick="document.getElementById('modal-extrato-ministro').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 10px">${anoSel} · ${totalPago} de 12 meses pagos · Total: ${fmt(totalPago*valor)}</p>
+
+    <div style="background:#faeeda;border-radius:9px;padding:10px 12px;margin-bottom:12px">
+      <p style="font-size:12px;color:#7a4a06;font-weight:700;margin:0 0 8px">💰 Saldo de troco/crédito: ${fmt(creditoAtual)}</p>
+      <div style="display:flex;gap:6px">
+        <button onclick="abrirLancarCredito('${id}')" style="flex:1;padding:8px;border:1.5px solid #BA7517;border-radius:7px;background:white;color:#BA7517;font-size:11.5px;font-weight:700;cursor:pointer">+ Lançar troco</button>
+        <button onclick="aplicarCreditoAutomatico('${id}')" style="flex:1;padding:8px;border:none;border-radius:7px;background:#BA7517;color:white;font-size:11.5px;font-weight:700;cursor:pointer" ${creditoAtual<valor?'disabled title="Saldo insuficiente pra cobrir um mês"':''}>Usar no próximo mês</button>
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Mês</th>
+        <th style="text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Situação</th>
+        <th style="text-align:right;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Data</th>
+      </tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+
+    <p style="font-size:11px;color:#888;font-weight:600;margin:14px 0 4px">📝 Observação</p>
+    <textarea id="extrato-observacao" placeholder="Ex: costuma pagar em dia, prefere pagar o ano todo em janeiro..." style="width:100%;min-height:60px;padding:8px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:12.5px;font-family:inherit;resize:vertical;box-sizing:border-box;margin-bottom:6px">${observacaoAtual}</textarea>
+    <button onclick="salvarObservacaoMinistro('${id}')" style="width:100%;padding:8px;border:1px solid #cde8d8;border-radius:7px;background:#eef7f2;color:#085041;font-size:11.5px;font-weight:700;cursor:pointer;margin-bottom:12px">💾 Salvar observação</button>
+
+    <button onclick="imprimirExtratoMinistro('${id}')" style="width:100%;padding:11px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir extrato</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display='flex';
+};
+
+window.imprimirExtratoMinistro = function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m) return;
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  let totalPago = 0;
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const linhas = FIN_MESES.map(mes=>{
+    const mk = mes+anoSel;
+    const reg = _finPagosTodos[mk]?.[id];
+    let status = '<span style="color:#A32D2D">Pendente</span>';
+    let dataFmt = '—';
+    if(reg?.pago){
+      totalPago++;
+      const forma = reg.forma==='pix' ? 'Pix' : reg.forma==='credito' ? 'Crédito' : 'Dinheiro';
+      status = `<span style="color:#1D9E75;font-weight:700">✓ Pago (${forma})</span>`;
+      if(reg.data){ dataFmt = finFormatarDataBR(reg.data); }
+    }
+    return `<tr><td>${FIN_MESES_NOME[mes]}</td><td>${status}</td><td style="text-align:right;color:#888">${dataFmt}</td></tr>`;
+  }).join('');
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Extrato — ${m.nome}</title>
+    <style>
+      @page{ size:portrait; margin:14mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:18px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      .resumo{font-size:12px;color:#555;margin-bottom:14px}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      th{text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:6px 4px}
+      td{padding:7px 4px;border-bottom:1px solid #eee}
+      .rodape{margin-top:20px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+    </style></head><body>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">📄 Extrato de Pagamentos — ${m.nome}</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística — ${anoSel}</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+    <p class="resumo">Mensalidade: <strong>${fmt(valor)}</strong> · ${totalPago} de 12 meses pagos em ${anoSel} · Total pago: <strong>${fmt(totalPago*valor)}</strong></p>
+    <table>
+      <thead><tr><th>Mês</th><th>Situação</th><th style="text-align:right">Data</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
+    <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+};
+
+// ===== EXTRATO GERAL — todos os ministros de uma vez, com quantos meses cada um pagou e o saldo total =====
+function finDadosExtratoGeral(){
+  const anoSel = finAnoDoMesKey(_finMesSel);
+  const valor = Number(_finConfig.valorMensalidade)||15;
+  const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const linhas = ativos.map(m=>{
+    let pagos=0, dinheiro=0, pix=0, credito=0;
+    FIN_MESES.forEach(mes=>{
+      const reg = _finPagosTodos[mes+anoSel]?.[m.id];
+      if(reg?.pago){ pagos++; if(reg.forma==='pix') pix++; else if(reg.forma==='credito') credito++; else dinheiro++; }
+    });
+    return { id:m.id, nome:m.nome, pagos, dinheiro, pix, credito, pendentes:12-pagos, total:pagos*valor };
+  });
+  const totalGeralPago = linhas.reduce((s,l)=>s+l.total,0);
+  const totalGeralMesesPagos = linhas.reduce((s,l)=>s+l.pagos,0);
+  return { anoSel, valor, linhas, totalGeralPago, totalGeralMesesPagos };
+}
+
+window.abrirExtratoGeral = function(){
+  const { anoSel, valor, linhas, totalGeralPago } = finDadosExtratoGeral();
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const existente = document.getElementById('modal-extrato-geral');
+  if(existente) existente.remove();
+  const linhasHtml = linhas.map(l=>`<tr>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px">${l.nome}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center">${l.pagos}/12</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#1D9E75">💵${l.dinheiro}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#185FA5">📱${l.pix}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:center;color:#BA7517">💰${l.credito}</td>
+      <td style="padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:12.5px;text-align:right;font-weight:600">${fmt(l.total)}</td>
+    </tr>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'modal-extrato-geral';
+  modal.className = 'modal-bg';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box" style="max-width:560px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <p style="font-size:16px;font-weight:700">📋 Extrato Geral — ${anoSel}</p>
+      <button onclick="document.getElementById('modal-extrato-geral').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12px;color:#888;margin:0 0 10px">Saldo total arrecadado em ${anoSel}: <strong style="color:#085041">${fmt(totalGeralPago)}</strong></p>
+    <div style="max-height:55vh;overflow-y:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Ministro</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Meses</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Dinh.</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Pix</th>
+        <th style="text-align:center;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Créd.</th>
+        <th style="text-align:right;font-size:11px;color:#555;border-bottom:2px solid #333;padding:4px">Total</th>
+      </tr></thead>
+      <tbody>${linhasHtml}</tbody>
+    </table>
+    </div>
+    <button onclick="imprimirExtratoGeral()" style="width:100%;margin-top:14px;padding:11px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir extrato geral</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display='flex';
+};
+
+window.imprimirExtratoGeral = function(){
+  const { anoSel, valor, linhas, totalGeralPago } = finDadosExtratoGeral();
+  const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
+  const linhasHtml = linhas.map((l,i)=>`<tr>
+      <td style="text-align:center;color:#888">${i+1}</td>
+      <td>${l.nome}</td>
+      <td style="text-align:center">${l.pagos}/12</td>
+      <td style="text-align:center">${l.dinheiro}</td>
+      <td style="text-align:center">${l.pix}</td>
+      <td style="text-align:center">${l.credito}</td>
+      <td style="text-align:right;font-weight:600">${fmt(l.total)}</td>
+    </tr>`).join('');
+  const w = window.open('', '_blank');
+  if(!w){ toast('Permita pop-ups para imprimir.','warn'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Extrato Geral — ${anoSel}</title>
+    <style>
+      @page{ size:portrait; margin:12mm }
+      body{font-family:Arial,sans-serif;color:#222;padding:0}
+      .cabecalho{display:flex;align-items:center;gap:14px;background:#085041;color:white;padding:14px 16px;border-radius:8px;margin-bottom:16px}
+      .cabecalho img{width:52px;height:52px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0}
+      .cabecalho .titulos{flex:1;text-align:center}
+      .cabecalho .titulos p{margin:0}
+      .cab-inst{font-size:11px;letter-spacing:1px;text-transform:uppercase;opacity:.85}
+      .cab-doc{font-size:18px;font-weight:700;margin-top:2px!important}
+      .cab-sub{font-size:11px;opacity:.8;margin-top:2px!important}
+      .resumo{font-size:13px;color:#085041;font-weight:700;margin-bottom:14px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      th{text-align:left;font-size:10.5px;color:#555;border-bottom:2px solid #333;padding:5px 4px}
+      td{padding:5px 4px;border-bottom:1px solid #eee}
+      .rodape{margin-top:18px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+    </style></head><body>
+    <div class="cabecalho">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="titulos">
+        <p class="cab-inst">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p class="cab-doc">📋 Extrato Geral de Pagamentos — ${anoSel}</p>
+        <p class="cab-sub">Ministério Extraordinário da Sagrada Comunhão Eucarística — ${linhas.length} ministros</p>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
+    <p class="resumo">Saldo total arrecadado em ${anoSel}: ${fmt(totalGeralPago)}</p>
+    <table>
+      <thead><tr><th>Nº</th><th>Ministro</th><th style="text-align:center">Meses</th><th style="text-align:center">Dinh.</th><th style="text-align:center">Pix</th><th style="text-align:center">Créd.</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>${linhasHtml}</tbody>
+    </table>
+    <p class="rodape">Documento gerado pelo S.O.G.I. em ${new Date().toLocaleDateString('pt-BR')}</p>
+    <script>window.onload=()=>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+};
+
 
 async function atualizarTotaisFin(){
   // recalcula só os números do topo sem recarregar tudo
@@ -10522,6 +11287,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <input type="password" id="login-pass" autocomplete="current-password" placeholder="Sua senha" onkeydown="if(event.key==='Enter')fazerLogin()" style="width:100%;padding:12px;border:1.5px solid #e5e5e5;border-radius:10px;font-size:14px;margin-bottom:10px;box-sizing:border-box;transition:border-color .15s" onfocus="this.style.borderColor='#0A6E58'" onblur="this.style.borderColor='#e5e5e5'">
     <p id="login-erro" style="font-size:12px;color:#A32D2D;margin:0 0 10px;display:none;font-weight:600">Usuário ou senha incorretos.</p>
     <button onclick="fazerLogin()" style="width:100%;padding:14px;border:none;border-radius:11px;background:linear-gradient(135deg,#0A6E58,#085041);color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;box-shadow:0 4px 12px rgba(8,80,65,.35)">Entrar</button>
+    <button onclick="abrirEsqueciSenha()" style="width:100%;padding:8px;border:none;background:none;color:#0A6E58;font-size:12px;font-weight:600;cursor:pointer;margin-top:10px;text-decoration:underline">Esqueci meu usuário ou senha</button>
     <p id="login-dica" style="font-size:10px;color:#aaa;text-align:center;margin:14px 0 0;line-height:1.5"></p>
   </div>
   <div style="display:flex;align-items:center;gap:5px;margin-top:22px;opacity:.55">
@@ -10957,7 +11723,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </div>
     <p id="min-sem-disp" style="font-size:11px;color:#BA7517;margin:0 0 10px"></p>
     <button onclick="nav('tel-rapido')" style="width:100%;padding:10px;border:none;border-radius:9px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px">📱 Preencher telefones em massa</button>
-    <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()">
+    <div style="position:relative;margin-bottom:8px">
+      <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()" style="margin-bottom:0;padding-right:66px">
+      <button onclick="iniciarDitadoTexto('busca-min', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
     <div id="min-body"></div>
   </div>
 </div>
@@ -11169,7 +11939,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="usarModeloResp(3)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">📢 Aviso geral</button>
       <button onclick="usarModeloResp(4)" style="font-size:11px;padding:5px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">🙏 Boas-vindas</button>
     </div>
-    <textarea id="resp-mensagem" placeholder="Digite a mensagem que será enviada a todos os responsáveis..." style="width:100%;min-height:120px;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+    <div style="position:relative">
+      <textarea id="resp-mensagem" placeholder="Digite a mensagem que será enviada a todos os responsáveis..." style="width:100%;min-height:120px;padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+      <button onclick="iniciarDitadoTexto('resp-mensagem', this)" title="Ditar mensagem por voz"
+        style="position:absolute;bottom:8px;right:8px;padding:5px 10px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:11px;font-weight:600">🎤 Ditar</button>
+    </div>
     <p style="font-size:11px;color:#888;margin:4px 0 8px">A mensagem será personalizada com o nome e horário de cada responsável.</p>
 
     <!-- Foto opcional -->
@@ -11416,7 +12190,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="fecharModal('modal-vd')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <p id="vd-count" style="font-size:12px;color:#1D9E75;margin-bottom:12px"></p>
-    <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:10px">
+    <div style="position:relative;margin-bottom:10px">
+      <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:0;padding-right:66px">
+      <button onclick="iniciarDitadoTexto('vd-busca', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
     <div id="vd-body"></div>
   </div>
 </div>
@@ -11428,7 +12206,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button onclick="fecharModal('modal-envio')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
     <p id="envio-info" style="font-size:12px;color:#888;margin-bottom:10px"></p>
-    <input type="text" id="envio-busca" placeholder="Filtrar por nome..." oninput="filtrarEnvio()" style="margin-bottom:10px">
+    <div style="position:relative;margin-bottom:10px">
+      <input type="text" id="envio-busca" placeholder="Filtrar por nome..." oninput="filtrarEnvio()" style="margin-bottom:0;padding-right:66px">
+      <button onclick="iniciarDitadoTexto('envio-busca', this)" title="Falar o nome"
+        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
+    </div>
     <div id="envio-body" style="overflow-y:auto;flex:1"></div>
   </div>
 </div>
@@ -11679,6 +12461,31 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Senha</label>
     <input type="text" id="nu-pass" placeholder="Mínimo 4 caracteres" style="margin-bottom:14px">
     <button style="padding:12px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer;width:100%" onclick="salvarNovoUsuario()">💾 Criar acesso</button>
+  </div>
+</div>
+
+<div id="modal-esqueci-senha" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-esqueci-senha')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700">🔑 Recuperar acesso</p>
+      <button onclick="fecharModal('modal-esqueci-senha')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <p style="font-size:12.5px;color:#555;line-height:1.6;margin:0 0 12px">
+      As senhas ficam criptografadas — nem o próprio sistema consegue "ver" qual é a sua, só resetar.
+      Para recuperar o acesso, é preciso resetar direto no banco de dados (Firebase):
+    </p>
+    <ol style="font-size:12.5px;color:#444;line-height:1.9;margin:0 0 14px;padding-left:18px">
+      <li>Acesse <strong>console.firebase.google.com</strong> com a conta Google do projeto.</li>
+      <li>Abra o projeto <strong>ministerio-eucaristia-nazare</strong>.</li>
+      <li>No menu, clique em <strong>Firestore Database</strong>.</li>
+      <li>Abra a coleção <strong>config</strong> → documento <strong>acesso</strong>.</li>
+      <li>Clique nos três pontinhos (⋮) e escolha <strong>Excluir documento</strong>.</li>
+      <li>Volte aqui, atualize a página e entre com <strong>admin</strong> / <strong>admin</strong> — o sistema recria esse acesso padrão sozinho.</li>
+      <li>Depois de entrar, troque a senha em <strong>Mais → Configurações</strong> e guarde num lugar seguro.</li>
+    </ol>
+    <p style="font-size:11px;color:#A32D2D;background:#FBEAEA;padding:8px 10px;border-radius:8px;margin:0">
+      ⚠️ Isso reseta o acesso padrão (coordenação). Acessos de Financeira/Secretária criados antes precisam ser recriados depois em "Mais → Acessos e Perfis".
+    </p>
   </div>
 </div>
 
