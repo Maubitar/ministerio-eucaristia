@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.50.1';
+const APP_VERSAO = '19.50.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5344,25 +5344,27 @@ window.renderEscalasFinalizadas = async function(){
       const grupo = porMes[mk];
       const mesLabel = grupo[0]?.mesNome ? `${grupo[0].mesNome}/${grupo[0].ano}` : mk;
       const botaoTudo = grupo.length>1
-        ? `<button onclick="transmitirTudoEscalaWhats('${mk}')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13.5px;font-weight:700;cursor:pointer;margin-bottom:12px">📲🎯 Transmitir TUDO de ${mesLabel} (Semanal + Dominical) via WhatsApp</button>`
+        ? `<button onclick="transmitirTudoEscalaWhats('${mk}')" style="width:100%;padding:13px;border:none;border-radius:10px;background:linear-gradient(135deg,#085041,#1D9E75);color:white;font-size:13.5px;font-weight:800;cursor:pointer;margin-bottom:12px;box-shadow:0 2px 8px rgba(8,80,65,.22)">✨ Enviar ${mesLabel} inteiro (Dominical + Semanal) de uma vez</button>`
         : '';
       const cards = grupo.map(it=>{
         const icone = it.tipo==='dom' ? '📅' : '📆';
         const titulo = (it.tipo==='dom'?'Dominical':'Semanal') + ' — ' + (it.mesNome||'') + '/' + (it.ano||'');
-        const qtdHorarios = (it.semanas||[]).reduce((acc,s)=>acc + (s.horarios?.length||0), 0);
+        const idIndividual = `ind-${it.id}`;
+        const temVarias = (it.semanas||[]).length>1;
         return `<div class="card" style="border:1.5px solid #e1f5ee;margin-bottom:10px">
-          <p class="ct">${icone} ${titulo}</p>
-          <p style="font-size:12px;color:#666;margin:0 0 10px">${qtdHorarios} horário(s) travado(s) para impressão</p>
-          <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="width:100%;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📄 Imprimir Escala</button>
-          <div style="display:flex;gap:8px;margin-bottom:8px">
-            <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🖨️ Lista de Presença</button>
-            <button onclick="excluirEscalaFinalizada('${it.id}')" style="padding:10px 14px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer">🗑️</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <p class="ct" style="margin:0">${icone} ${titulo}</p>
+            <button onclick="excluirEscalaFinalizada('${it.id}')" style="border:none;background:none;color:#c99;font-size:16px;cursor:pointer;padding:4px" title="Excluir">🗑️</button>
           </div>
-          <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📲 Transmitir tudo junto via WhatsApp</button>
-          ${(it.semanas||[]).length>1 ? `
-          <p style="font-size:11px;color:#888;margin:0 0 6px">🔍 Ou uma de cada vez (mais qualidade em cada imagem):</p>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">
-            ${(it.semanas||[]).map((s,i)=>`<button onclick="transmitirPaginaIndividual('${it.id}',${i})" style="padding:7px 12px;border:1px solid #25D366;border-radius:20px;background:white;color:#1ba34d;font-size:11.5px;font-weight:600;cursor:pointer">📲 ${s.label||('Parte '+(i+1))}</button>`).join('')}
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:12.5px;font-weight:700;cursor:pointer">📄 Escala</button>
+            <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:12.5px;font-weight:700;cursor:pointer">🖨️ Presença</button>
+          </div>
+          <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Enviar via WhatsApp</button>
+          ${temVarias ? `
+          <button onclick="const el=document.getElementById('${idIndividual}'); el.style.display = el.style.display==='none' ? 'flex' : 'none';" style="width:100%;padding:7px;border:none;background:none;color:#999;font-size:11px;cursor:pointer;margin-top:2px">Enviar por semana, uma de cada vez ▾</button>
+          <div id="${idIndividual}" style="display:none;flex-wrap:wrap;gap:6px;margin-top:4px">
+            ${(it.semanas||[]).map((s,i)=>`<button onclick="transmitirPaginaIndividual('${it.id}',${i})" style="padding:6px 11px;border:1px solid #cde8d8;border-radius:20px;background:white;color:#1ba34d;font-size:11px;font-weight:600;cursor:pointer">${s.label||('Parte '+(i+1))}</button>`).join('')}
           </div>` : ''}
         </div>`;
       }).join('');
