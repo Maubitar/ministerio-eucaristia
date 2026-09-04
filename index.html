@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.46.0';
+const APP_VERSAO = '19.47.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4022,6 +4022,34 @@ async function compartilharOuBaixarImagem(blob, nomeArq){
   document.getElementById('modal-imagem').style.display='flex';
 }
 
+// Compartilha VÁRIAS imagens de uma vez, numa ÚNICA chamada ao WhatsApp (evita o problema de só a
+// primeira imagem ir — o navegador só permite abrir a caixinha de compartilhar em resposta direta
+// ao toque; chamando várias vezes seguidas, só a primeira funciona de verdade).
+async function compartilharVariasImagens(itens, tituloShare, textoShare){
+  // itens: [{blob, nomeArq}, ...] já na ordem certa (semana 1, 2, 3, 4, depois dominical)
+  const files = itens.map(it => new File([it.blob], it.nomeArq, {type:'image/png'}));
+  if(navigator.canShare && navigator.canShare({files})){
+    try{
+      await navigator.share({ files, title:tituloShare, text:textoShare });
+      return;
+    }catch(e){
+      if(e.name==='AbortError') return;
+      // se falhar tentando todas juntas, cai no baixar uma a uma abaixo
+    }
+  }
+  // Sem suporte a compartilhar várias de uma vez (ex.: computador): baixa todas, uma por uma
+  toast(`Seu navegador não permite enviar ${files.length} imagens de uma vez — baixando todas pra você anexar no WhatsApp.`,'warn');
+  for(const f of files){
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(f);
+    a.download=f.name;
+    a.click();
+    await new Promise(r=>setTimeout(r,300));
+    URL.revokeObjectURL(a.href);
+  }
+}
+
+
 // Copiar imagem direto (colar no WhatsApp Web) — comportamento igual ao Excel
 // Guarda a função que gera o blob da imagem (definida durante a geração no modo copiar)
 let _gerarBlobParaCopiar = null;
@@ -5175,36 +5203,80 @@ window.imprimirEscalaFinalizada = async function(docId){
   }catch(e){ toast('Erro ao imprimir: '+e.message,'warn'); }
 };
 
+// Gera o blob de imagem (PNG) de UMA página de escala já montada em HTML — usado tanto pra
+// transmitir um tipo só quanto pra transmitir tudo junto (semanal + dominical).
+async function gerarBlobDePaginaEscala(paginaHtml){
+  const BASE_W = 1900;
+  const wrap=document.createElement('div');
+  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
+  wrap.innerHTML = paginaHtml;
+  document.body.appendChild(wrap);
+  try{
+    await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
+      img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
+    ));
+    await new Promise(r=>setTimeout(r,150));
+    return await capturarImagemAlta(wrap);
+  }finally{
+    document.body.removeChild(wrap);
+  }
+}
+
 window.compartilharEscalaFinalizada = async function(docId){
   try{
     const info = await montarDadosEscalaFinalizada(docId);
     if(!info){ toast('Escala finalizada não encontrada.','warn'); return; }
     const paginas = montarPaginasEscalaFinalizada(info);
     if(!paginas.length){ toast('Nenhum ministro nessa escala finalizada.','warn'); return; }
-    if(paginas.length>1) toast(`Gerando ${paginas.length} imagens (uma por semana)...`,'ok');
-    else toast('Gerando imagem para compartilhar...','ok');
+    toast(`Gerando ${paginas.length} imagem(ns)...`,'ok');
 
-    const BASE_W = 1900;
+    const itens = [];
     for(let i=0;i<paginas.length;i++){
-      const wrap=document.createElement('div');
-      wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
-      wrap.innerHTML = paginas[i];
-      document.body.appendChild(wrap);
       try{
-        await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
-          img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
-        ));
-        await new Promise(r=>setTimeout(r,150));
-        const blob = await capturarImagemAlta(wrap);
-        await compartilharOuBaixarImagem(blob, `escala_finalizada_${docId}_${i+1}.png`);
+        const blob = await gerarBlobDePaginaEscala(paginas[i]);
+        itens.push({ blob, nomeArq:`escala_finalizada_${docId}_${i+1}.png` });
       }catch(e){
-        toast('Erro ao gerar imagem: '+e.message,'err');
-      }finally{
-        document.body.removeChild(wrap);
+        toast('Erro ao gerar imagem '+(i+1)+': '+e.message,'err');
       }
-      if(i < paginas.length-1) await new Promise(r=>setTimeout(r,600));
     }
+    if(!itens.length){ toast('Nenhuma imagem gerada.','warn'); return; }
+    await compartilharVariasImagens(itens, 'Escala MESCE', info.rotulo);
   }catch(e){ toast('Erro ao compartilhar: '+e.message,'warn'); }
+};
+
+// Transmite TUDO que foi finalizado pra um mês — todas as semanas da escala semanal, em ordem,
+// seguidas da escala dominical — numa ÚNICA transmissão do WhatsApp (não uma de cada vez).
+window.transmitirTudoEscalaWhats = async function(mesKey){
+  try{
+    toast('Preparando a transmissão completa...','ok');
+    const [infoSem, infoDom] = await Promise.all([
+      montarDadosEscalaFinalizada(mesKey+'_sem').catch(()=>null),
+      montarDadosEscalaFinalizada(mesKey+'_dom').catch(()=>null)
+    ]);
+    if(!infoSem && !infoDom){ toast('Nenhuma escala finalizada encontrada pra esse mês.','warn'); return; }
+
+    const paginasComNome = [];
+    if(infoSem){
+      montarPaginasEscalaFinalizada(infoSem).forEach((html,i)=> paginasComNome.push({html, nome:`semana${i+1}`}));
+    }
+    if(infoDom){
+      montarPaginasEscalaFinalizada(infoDom).forEach((html,i)=> paginasComNome.push({html, nome:`dominical${i>0?'_'+(i+1):''}`}));
+    }
+    if(!paginasComNome.length){ toast('Nenhum ministro escalado ainda pra esse mês.','warn'); return; }
+    toast(`Gerando ${paginasComNome.length} imagem(ns), na ordem certa...`,'ok');
+
+    const itens = [];
+    for(let i=0;i<paginasComNome.length;i++){
+      try{
+        const blob = await gerarBlobDePaginaEscala(paginasComNome[i].html);
+        itens.push({ blob, nomeArq:`escala_${mesKey}_${paginasComNome[i].nome}.png` });
+      }catch(e){
+        toast('Erro ao gerar imagem '+(i+1)+': '+e.message,'err');
+      }
+    }
+    if(!itens.length){ toast('Nenhuma imagem gerada.','warn'); return; }
+    await compartilharVariasImagens(itens, 'Escala completa MESCE', 'Escala do Ministério da Eucaristia — Basílica de Nazaré');
+  }catch(e){ toast('Erro ao transmitir tudo: '+e.message,'warn'); }
 };
 
 window.excluirEscalaFinalizada = async function(docId){
@@ -5227,21 +5299,38 @@ window.renderEscalasFinalizadas = async function(){
       cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Nenhuma escala finalizada ainda.</p>';
       return;
     }
-    cont.innerHTML = itens.map(it=>{
-      const icone = it.tipo==='dom' ? '📅' : '📆';
-      const titulo = (it.tipo==='dom'?'Dominical':'Semanal') + ' — ' + (it.mesNome||'') + '/' + (it.ano||'');
-      const qtdHorarios = (it.semanas||[]).reduce((acc,s)=>acc + (s.horarios?.length||0), 0);
-      return `<div class="card" style="border:1.5px solid #e1f5ee;margin-bottom:10px">
-        <p class="ct">${icone} ${titulo}</p>
-        <p style="font-size:12px;color:#666;margin:0 0 10px">${qtdHorarios} horário(s) travado(s) para impressão</p>
-        <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="width:100%;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📄 Imprimir Escala</button>
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🖨️ Lista de Presença</button>
-          <button onclick="excluirEscalaFinalizada('${it.id}')" style="padding:10px 14px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer">🗑️</button>
-        </div>
-        <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Transmitir via WhatsApp</button>
-      </div>`;
-    }).join('');
+    // Agrupa por mês, na ordem em que já vieram (mais recente primeiro)
+    const porMes = {};
+    const ordemMeses = [];
+    itens.forEach(it=>{
+      const mk = it.mesKey || 'sem-mes';
+      if(!porMes[mk]){ porMes[mk] = []; ordemMeses.push(mk); }
+      porMes[mk].push(it);
+    });
+
+    cont.innerHTML = ordemMeses.map(mk=>{
+      const grupo = porMes[mk];
+      const mesLabel = grupo[0]?.mesNome ? `${grupo[0].mesNome}/${grupo[0].ano}` : mk;
+      const botaoTudo = grupo.length>1
+        ? `<button onclick="transmitirTudoEscalaWhats('${mk}')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13.5px;font-weight:700;cursor:pointer;margin-bottom:12px">📲🎯 Transmitir TUDO de ${mesLabel} (Semanal + Dominical) via WhatsApp</button>`
+        : '';
+      const cards = grupo.map(it=>{
+        const icone = it.tipo==='dom' ? '📅' : '📆';
+        const titulo = (it.tipo==='dom'?'Dominical':'Semanal') + ' — ' + (it.mesNome||'') + '/' + (it.ano||'');
+        const qtdHorarios = (it.semanas||[]).reduce((acc,s)=>acc + (s.horarios?.length||0), 0);
+        return `<div class="card" style="border:1.5px solid #e1f5ee;margin-bottom:10px">
+          <p class="ct">${icone} ${titulo}</p>
+          <p style="font-size:12px;color:#666;margin:0 0 10px">${qtdHorarios} horário(s) travado(s) para impressão</p>
+          <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="width:100%;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px">📄 Imprimir Escala</button>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer">🖨️ Lista de Presença</button>
+            <button onclick="excluirEscalaFinalizada('${it.id}')" style="padding:10px 14px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:13px;font-weight:600;cursor:pointer">🗑️</button>
+          </div>
+          <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Transmitir só esta via WhatsApp</button>
+        </div>`;
+      }).join('');
+      return botaoTudo + cards;
+    }).join('<div style="height:6px"></div>');
   }catch(e){
     cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: ${e.message}</p>`;
   }
