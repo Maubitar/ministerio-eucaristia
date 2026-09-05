@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.62.0';
+const APP_VERSAO = '19.63.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5108,7 +5108,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   let y = M + 16;
   const larguraTotal = pageW - 2*M;
   const gapCol = 4;
-  const numColunas = (tipo==='sem') ? 2 : 3;
+  const numColunas = (tipo==='sem') ? 2 : 4;
   const larguraCol = (larguraTotal - gapCol*(numColunas-1)) / numColunas;
 
   function hexRgb(hex){
