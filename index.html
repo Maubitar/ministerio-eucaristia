@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.63.0';
+const APP_VERSAO = '19.64.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5131,9 +5131,20 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     return 5 + totalLinhasTexto*3.6 + 1.2;
   }
 
+  // Calcula de verdade quantas linhas o nome do ministro precisa nesta largura de coluna —
+  // mesma técnica já usada pro nome do responsável. Sem isso, nomes longos que quebram em
+  // 2 linhas faziam a próxima pessoa começar cedo demais, sobrepondo o texto.
+  function linhasNomeMinistro(nome, isResp){
+    pdf.setFont('helvetica', isResp?'bold':'normal'); pdf.setFontSize(9);
+    return pdf.splitTextToSize(nome||'', larguraCol-19);
+  }
+
   function alturaCard(h){
     const temReforco = h.ministros.some(m=>m.isReforco);
-    const alturaMinistros = h.ministros.reduce((acc,m)=> acc + (m.isReforco ? alturaLinha+3 : alturaLinha), 0);
+    const alturaMinistros = h.ministros.reduce((acc,m)=>{
+      const nLinhas = linhasNomeMinistro(m.nome, m.isResp).length;
+      return acc + nLinhas*alturaLinha + (m.isReforco ? 3 : 0);
+    }, 0);
     return alturaHeaderParaCard(h) + alturaMinistros + 3 + (temReforco ? 5 : 0);
   }
 
@@ -5163,7 +5174,8 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     let yl = yy + headerH + 4.5;
     let jaMostrouDivisorReforco = false;
     h.ministros.forEach((m)=>{
-      const alturaEstaLinha = m.isReforco ? alturaLinha+3 : alturaLinha;
+      const linhasNome = linhasNomeMinistro(m.nome, m.isResp);
+      const alturaEstaLinha = linhasNome.length*alturaLinha + (m.isReforco ? 3 : 0);
       if(yl + 4 > rodapePagina){
         pdf.addPage(); cabecalho(); yy = M+16;
         pdf.setFillColor(cr,cg,cb); pdf.rect(xCard, yy, larguraCol, rodapePagina-yy, 'F');
@@ -5199,18 +5211,19 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
         pdf.text(ini, cx, cy+0.9, {align:'center'});
       }
       pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(9);
-      pdf.text(m.nome, xCard+16, yl+1, {maxWidth: larguraCol-19});
+      linhasNome.forEach((linha,i)=>{ pdf.text(linha, xCard+16, yl+1+i*alturaLinha); });
+      const ultimaLinhaIdx = linhasNome.length-1;
       if(m.isResp){
-        const tw = pdf.getTextWidth(m.nome);
-        desenharEstrela(pdf, xCard+16+tw+2.5, yl+0.2, 1.4);
+        const tw = pdf.getTextWidth(linhasNome[ultimaLinhaIdx]||'');
+        desenharEstrela(pdf, xCard+16+tw+2.5, yl+0.2+ultimaLinhaIdx*alturaLinha, 1.4);
       }
       if(m.isReforco){
-        // Etiqueta numa linha própria, embaixo do nome — nunca sobrepõe o texto
+        // Etiqueta numa linha própria, embaixo da ÚLTIMA linha do nome — nunca sobrepõe o texto
         const textoBadge = 'REFORÇO' + (m.reforcoLabel?' '+m.reforcoLabel:'');
         pdf.setFont('helvetica','bold'); pdf.setFontSize(5.5);
         const textW = pdf.getTextWidth(textoBadge);
         const badgeW = textW + 3;
-        const badgeY = yl + 2.6;
+        const badgeY = yl + 2.6 + ultimaLinhaIdx*alturaLinha;
         pdf.setFillColor(240,192,0);
         pdf.roundedRect(xCard+16, badgeY, badgeW, 3.4, 0.9, 0.9, 'F');
         pdf.setTextColor(90,60,0);
