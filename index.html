@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.59.0';
+const APP_VERSAO = '19.60.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6874,11 +6874,11 @@ window.imprimirRelatorioConsolidado = function(){
 };
 
 // ===== DISPONIBILIDADE x ESCALA — por horário, com cruzamento entre todos os horários =====
-// Pra cada horário de missa (dominical e semanal), mostra quantos foram escalados e quais
+// Pra cada horário de missa (dominical e semanal), calcula quantos foram escalados e quais
 // ministros disponíveis NAQUELE horário não entraram nele. No final, cruza com TODOS os
 // horários que cada ministro marcou disponibilidade — só vira alerta de verdade se a pessoa
 // não apareceu escalada em NENHUM horário disponível dela, nem dominical nem semanal.
-async function relDisponibilidadeEscala(){
+async function calcularDisponibilidadeEscala(){
   const mesKey = getMesAtual();
   const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
   const semanasKeys = Object.keys(SEMANAS_MES);
@@ -6887,7 +6887,6 @@ async function relDisponibilidadeEscala(){
 
   const ativos = ministros.filter(m=>m.ativo!==false);
 
-  // Uma linha por horário dominical
   const linhasDom = MISSAS_DOM.map(hora=>{
     const escalados = docDom?.[hora]?.ministros || [];
     const disponiveis = ativos.filter(m=>(m.dispDom||[]).includes(hora));
@@ -6895,7 +6894,6 @@ async function relDisponibilidadeEscala(){
     return { hora, totalDisponiveis:disponiveis.length, totalEscalados:escalados.length, naoUsadosAqui };
   });
 
-  // Uma linha por horário semanal — soma todas as semanas configuradas do mês
   const linhasSem = MISSAS_SEM.map(hora=>{
     let totalEscalados = 0;
     semanasKeys.forEach(s=>{ totalEscalados += (docsSem[s]?.[hora]?.ministros||[]).length; });
@@ -6906,7 +6904,6 @@ async function relDisponibilidadeEscala(){
     return { hora, totalDisponiveis:disponiveis.length, totalEscalados, naoUsadosAqui };
   });
 
-  // Cruzamento final: só é um alerta de verdade quem não apareceu em NENHUM horário disponível
   const alertaFinal = [];
   ativos.forEach(m=>{
     const temDisp = (m.dispDom||[]).length || (m.dispSem||[]).length;
@@ -6915,6 +6912,14 @@ async function relDisponibilidadeEscala(){
     const achouSem = (m.dispSem||[]).some(hora => semanasKeys.some(s => (docsSem[s]?.[hora]?.ministros||[]).includes(m.nome)));
     if(!achouDom && !achouSem) alertaFinal.push(m.nome);
   });
+
+  return { mesKey, linhasDom, linhasSem, alertaFinal };
+}
+
+// Monta o HTML do relatório — reaproveitado tanto na aba de Relatórios quanto no modal da Escala
+function montarHtmlDisponibilidadeEscala(dados){
+  const { mesKey, linhasDom, linhasSem, alertaFinal } = dados;
+  const mesLegivel = finMesKeyLegivel(mesKey);
 
   const linhaHtml = l => `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid #f0f0f0;gap:10px">
       <div style="font-weight:700;font-size:13px;white-space:nowrap">${l.hora}</div>
@@ -6933,14 +6938,48 @@ async function relDisponibilidadeEscala(){
         <p style="margin:0;font-size:13px;font-weight:700;color:#1D9E75">✓ Nenhum ministro disponível ficou de fora este mês.</p>
       </div>`;
 
-  document.getElementById('rel-body').innerHTML = `
-    <p style="font-size:12px;font-weight:700;color:#333;margin:0 0 8px">⛪ Dominical — ${CAL.mesNome}/${CAL.ano}</p>
+  return `
+    <p style="font-size:12px;font-weight:700;color:#333;margin:0 0 8px">⛪ Dominical — ${mesLegivel}</p>
     ${linhasDom.map(linhaHtml).join('')}
-    <p style="font-size:12px;font-weight:700;color:#333;margin:16px 0 8px">📆 Semanal — ${CAL.mesNome}/${CAL.ano} (todas as semanas somadas)</p>
+    <p style="font-size:12px;font-weight:700;color:#333;margin:16px 0 8px">📆 Semanal — ${mesLegivel} (todas as semanas somadas)</p>
     ${linhasSem.map(linhaHtml).join('')}
     ${alertaHtml}
   `;
 }
+
+async function relDisponibilidadeEscala(){
+  try{
+    const dados = await calcularDisponibilidadeEscala();
+    document.getElementById('rel-body').innerHTML = montarHtmlDisponibilidadeEscala(dados);
+  }catch(e){
+    document.getElementById('rel-body').innerHTML = `<p style="font-size:12px;color:#A32D2D;padding:10px 0">Erro ao carregar: ${e.message}</p>`;
+  }
+}
+
+// Abre o mesmo relatório direto na tela de Escala, sem precisar sair da página.
+window.abrirModalNaoEscalados = async function(){
+  const existente = document.getElementById('modal-nao-escalados');
+  if(existente) existente.remove();
+  const modal = document.createElement('div');
+  modal.id = 'modal-nao-escalados';
+  modal.className = 'modal-bg';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `<div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <p style="font-size:16px;font-weight:700">📋 Disponibilidade x Escala</p>
+      <button onclick="document.getElementById('modal-nao-escalados').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <div id="conteudo-nao-escalados"><p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando...</p></div>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.style.display = 'flex';
+  try{
+    const dados = await calcularDisponibilidadeEscala();
+    document.getElementById('conteudo-nao-escalados').innerHTML = montarHtmlDisponibilidadeEscala(dados);
+  }catch(e){
+    document.getElementById('conteudo-nao-escalados').innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
+  }
+};
 
 async function relFaltas(){
   const dados=ministros.map(m=>({
@@ -11885,8 +11924,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5;display:none">
       📌 Escala mensal — mesmos ministros em todos os domingos de junho
     </p>
-    <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
+    <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px">
       👁 Visualizar todas as escalas do mês
+    </button>
+    <button onclick="abrirModalNaoEscalados()" style="width:100%;padding:10px;border:1.5px solid #BA7517;border-radius:8px;background:#fff9ec;color:#856404;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
+      📋 Ver quem não foi escalado
     </button>
     <div id="indicador-nao-salvo" style="display:none;align-items:center;gap:6px;background:#fff4e0;border:1.5px solid #BA7517;border-radius:8px;padding:8px 12px;margin-bottom:10px">
       <span style="font-size:14px">⚠️</span>
