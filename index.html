@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.60.0';
+const APP_VERSAO = '19.60.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5451,8 +5451,8 @@ window.renderEscalasFinalizadas = async function(){
             <button onclick="excluirEscalaFinalizada('${it.id}')" style="border:none;background:none;color:#c99;font-size:16px;cursor:pointer;padding:4px" title="Excluir">🗑️</button>
           </div>
           <div style="display:flex;gap:8px;margin-bottom:8px">
-            <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:12.5px;font-weight:700;cursor:pointer">📄 Escala</button>
-            <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:12.5px;font-weight:700;cursor:pointer">🖨️ Presença</button>
+            <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:12.5px;font-weight:700;cursor:pointer">🖨️ Imprimir Escala</button>
+            <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:12.5px;font-weight:700;cursor:pointer">🖨️ Imprimir Presença</button>
           </div>
           <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Enviar via WhatsApp</button>
           ${temVarias ? `
