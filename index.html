@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.60.1';
+const APP_VERSAO = '19.61.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6887,64 +6887,44 @@ async function calcularDisponibilidadeEscala(){
 
   const ativos = ministros.filter(m=>m.ativo!==false);
 
-  const linhasDom = MISSAS_DOM.map(hora=>{
-    const escalados = docDom?.[hora]?.ministros || [];
-    const disponiveis = ativos.filter(m=>(m.dispDom||[]).includes(hora));
-    const naoUsadosAqui = disponiveis.filter(m=>!escalados.includes(m.nome)).map(m=>m.nome);
-    return { hora, totalDisponiveis:disponiveis.length, totalEscalados:escalados.length, naoUsadosAqui };
-  });
-
-  const linhasSem = MISSAS_SEM.map(hora=>{
-    let totalEscalados = 0;
-    semanasKeys.forEach(s=>{ totalEscalados += (docsSem[s]?.[hora]?.ministros||[]).length; });
-    const disponiveis = ativos.filter(m=>(m.dispSem||[]).includes(hora));
-    const naoUsadosAqui = disponiveis.filter(m=>{
-      return !semanasKeys.some(s=>(docsSem[s]?.[hora]?.ministros||[]).includes(m.nome));
-    }).map(m=>m.nome);
-    return { hora, totalDisponiveis:disponiveis.length, totalEscalados, naoUsadosAqui };
-  });
-
+  // Só o cruzamento final importa: alguém só é um problema de verdade se não apareceu
+  // escalado em NENHUM horário disponível dele — dominical ou semanal, qualquer um.
   const alertaFinal = [];
   ativos.forEach(m=>{
     const temDisp = (m.dispDom||[]).length || (m.dispSem||[]).length;
     if(!temDisp) return;
     const achouDom = (m.dispDom||[]).some(hora => (docDom?.[hora]?.ministros||[]).includes(m.nome));
     const achouSem = (m.dispSem||[]).some(hora => semanasKeys.some(s => (docsSem[s]?.[hora]?.ministros||[]).includes(m.nome)));
-    if(!achouDom && !achouSem) alertaFinal.push(m.nome);
+    if(!achouDom && !achouSem){
+      alertaFinal.push({ nome:m.nome, dispDom:m.dispDom||[], dispSem:m.dispSem||[] });
+    }
   });
 
-  return { mesKey, linhasDom, linhasSem, alertaFinal };
+  return { mesKey, alertaFinal };
 }
 
 // Monta o HTML do relatório — reaproveitado tanto na aba de Relatórios quanto no modal da Escala
 function montarHtmlDisponibilidadeEscala(dados){
-  const { mesKey, linhasDom, linhasSem, alertaFinal } = dados;
+  const { mesKey, alertaFinal } = dados;
   const mesLegivel = finMesKeyLegivel(mesKey);
 
-  const linhaHtml = l => `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid #f0f0f0;gap:10px">
-      <div style="font-weight:700;font-size:13px;white-space:nowrap">${l.hora}</div>
-      <div style="flex:1;font-size:12px;color:#555">
-        <span style="color:#1D9E75;font-weight:600">${l.totalEscalados} escalado(s)</span>
-        ${l.naoUsadosAqui.length ? ` · <span style="color:#BA7517">${l.naoUsadosAqui.length} disponível(is) não usado(s) aqui: ${l.naoUsadosAqui.join(', ')}</span>` : ' · todos disponíveis foram usados aqui'}
-      </div>
+  if(!alertaFinal.length){
+    return `<div style="background:#eef7f2;border:1.5px solid #cde8d8;border-radius:9px;padding:14px">
+      <p style="margin:0;font-size:13px;font-weight:700;color:#1D9E75">✓ Nenhum ministro disponível ficou sem escalar em ${mesLegivel}.</p>
     </div>`;
+  }
 
-  const alertaHtml = alertaFinal.length
-    ? `<div style="background:#FBEAEA;border:1.5px solid #E9A8A8;border-radius:9px;padding:12px 14px;margin-top:16px">
-        <p style="margin:0;font-size:13px;font-weight:700;color:#A32D2D">⚠️ ${alertaFinal.length} ministro(s) disponível(is) mas NÃO escalado(s) em nenhum horário este mês:</p>
-        <p style="margin:6px 0 0;font-size:12px;color:#A32D2D">${alertaFinal.join(', ')}</p>
-      </div>`
-    : `<div style="background:#eef7f2;border:1.5px solid #cde8d8;border-radius:9px;padding:12px 14px;margin-top:16px">
-        <p style="margin:0;font-size:13px;font-weight:700;color:#1D9E75">✓ Nenhum ministro disponível ficou de fora este mês.</p>
-      </div>`;
+  const linhas = alertaFinal.map(a=>{
+    const partes = [];
+    if(a.dispDom.length) partes.push(`Dominical ${a.dispDom.join(', ')}`);
+    if(a.dispSem.length) partes.push(`Semanal ${a.dispSem.join(', ')}`);
+    return `<p style="margin:6px 0;font-size:12.5px;color:#A32D2D"><strong>${a.nome}</strong> — disponível: ${partes.join(' · ')}</p>`;
+  }).join('');
 
-  return `
-    <p style="font-size:12px;font-weight:700;color:#333;margin:0 0 8px">⛪ Dominical — ${mesLegivel}</p>
-    ${linhasDom.map(linhaHtml).join('')}
-    <p style="font-size:12px;font-weight:700;color:#333;margin:16px 0 8px">📆 Semanal — ${mesLegivel} (todas as semanas somadas)</p>
-    ${linhasSem.map(linhaHtml).join('')}
-    ${alertaHtml}
-  `;
+  return `<div style="background:#FBEAEA;border:1.5px solid #E9A8A8;border-radius:9px;padding:14px">
+    <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#A32D2D">⚠️ ${alertaFinal.length} ministro(s) disponível(is) mas NÃO escalado(s) em nenhuma missa de ${mesLegivel} (nem dominical, nem semanal):</p>
+    ${linhas}
+  </div>`;
 }
 
 async function relDisponibilidadeEscala(){
