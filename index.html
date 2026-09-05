@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.61.1';
+const APP_VERSAO = '19.62.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6887,14 +6887,16 @@ async function calcularDisponibilidadeEscala(){
 
   const ativos = ministros.filter(m=>m.ativo!==false);
 
-  // Só o cruzamento final importa: alguém só é um problema de verdade se não apareceu
-  // escalado em NENHUM horário disponível dele — dominical ou semanal, qualquer um.
+  // Só o cruzamento final importa: alguém só é um problema de verdade se o NOME dele não
+  // aparece em NENHUM horário escalado — dominical ou semanal, qualquer um. Busca pelo nome
+  // em TODOS os horários (não só nos que a pessoa declarou disponibilidade), porque o app
+  // permite exceção: escalar alguém num horário diferente do que ela marcou.
   const alertaFinal = [];
   ativos.forEach(m=>{
     const temDisp = (m.dispDom||[]).length || (m.dispSem||[]).length;
     if(!temDisp) return;
-    const achouDom = (m.dispDom||[]).some(hora => (docDom?.[hora]?.ministros||[]).includes(m.nome));
-    const achouSem = (m.dispSem||[]).some(hora => semanasKeys.some(s => (docsSem[s]?.[hora]?.ministros||[]).includes(m.nome)));
+    const achouDom = MISSAS_DOM.some(hora => (docDom?.[hora]?.ministros||[]).includes(m.nome));
+    const achouSem = MISSAS_SEM.some(hora => semanasKeys.some(s => (docsSem[s]?.[hora]?.ministros||[]).includes(m.nome)));
     if(!achouDom && !achouSem){
       alertaFinal.push({ nome:m.nome, dispDom:m.dispDom||[], dispSem:m.dispSem||[] });
     }
