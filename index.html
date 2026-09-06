@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.64.0';
+const APP_VERSAO = '19.65.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5093,7 +5093,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   const pdf = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
-  const M = 10;
+  const M = 9;
 
   function cabecalho(){
     const logoD = 14;
@@ -5107,7 +5107,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   cabecalho();
   let y = M + 16;
   const larguraTotal = pageW - 2*M;
-  const gapCol = 4;
+  const gapCol = 3;
   const numColunas = (tipo==='sem') ? 2 : 4;
   const larguraCol = (larguraTotal - gapCol*(numColunas-1)) / numColunas;
 
@@ -5115,28 +5115,28 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     hex = (hex||'#085041').replace('#','');
     return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
   }
-  const alturaLinha = 7.2;
+  const alturaLinha = 6.0;
   const rodapePagina = pageH - M - 4;
 
   // Calcula de verdade quantas linhas o "Responsável" precisa (nome pode quebrar sozinho, telefone sempre fica numa linha própria)
   function linhasHeaderResp(h){
-    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.6);
-    const nomeLinhas = pdf.splitTextToSize('Responsável: '+(h.responsavel||'—'), larguraCol-5);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.0);
+    const nomeLinhas = pdf.splitTextToSize('Resp.: '+(h.responsavel||'—'), larguraCol-5);
     const telLinha = h.respTel ? h.respTel.replace(/^\s*—\s*/,'') : '';
     return { nomeLinhas, telLinha };
   }
   function alturaHeaderParaCard(h){
     const { nomeLinhas, telLinha } = linhasHeaderResp(h);
     const totalLinhasTexto = nomeLinhas.length + (telLinha ? 1 : 0);
-    return 5 + totalLinhasTexto*3.6 + 1.2;
+    return 4.5 + totalLinhasTexto*3.2 + 1;
   }
 
   // Calcula de verdade quantas linhas o nome do ministro precisa nesta largura de coluna —
   // mesma técnica já usada pro nome do responsável. Sem isso, nomes longos que quebram em
   // 2 linhas faziam a próxima pessoa começar cedo demais, sobrepondo o texto.
   function linhasNomeMinistro(nome, isResp){
-    pdf.setFont('helvetica', isResp?'bold':'normal'); pdf.setFontSize(9);
-    return pdf.splitTextToSize(nome||'', larguraCol-19);
+    pdf.setFont('helvetica', isResp?'bold':'normal'); pdf.setFontSize(8.3);
+    return pdf.splitTextToSize(nome||'', larguraCol-18);
   }
 
   function alturaCard(h){
@@ -5165,10 +5165,10 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     pdf.setFillColor(er,eg,eb); pdf.rect(xCard, yy, larguraCol, headerH, 'F');
     pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5);
     pdf.text('Horário: '+h.hora, xCard+3, yy+4.5);
-    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.6);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.0);
     const { nomeLinhas, telLinha } = linhasHeaderResp(h);
-    let yTexto = yy + 8.3;
-    nomeLinhas.forEach(linha=>{ pdf.text(linha, xCard+3, yTexto); yTexto += 3.6; });
+    let yTexto = yy + 7.8;
+    nomeLinhas.forEach(linha=>{ pdf.text(linha, xCard+3, yTexto); yTexto += 3.2; });
     if(telLinha){ pdf.text(telLinha, xCard+3, yTexto); }
 
     let yl = yy + headerH + 4.5;
@@ -5210,7 +5210,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
         pdf.setTextColor(er,eg,eb); pdf.setFontSize(6); pdf.setFont('helvetica','bold');
         pdf.text(ini, cx, cy+0.9, {align:'center'});
       }
-      pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(9);
+      pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(8.3);
       linhasNome.forEach((linha,i)=>{ pdf.text(linha, xCard+16, yl+1+i*alturaLinha); });
       const ultimaLinhaIdx = linhasNome.length-1;
       if(m.isResp){
@@ -5245,7 +5245,8 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     // página nova ANTES de desenhar qualquer coisa dessa semana, pra nunca cortar ela ao meio.
     const alturaTitulo = tituloFaixa ? 11 : 0;
     const colYSim = Array(numColunas).fill(y + alturaTitulo);
-    horariosComGente.forEach(h=>{
+    const horariosOrdenadosSim = [...horariosComGente].sort((a,b)=>alturaCard(b)-alturaCard(a));
+    horariosOrdenadosSim.forEach(h=>{
       let col = 0;
       for(let i=1;i<numColunas;i++){ if(colYSim[i] < colYSim[col]) col = i; }
       colYSim[col] += alturaCard(h);
@@ -5264,9 +5265,13 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     }
 
     // Fluxo por colunas: cada card vai pra coluna com menos altura usada até agora.
+    // Processa do horário MAIOR pro MENOR antes de distribuir (não na ordem cronológica) —
+    // isso equilibra muito melhor entre as colunas do que processar em ordem crescente de hora,
+    // que podia deixar uma coluna com o dobro de conteúdo de outra.
     // Todas as colunas compartilham a MESMA noção de página — se uma obriga a virar página, todas viram juntas.
     const colY = Array(numColunas).fill(y);
-    horariosComGente.forEach(h=>{
+    const horariosOrdenados = [...horariosComGente].sort((a,b)=>alturaCard(b)-alturaCard(a));
+    horariosOrdenados.forEach(h=>{
       let col = 0;
       for(let i=1;i<numColunas;i++){ if(colY[i] < colY[col]) col = i; }
       const alt = alturaCard(h);
