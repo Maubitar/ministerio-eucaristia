@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.68.0';
+const APP_VERSAO = '19.69.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5337,26 +5337,45 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
       y += 8 + 3;
     }
 
-    // Fluxo por colunas: cada card vai pra coluna com menos altura usada até agora.
-    // Processa do horário MAIOR pro MENOR antes de distribuir (não na ordem cronológica) —
-    // isso equilibra muito melhor entre as colunas do que processar em ordem crescente de hora,
-    // que podia deixar uma coluna com o dobro de conteúdo de outra.
-    // Todas as colunas compartilham a MESMA noção de página — se uma obriga a virar página, todas viram juntas.
-    const colY = Array(numColunas).fill(y);
-    const horariosOrdenados = [...horariosComGente].sort((a,b)=>alturaCard(b)-alturaCard(a));
-    horariosOrdenados.forEach(h=>{
-      let col = 0;
-      for(let i=1;i<numColunas;i++){ if(colY[i] < colY[col]) col = i; }
-      const alt = alturaCard(h);
-      // Não cabe na coluna mais vazia desta página? Vira página e reinicia todas as colunas do zero.
-      if(colY[col] + alt > rodapePagina && colY[col] > M+16){
-        pdf.addPage(); cabecalho();
-        for(let i=0;i<numColunas;i++) colY[i] = M+16;
-        col = 0;
-      }
-      const xCard = M + col*(larguraCol+gapCol);
-      colY[col] = desenharCard(xCard, colY[col], h);
+    // Agrupa por tamanho (do maior pro menor) só pra decidir QUEM fica em qual coluna, de forma
+    // equilibrada — sem isso, uma coluna podia ficar com o dobro de conteúdo de outra. Mas depois
+    // de agrupar, reordena tudo em ordem CRESCENTE de horário — tanto a ordem das colunas da
+    // esquerda pra direita quanto a ordem de cima pra baixo dentro de cada uma — pra nunca sair
+    // com os horários embaralhados na leitura.
+    const buckets = Array.from({length:numColunas}, ()=>[]);
+    const alturaBuckets = Array(numColunas).fill(0);
+    const porTamanho = [...horariosComGente].sort((a,b)=>alturaCard(b)-alturaCard(a));
+    porTamanho.forEach(h=>{
+      let idx = 0;
+      for(let i=1;i<numColunas;i++){ if(alturaBuckets[i] < alturaBuckets[idx]) idx = i; }
+      buckets[idx].push(h);
+      alturaBuckets[idx] += alturaCard(h);
     });
+    buckets.forEach(b => b.sort((a,c)=> a.hora.localeCompare(c.hora)));
+    buckets.sort((a,b) => (a[0]?.hora||'99:99h').localeCompare(b[0]?.hora||'99:99h'));
+
+    // Todas as colunas compartilham a MESMA noção de página — se uma obriga a virar página, todas viram juntas.
+    // Desenha intercalado (uma de cada coluna por vez) — mantém o mesmo comportamento de quebra
+    // de página de antes, só que agora respeitando a ordem crescente dentro de cada coluna.
+    const colY = Array(numColunas).fill(y);
+    const ponteiros = Array(numColunas).fill(0);
+    let sobrouAlgo = true;
+    while(sobrouAlgo){
+      sobrouAlgo = false;
+      for(let col=0; col<numColunas; col++){
+        if(ponteiros[col] >= buckets[col].length) continue;
+        sobrouAlgo = true;
+        const h = buckets[col][ponteiros[col]++];
+        const alt = alturaCard(h);
+        // Não cabe na coluna mais vazia desta página? Vira página e reinicia todas as colunas do zero.
+        if(colY[col] + alt > rodapePagina && colY[col] > M+16){
+          pdf.addPage(); cabecalho();
+          for(let i=0;i<numColunas;i++) colY[i] = M+16;
+        }
+        const xCard = M + col*(larguraCol+gapCol);
+        colY[col] = desenharCard(xCard, colY[col], h);
+      }
+    }
     y = Math.max(...colY) + 1;
   });
 
