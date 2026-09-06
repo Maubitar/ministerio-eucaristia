@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.67.0';
+const APP_VERSAO = '19.68.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4939,11 +4939,9 @@ window.finalizarEscalaSemanal = async function(){
         if(!esc[hora]) esc[hora] = {ministros:[], responsavel:''};
         const mapa = new Map();
         itensReforco.forEach(({nome,label})=>{
-          // Se a pessoa JÁ estava escalada normal nesta semana (antes de qualquer reforço entrar),
-          // ela continua normal — só por estar na lista geral de reforço do mês não significa que
-          // ela está reforçando ESTA semana específica, se já tem lugar garantido nela.
-          const jaEraNormalNestaSemana = (escOriginal[hora]?.ministros||[]).includes(nome);
-          if(jaEraNormalNestaSemana) return;
+          // A etiqueta de reforço é sempre válida (é uma informação sobre a pessoa, não sobre
+          // se ela "só" está reforçando) — alguém pode ser normal numa missa E reforço de outra
+          // ao mesmo tempo. As duas coisas são verdade juntas.
           mapa.set(nome, label);
           if(!esc[hora].ministros.includes(nome)) esc[hora].ministros.push(nome);
         });
@@ -4958,8 +4956,13 @@ window.finalizarEscalaSemanal = async function(){
         const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
         const mapaReforco = mapaReforcoPorHora[hora] || new Map();
         const ordenados = [...(g.ministros||[])].sort((a,b)=>{
-          const aRef = mapaReforco.has(a), bRef = mapaReforco.has(b);
-          if(aRef !== bRef) return aRef ? 1 : -1; // reforço sempre depois dos escalados normais
+          // Só vai pro fim da lista quem entrou SÓ por causa do reforço (não tinha lugar
+          // garantido nesta semana antes). Quem já era normal e TAMBÉM é reforço de outra
+          // missa continua na posição normal — as duas coisas são verdade ao mesmo tempo,
+          // e a etiqueta de reforço aparece do lado do nome sem tirar ela do lugar dela.
+          const aEraNormal = (escOriginal[hora]?.ministros||[]).includes(a);
+          const bEraNormal = (escOriginal[hora]?.ministros||[]).includes(b);
+          if(aEraNormal !== bEraNormal) return aEraNormal ? -1 : 1;
           return a.localeCompare(b,'pt-BR');
         });
         const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(hora));
@@ -4967,7 +4970,8 @@ window.finalizarEscalaSemanal = async function(){
           hora, responsavel, respTel,
           dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
           ministros: ordenados.map((nome,i)=>{
-            return { num:i+1, nome, isResp: nome===responsavel, isReforco: mapaReforco.has(nome), reforcoLabel: mapaReforco.get(nome)||'' };
+            const eraNormalNestaSemana = (escOriginal[hora]?.ministros||[]).includes(nome);
+            return { num:i+1, nome, isResp: nome===responsavel, isReforco: mapaReforco.has(nome), isSoReforco: mapaReforco.has(nome) && !eraNormalNestaSemana, reforcoLabel: mapaReforco.get(nome)||'' };
           })
         };
       });
@@ -5026,11 +5030,11 @@ function cardHorarioFin(hObj){
       : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
     const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:10px;background:#F0C000;color:#5a3c00;font-size:16px;font-weight:800;padding:3px 12px;border-radius:20px;vertical-align:middle;white-space:nowrap">☆ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
     let divisor = '';
-    if(m.isReforco && !jaMostrouDivisorReforco){
+    if(m.isSoReforco && !jaMostrouDivisorReforco){
       jaMostrouDivisorReforco = true;
       divisor = `<tr><td colspan="3" style="padding:10px 14px 4px;font-size:18px;font-style:italic;color:#a07d1a;border-top:2px dashed #E8C66B">⭐ Reforço</td></tr>`;
     }
-    return `${divisor}<tr style="${m.isReforco?'background:#FFF3CD':''}">
+    return `${divisor}<tr style="${m.isSoReforco?'background:#FFF3CD':''}">
       <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${m.num}</td>
       <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
       <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${m.isResp?'font-weight:700':''}">${m.nome}${badgeReforco}</td>
@@ -5208,7 +5212,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   }
 
   function alturaCard(h){
-    const temReforco = h.ministros.some(m=>m.isReforco);
+    const temReforco = h.ministros.some(m=>m.isSoReforco);
     const alturaMinistros = h.ministros.reduce((acc,m)=>{
       const nLinhas = linhasNomeMinistro(m.nome, m.isResp).length;
       return acc + nLinhas*alturaLinha + (m.isReforco ? 3 : 0);
@@ -5250,8 +5254,9 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
         pdf.setDrawColor(er,eg,eb); pdf.rect(xCard, yy, larguraCol, rodapePagina-yy, 'S');
         yl = yy + 3;
       }
-      // Divisória + legenda antes do primeiro reforço — separa visualmente da escala normal
-      if(m.isReforco && !jaMostrouDivisorReforco){
+      // Divisória + legenda antes do primeiro reforço puro — separa visualmente da escala normal.
+      // Quem é normal E reforço ao mesmo tempo fica na posição normal, sem disparar o divisor.
+      if(m.isSoReforco && !jaMostrouDivisorReforco){
         jaMostrouDivisorReforco = true;
         pdf.setDrawColor(220,180,60); pdf.setLineWidth(0.3);
         pdf.line(xCard+3, yl-2, xCard+larguraCol-3, yl-2);
