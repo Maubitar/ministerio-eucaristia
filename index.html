@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.66.0';
+const APP_VERSAO = '19.67.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4939,6 +4939,11 @@ window.finalizarEscalaSemanal = async function(){
         if(!esc[hora]) esc[hora] = {ministros:[], responsavel:''};
         const mapa = new Map();
         itensReforco.forEach(({nome,label})=>{
+          // Se a pessoa JÁ estava escalada normal nesta semana (antes de qualquer reforço entrar),
+          // ela continua normal — só por estar na lista geral de reforço do mês não significa que
+          // ela está reforçando ESTA semana específica, se já tem lugar garantido nela.
+          const jaEraNormalNestaSemana = (escOriginal[hora]?.ministros||[]).includes(nome);
+          if(jaEraNormalNestaSemana) return;
           mapa.set(nome, label);
           if(!esc[hora].ministros.includes(nome)) esc[hora].ministros.push(nome);
         });
