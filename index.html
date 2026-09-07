@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.78.0';
+const APP_VERSAO = '19.79.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6652,6 +6652,7 @@ window.renderRelatorios = async function(){
   if(tab==='consolidado') await relConsolidado();
   if(tab==='disp-escala') await relDisponibilidadeEscala();
   if(tab==='faltas') await relFaltas();
+  if(tab==='substituicoes') await relSubstituicoes();
   if(tab==='escalas') await relEscalas();
   if(tab==='eventos') await relEventos();
   if(tab==='arquidiocese') await relArquidiocese();
@@ -7229,6 +7230,76 @@ window.abrirModalNaoEscalados = async function(){
     document.getElementById('conteudo-nao-escalados').innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
   }
 };
+
+// ===== RELATÓRIO DE SUBSTITUIÇÕES =====
+// Varre TODOS os registros de presença já salvos procurando marcações de substituto (o
+// responsável já indica isso ao registrar presença: "veio no lugar de X"). Agrupa em duas
+// listas: quem mais PEDE substituição (titular) e quem mais VEM como substituto.
+async function calcularRelatorioSubstituicoes(){
+  let snap;
+  try{ snap = await getDocs(collection(db,'presencas')); }
+  catch(e){ return { porTitular: [], porSubstituto: [] }; }
+
+  const porTitular = {};
+  const porSubstituto = {};
+
+  snap.docs.forEach(d=>{
+    const dados = d.data();
+    Object.entries(dados.registros||{}).forEach(([ministroId, reg])=>{
+      if(!reg?.substituto) return;
+      const substitutoObj = ministros.find(m=>m.id===ministroId);
+      const nomeSubstituto = substitutoObj?.nome || '(ministro removido)';
+      const nomeTitular = reg.substituiuNome || '(titular não identificado)';
+      const dataLabel = (dados.data||'').split('-').reverse().slice(0,2).join('/');
+
+      if(!porTitular[nomeTitular]) porTitular[nomeTitular] = { nome:nomeTitular, vezes:0, ocorrencias:[] };
+      porTitular[nomeTitular].vezes++;
+      porTitular[nomeTitular].ocorrencias.push({ data:dataLabel, horario:dados.horario||'', substituto:nomeSubstituto });
+
+      if(!porSubstituto[nomeSubstituto]) porSubstituto[nomeSubstituto] = { nome:nomeSubstituto, vezes:0, ocorrencias:[] };
+      porSubstituto[nomeSubstituto].vezes++;
+      porSubstituto[nomeSubstituto].ocorrencias.push({ data:dataLabel, horario:dados.horario||'', titular:nomeTitular });
+    });
+  });
+
+  const listaTitulares = Object.values(porTitular).sort((a,b)=>b.vezes-a.vezes);
+  const listaSubstitutos = Object.values(porSubstituto).sort((a,b)=>b.vezes-a.vezes);
+  return { porTitular: listaTitulares, porSubstituto: listaSubstitutos };
+}
+
+async function relSubstituicoes(){
+  const { porTitular, porSubstituto } = await calcularRelatorioSubstituicoes();
+
+  if(!porTitular.length){
+    document.getElementById('rel-body').innerHTML = `<p style="font-size:12px;color:#888;text-align:center;padding:20px">Nenhuma substituição registrada ainda.</p>`;
+    return;
+  }
+
+  const linhaTitular = t => `<div style="padding:9px 0;border-bottom:1px solid #f0f0f0">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:13px;font-weight:600">${t.nome}</span>
+      <span style="font-size:11px;background:${t.vezes>=3?'#fcebeb':'#fff3cd'};color:${t.vezes>=3?'#A32D2D':'#BA7517'};padding:2px 9px;border-radius:20px;font-weight:700">${t.vezes}x pediu substituição</span>
+    </div>
+    <p style="font-size:11px;color:#888;margin:4px 0 0">${t.ocorrencias.map(o=>`${o.horario} (${o.data}) — veio ${o.substituto.split(' ')[0]}`).join(' · ')}</p>
+  </div>`;
+
+  const linhaSubstituto = s => `<div style="padding:9px 0;border-bottom:1px solid #f0f0f0">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:13px;font-weight:600">${s.nome}</span>
+      <span style="font-size:11px;background:#e1f5ee;color:#1D9E75;padding:2px 9px;border-radius:20px;font-weight:700">${s.vezes}x veio substituir</span>
+    </div>
+    <p style="font-size:11px;color:#888;margin:4px 0 0">${s.ocorrencias.map(o=>`${o.horario} (${o.data}) — no lugar de ${o.titular.split(' ')[0]}`).join(' · ')}</p>
+  </div>`;
+
+  document.getElementById('rel-body').innerHTML = `
+    <p style="font-size:12px;font-weight:700;color:#A32D2D;margin:0 0 4px">🔄 Quem mais pediu substituição</p>
+    <p style="font-size:11px;color:#888;margin:0 0 10px">Ajuda a avaliar se vale a pena continuar escalando — quem pede demais pode precisar de um horário diferente ou de reforço fixo.</p>
+    ${porTitular.map(linhaTitular).join('')}
+    <p style="font-size:12px;font-weight:700;color:#1D9E75;margin:20px 0 4px">🙋 Quem mais veio como substituto</p>
+    <p style="font-size:11px;color:#888;margin:0 0 10px">Ministros de confiança pra chamar quando falta alguém.</p>
+    ${porSubstituto.map(linhaSubstituto).join('')}
+  `;
+}
 
 async function relFaltas(){
   const dados=ministros.map(m=>({
@@ -12482,6 +12553,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <button data-rel="consolidado" onclick="selecionarRelatorio('consolidado')" class="rel-chip">🗂️ Presença consolidada (todos os setores)</button>
         <button data-rel="disp-escala" onclick="selecionarRelatorio('disp-escala')" class="rel-chip">📋 Disponibilidade x Escala (por horário)</button>
         <button data-rel="faltas" onclick="selecionarRelatorio('faltas')" class="rel-chip">🟡 Faltas disciplinares</button>
+        <button data-rel="substituicoes" onclick="selecionarRelatorio('substituicoes')" class="rel-chip">🔄 Substituições</button>
       </div>
     </div>
 
