@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.71.0';
+const APP_VERSAO = '19.72.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2143,6 +2143,43 @@ window.melhorarTodasFotosExistentes = async function(){
   toast(`✓ Concluído: ${sucesso} foto(s) melhorada(s)${falhas?`, ${falhas} falharam`:''}.`,'ok');
 };
 
+// Recupera presenças salvas com data incompleta (bug do link de responsável antes da correção
+// de hoje) — move pro documento certo, sem apagar nada. Descobre o ano de verdade olhando o
+// horário exato em que cada marcação foi registrada (registradoEm), não chuta.
+window.corrigirPresencasComDataIncompleta = async function(){
+  toast('Procurando registros com data incompleta...','ok');
+  let snap;
+  try{ snap = await getDocs(collection(db,'presencas')); }
+  catch(e){ toast('Erro ao buscar: '+e.message,'warn'); return; }
+
+  const buggy = snap.docs.filter(d => /^\d{2}-\d{2}_\d+h?$/.test(d.id));
+  if(!buggy.length){ toast('✓ Nenhum registro com data incompleta encontrado — tudo certo.','ok'); return; }
+  if(!confirm(`Encontrei ${buggy.length} registro(s) salvos com data incompleta (sem ano) — do link de presença antes da correção de hoje. Vou mover cada um pro lugar certo, sem apagar nada. Continuar?`)) return;
+
+  let corrigidos = 0, falhas = 0;
+  for(const d of buggy){
+    try{
+      const dados = d.data();
+      const registros = dados.registros || {};
+      const algumTimestamp = Object.values(registros).map(r=>r?.registradoEm).find(Boolean);
+      const ano = algumTimestamp ? new Date(algumTimestamp).getFullYear() : new Date().getFullYear();
+      const [mmdd, horaParte] = d.id.split('_');
+      const [mm, dd] = mmdd.split('-');
+      const novoId = `${ano}-${mm}-${dd}_${horaParte}`;
+      await setDoc(doc(db,'presencas',novoId), {
+        data: `${ano}-${mm}-${dd}`,
+        horario: dados.horario || horaParte.replace(/^(\d\d)(\d\d)/, '$1:$2'),
+        registros,
+        atualizadoEm: serverTimestamp(),
+        corrigidoDeIdAntigo: d.id
+      }, {merge:true});
+      await deleteDoc(doc(db,'presencas',d.id));
+      corrigidos++;
+    }catch(e){ falhas++; }
+  }
+  toast(`✓ ${corrigidos} registro(s) movido(s) pro lugar certo${falhas?`, ${falhas} falharam`:''}.`, 'ok');
+};
+
 window.comprimirFoto = function(file, maxW=550, maxH=720, qualidade=0.78){
   return new Promise((resolve, reject)=>{
     if(!file || !file.type.startsWith('image/')){ reject(new Error('Arquivo não é imagem')); return; }
@@ -2187,6 +2224,13 @@ window.comprimirFoto = function(file, maxW=550, maxH=720, qualidade=0.78){
   });
 };
 function primeiroNomes(nome){ return nome.split(' ').slice(0,3).join(' '); }
+// Única fonte de verdade pra montar a chave de um registro de presença (data + horário).
+// Usada em TODOS os lugares que leem ou gravam na coleção 'presencas' — tela principal, link do
+// responsável, e quiosque. Nunca construir essa chave "na mão" em outro lugar: foi exatamente
+// isso que causou o bug do link salvando sem o ano (setembro/2026).
+function chavePresenca(dataISO, horario){
+  return `${dataISO}_${(horario||'').replace(':','')}`;
+}
 function normalizarBusca(txt){
   return (txt||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 }
@@ -4624,7 +4668,7 @@ window.renderPresenca = async function(){
     for(const missa of missas){
       if(!missa.ministros.length) continue;
       try{
-        const key = `${info.iso}_${missa.hora.replace(':','')}`;
+        const key = chavePresenca(info.iso, missa.hora);
         const d = await getDoc(doc(db,'presencas',key));
         if(d.exists()){
           const registros = d.data().registros||{};
@@ -4725,7 +4769,7 @@ window.salvarPres = async function(){
         const pr = presAtual[m.id];
         registros[m.id] = { status: pr?.status||'', justificativa: pr?.justificativa||'' };
       });
-      const key = `${info.iso}_${missa.hora.replace(':','')}`;
+      const key = chavePresenca(info.iso, missa.hora);
       await setDoc(doc(db,'presencas',key),{
         data:info.iso, horario:missa.hora, diaSemana:info.diaSemana,
         registros, atualizadoEm:serverTimestamp()
@@ -8847,7 +8891,7 @@ window.toggleDataPresenca = async function(i){
   const [dd, mm] = dt.data.split('/');
   const mAno = (ctx.mesKey||'').match(/(\d{4})$/);
   const ano = mAno ? mAno[1] : new Date().getFullYear();
-  const docId = `${ano}-${mm}-${dd}_${ctx.horario.replace(':','')}`;
+  const docId = chavePresenca(`${ano}-${mm}-${dd}`, ctx.horario);
   let jaSalvo = {};
   try{ const d = await getDoc(doc(db,'presencas',docId)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
 
@@ -9908,7 +9952,7 @@ async function qSalvarParcial(){
       const dados = { data:_qConfig.data, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
       await setDoc(doc(db, colecao, _qConfig.data), dados, {merge:true});
     } else {
-      const key = `${_qConfig.data}_${_qConfig.horario.replace(':','')}`;
+      const key = chavePresenca(_qConfig.data, _qConfig.horario);
       const dados = { data:_qConfig.data, horario:_qConfig.horario, registros:_qConfig.registros, atualizadoEm:serverTimestamp(), viaQuiosque:true };
       await setDoc(doc(db,'presencas',key), dados, {merge:true});
     }
@@ -12374,6 +12418,16 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </p>
     <button onclick="melhorarTodasFotosExistentes()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer">✨ Melhorar todas as fotos pequenas agora</button>
     <p style="font-size:10px;color:#888;margin:6px 0 0;text-align:center">Pode levar alguns minutos com 177 ministros. Pode fechar e voltar depois — as que já foram melhoradas ficam salvas.</p>
+  </div>
+  <div class="card" style="border:1.5px solid #F0DE9A;background:#fffdf5">
+    <p class="ct">🔧 Recuperar presenças com data incompleta</p>
+    <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 12px">
+      Corrige um bug já resolvido: presenças marcadas pelo link do responsável antes de hoje podem
+      ter sido salvas sem o ano na data, e por isso não apareciam na tela de Presença. Nada foi
+      perdido — isso move cada registro pro lugar certo, descobrindo o ano de verdade pelo horário
+      exato em que foi marcado.
+    </p>
+    <button onclick="corrigirPresencasComDataIncompleta()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:14px;font-weight:700;cursor:pointer">🔧 Verificar e corrigir agora</button>
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
