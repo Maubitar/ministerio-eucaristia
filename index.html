@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.87.0';
+const APP_VERSAO = '19.88.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3240,7 +3240,17 @@ async function calcularFlagsAltaSubstituicao(){
     let mesIdx = _MESES_KEY_INIT.indexOf(mMes[1]);
     let ano = parseInt(mMes[2]);
     mesIdx--; if(mesIdx<0){ mesIdx=11; ano--; }
-    const mesKeyAnterior = `${_MESES_KEY_INIT[mesIdx]}${ano}`;
+    let mesKeyAnterior = `${_MESES_KEY_INIT[mesIdx]}${ano}`;
+
+    // Se o mês anterior é INTEIRO anterior à data em que o controle digital de presença
+    // começou a valer (06 e 07/09/2026), não existe dado confiável nele — usa o próprio mês
+    // que está sendo montado como referência, com os dados que já existirem até agora.
+    const fimMesAnterior = new Date(ano, mesIdx+1, 0);
+    if(fimMesAnterior < DATA_INICIO_ALERTA_SEMANAL){
+      mesIdx = _MESES_KEY_INIT.indexOf(mMes[1]);
+      ano = parseInt(mMes[2]);
+      mesKeyAnterior = mesKeyAtual;
+    }
     const cal = calcularCalendario(ano, mesIdx);
 
     // Total ESCALADO por ministro no mês anterior (dominical conta os domingos do mês;
