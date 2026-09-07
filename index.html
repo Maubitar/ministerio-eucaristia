@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.76.0';
+const APP_VERSAO = '19.77.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9159,6 +9159,37 @@ window.cobrarPresencaResponsavel = function(responsavelNome, tipo, hora, dataISO
   window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`, 'sogi_zap_cobranca');
 };
 
+// Ferramenta de diagnóstico: mostra os dados CRUS de um horário específico — quem está
+// escalado (segundo a escala) e o que está realmente salvo no documento de presença — lado a
+// lado, sem nenhum cálculo por cima. Usada pra investigar quando o Alerta parece não bater com
+// o que aparece na tela de Presença.
+window.diagnosticarPresenca = async function(tipo, dataISO, hora, semanaNum){
+  const cont = document.getElementById('diagnostico-presenca-body');
+  if(!cont) return;
+  cont.style.display = 'block';
+  cont.innerHTML = '<p style="font-size:12px;color:#888">Buscando dados crus...</p>';
+  try{
+    const mesKey = getMesAtual();
+    const escKey = tipo==='dom' ? `escala_dom_${mesKey}` : `escala_sem_sem${semanaNum}_${mesKey}`;
+    const docEsc = await _lerEscalaDocRaw(escKey);
+    const grupo = docEsc[hora] || {ministros:[], responsavel:''};
+    const chave = chavePresenca(dataISO, hora);
+    let dadosPresenca = null;
+    try{ const d = await getDoc(doc(db,'presencas', chave)); dadosPresenca = d.exists() ? d.data() : null; }catch(e){}
+
+    cont.innerHTML = `
+      <p style="font-size:12px;color:#666;margin:0 0 8px"><strong>Chave da escala consultada:</strong> ${escKey} · horário ${hora}</p>
+      <p style="font-size:12px;color:#666;margin:0 0 12px"><strong>Chave de presença consultada:</strong> ${chave}</p>
+      <p style="font-size:12px;font-weight:700;margin:0 0 4px">Escalados (${grupo.ministros.length}):</p>
+      <p style="font-size:11.5px;color:#444;margin:0 0 12px;word-break:break-word">${grupo.ministros.join(', ')||'(nenhum)'}</p>
+      <p style="font-size:12px;font-weight:700;margin:0 0 4px">Documento de presença encontrado?</p>
+      <pre style="font-size:10.5px;background:#f5f5f3;padding:10px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word">${dadosPresenca ? JSON.stringify(dadosPresenca, null, 2) : 'NÃO EXISTE nenhum documento com essa chave.'}</pre>
+    `;
+  }catch(e){
+    cont.innerHTML = `<p style="font-size:12px;color:#A32D2D">Erro: ${e.message}</p>`;
+  }
+};
+
 window.renderAlertaPresenca = async function(){
   const cont = document.getElementById('alerta-presenca-body');
   if(!cont) return;
@@ -9176,12 +9207,14 @@ window.renderAlertaPresenca = async function(){
 
     const linha = r => {
       const tipoLabel = r.tipo==='dom' ? 'Dominical' : `Semanal (${r.semanaLabel})`;
+      const semNumParaDiag = r.tipo==='sem' ? (Object.keys(CAL.semanas).find(k=>CAL.semanas[k].label===r.semanaLabel)||'') : '';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f0f0f0;gap:10px">
         <div style="flex:1;min-width:0">
           <p style="margin:0;font-size:13px;font-weight:700">${r.hora} — ${tipoLabel} — ${r.ddmm}</p>
           <p style="margin:2px 0 0;font-size:12px;color:#666">Responsável: ${r.responsavel} · ${r.totalMarcados} de ${r.totalEscalados} marcados</p>
         </div>
-        <button onclick="cobrarPresencaResponsavel('${r.responsavel.replace(/'/g,"\\'")}','${r.tipo}','${r.hora}','${r.dataISO}',${r.tipo==='sem'?`'${Object.keys(CAL.semanas).find(k=>CAL.semanas[k].label===r.semanaLabel)||''}'`:'null'},${r.totalEscalados},${r.totalMarcados},'${mesKey}')" style="flex-shrink:0;padding:8px 12px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:11.5px;font-weight:700;cursor:pointer">📲 Cobrar</button>
+        <button onclick="diagnosticarPresenca('${r.tipo}','${r.dataISO}','${r.hora}','${semNumParaDiag}')" title="Ver dados crus" style="flex-shrink:0;padding:8px 10px;border:1.5px solid #999;border-radius:8px;background:white;color:#666;font-size:13px;cursor:pointer">🔍</button>
+        <button onclick="cobrarPresencaResponsavel('${r.responsavel.replace(/'/g,"\\'")}','${r.tipo}','${r.hora}','${r.dataISO}',${r.tipo==='sem'?`'${semNumParaDiag}'`:'null'},${r.totalEscalados},${r.totalMarcados},'${mesKey}')" style="flex-shrink:0;padding:8px 12px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:11.5px;font-weight:700;cursor:pointer">📲 Cobrar</button>
       </div>`;
     };
 
@@ -12490,6 +12523,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0">Toda missa já realizada este mês, comparando quantos foram escalados contra quantos tiveram presença marcada de verdade. Toque em "Cobrar" pra mandar um lembrete direto pro responsável, por WhatsApp.</p>
   </div>
   <div id="alerta-presenca-body"></div>
+  <div class="card" id="diagnostico-presenca-body" style="display:none"></div>
 </div>
 
 <div id="s-envio-presenca" class="sec">
