@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.80.0';
+const APP_VERSAO = '19.81.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6626,7 +6626,8 @@ window.compartilharReforco=function(){
 const REL_NOMES = {
   atualizacao:'✅ Quem atualizou cadastro', incompletos:'📸 Quem falta completar', arquidiocese:'📋 Relatório Arquidiocese',
   excecoes:'⚠️ Exceções na escala (log)', escalas:'🗂️ Histórico de escalas e responsáveis', eventos:'🎉 Eventos especiais',
-  missas:'⛪ Missas', reunioes:'📋 Reuniões', adoracoes:'🙏 Adorações', consolidado:'🗂️ Presença consolidada', faltas:'🟡 Faltas disciplinares'
+  missas:'⛪ Missas', reunioes:'📋 Reuniões', adoracoes:'🙏 Adorações', consolidado:'🗂️ Presença consolidada', faltas:'🟡 Faltas disciplinares',
+  'disp-escala':'📋 Disponibilidade x Escala', substituicoes:'🔄 Substituições'
 };
 
 window.selecionarRelatorio = function(valor){
@@ -12534,6 +12535,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <option value="reunioes">Presença — Reuniões</option>
       <option value="adoracoes">Presença — Adorações</option>
       <option value="consolidado">🗂️ Presença consolidada (todos os setores)</option>
+      <option value="disp-escala">📋 Disponibilidade x Escala (por horário)</option>
+      <option value="substituicoes">🔄 Substituições</option>
       <option value="faltas">Faltas disciplinares</option>
       <option value="escalas">🗂️ Histórico de escalas e responsáveis</option>
       <option value="eventos">Eventos especiais</option>
@@ -12563,7 +12566,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <button data-rel="consolidado" onclick="selecionarRelatorio('consolidado')" class="rel-chip">🗂️ Presença consolidada (todos os setores)</button>
         <button data-rel="disp-escala" onclick="selecionarRelatorio('disp-escala')" class="rel-chip">📋 Disponibilidade x Escala (por horário)</button>
         <button data-rel="faltas" onclick="selecionarRelatorio('faltas')" class="rel-chip">🟡 Faltas disciplinares</button>
-        <button data-rel="substituicoes" onclick="selecionarRelatorio('substituicoes')" class="rel-chip">🔄 Substituições</button>
       </div>
     </div>
 
