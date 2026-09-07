@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.88.0';
+const APP_VERSAO = '19.89.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9279,6 +9279,23 @@ window.marcarPresencaResponsavel = async function(ministroId, status){
   const corposAbertos = document.querySelectorAll('[id^="pr-corpo-"]');
   for(const corpo of corposAbertos){
     if(corpo.style.display==='block' && corpo.dataset.docid && corpo.innerHTML.includes(`marcarPresencaResponsavel('${ministroId}'`)){
+      // Marcar Substituição exige informar QUEM substituiu — se ainda não tiver ninguém
+      // registrado no lugar dessa pessoa, bloqueia e já abre o campo de busca certo.
+      if(status==='S'){
+        let jaSalvoCheck = {};
+        try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvoCheck = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+        const jaTemSubstituto = Object.values(jaSalvoCheck).some(r=>r?.substituto && r?.substituiuId===ministroId);
+        if(!jaTemSubstituto){
+          toast('⚠️ Antes de marcar Substituição, é obrigatório informar quem substituiu.','warn');
+          const campoInline = document.getElementById('pr-sub-inline-'+ministroId);
+          if(campoInline){
+            campoInline.style.display = 'block';
+            const inputBusca = document.getElementById('pr-busca-sub-'+ministroId);
+            if(inputBusca) inputBusca.focus();
+          }
+          return;
+        }
+      }
       const ok = await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, status, registrante);
       const idx = parseInt(corpo.id.replace('pr-corpo-',''));
       let jaSalvo = {};
@@ -9339,7 +9356,10 @@ window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId,
     await setDoc(doc(db,'presencas',corpo.dataset.docid), {
       data: partesData,
       horario: ctx.horario,
-      registros: { [ministroId]: { status:'P', justificativa:'', registradoPor:registrante, registradoEm: Date.now(), substituto:true, substituiuId:substituiuId||'', substituiuNome:substituiuNome||'' } },
+      registros: {
+        [ministroId]: { status:'P', justificativa:'', registradoPor:registrante, registradoEm: Date.now(), substituto:true, substituiuId:substituiuId||'', substituiuNome:substituiuNome||'' },
+        ...(substituiuId ? { [substituiuId]: { status:'S', justificativa:'', registradoPor:registrante, registradoEm: Date.now() } } : {})
+      },
       atualizadoEm: serverTimestamp(),
       viaResponsavel: true
     }, {merge:true});
