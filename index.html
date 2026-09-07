@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.82.0';
+const APP_VERSAO = '19.83.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2173,6 +2173,25 @@ window.melhorarTodasFotosExistentes = async function(){
 // Recupera presenças salvas com data incompleta (bug do link de responsável antes da correção
 // de hoje) — move pro documento certo, sem apagar nada. Descobre o ano de verdade olhando o
 // horário exato em que cada marcação foi registrada (registradoEm), não chuta.
+// Zera os contadores de faltas de Reunião e Adoração de TODOS os ministros — usada uma vez,
+// pra estabelecer que a contagem de faltas passa a valer a partir de agora (02/09/2026, quando
+// o quiosque de Adoração começou a ser usado de verdade), sem carregar lixo de antes disso.
+window.zerarContadoresFaltasAntigas = async function(){
+  const comFaltas = ministros.filter(m => (m.faltasReuniao||0) > 0 || (m.faltasAdoracao||0) > 0);
+  if(!comFaltas.length){ toast('✓ Nenhum contador de faltas pra zerar — já está tudo limpo.','ok'); return; }
+  if(!confirm(`Isso vai zerar as faltas de Reunião e Adoração de ${comFaltas.length} ministro(s), pra contagem começar do zero a partir de agora. Não mexe no histórico de presenças salvas, só no contador. Continuar?`)) return;
+
+  let zerados = 0, falhas = 0;
+  for(const m of comFaltas){
+    try{
+      await updateDoc(doc(db,'ministros',m.id), { faltasReuniao:0, faltasAdoracao:0 });
+      m.faltasReuniao = 0; m.faltasAdoracao = 0;
+      zerados++;
+    }catch(e){ falhas++; }
+  }
+  toast(`✓ ${zerados} contador(es) zerado(s)${falhas?`, ${falhas} falharam`:''}.`, 'ok');
+};
+
 window.corrigirPresencasComDataIncompleta = async function(){
   toast('Procurando registros com data incompleta...','ok');
   let snap;
@@ -7255,6 +7274,13 @@ async function calcularRelatorioSubstituicoes(){
 
   snap.docs.forEach(d=>{
     const dados = d.data();
+    // Só considera a partir de quando o link de presença passou a valer de verdade —
+    // domingo usa o corte da Dominical, qualquer outro dia usa o corte da Semanal.
+    if(dados.data){
+      const dataObj = new Date(dados.data+'T12:00:00');
+      const corte = dataObj.getDay()===0 ? DATA_INICIO_ALERTA_DOMINICAL : DATA_INICIO_ALERTA_SEMANAL;
+      if(dataObj < corte) return;
+    }
     Object.entries(dados.registros||{}).forEach(([ministroId, reg])=>{
       if(!reg?.substituto) return;
       const substitutoObj = ministros.find(m=>m.id===ministroId);
@@ -12731,6 +12757,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       exato em que foi marcado.
     </p>
     <button onclick="corrigirPresencasComDataIncompleta()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:14px;font-weight:700;cursor:pointer">🔧 Verificar e corrigir agora</button>
+  </div>
+  <div class="card" style="border:1.5px solid #e1d4f0;background:#faf7ff">
+    <p class="ct">🔄 Zerar contadores antigos de faltas</p>
+    <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 12px">
+      Zera as faltas de Reunião e Adoração de todos os ministros, pra contagem começar do zero a
+      partir de agora (02/09/2026, quando o controle digital de Adoração passou a valer). Não mexe
+      no histórico de presenças salvas — só reinicia o contador.
+    </p>
+    <button onclick="zerarContadoresFaltasAntigas()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#6B4FA0;color:white;font-size:14px;font-weight:700;cursor:pointer">🔄 Zerar contadores agora</button>
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
