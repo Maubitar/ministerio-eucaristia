@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.72.0';
+const APP_VERSAO = '19.74.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1903,6 +1903,7 @@ window.nav = function(id, btn){
     'tel-rapido': ()=>renderTelefonesRapido(),
     'envio-presenca': ()=>renderEnvioLinksPresenca(),
     'envio-cart': ()=>renderEnvioCarteirinhas(),
+    'alerta-presenca': ()=>renderAlertaPresenca(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
   if(fns[id]) fns[id]();
@@ -2059,6 +2060,32 @@ async function renderInicio(){
     const grave = alertas.some(m=>m.totalF>=3);
     cardAlertasEl.style.border = grave ? '1.5px solid #F0B0B0' : '';
     cardAlertasEl.style.background = grave ? 'linear-gradient(135deg,#fffafa 0%,#fdf3f3 100%)' : '';
+  }
+
+  // Card de Presença Pendente — só aparece se houver missa já realizada sem presença completa
+  try{
+    const { naoPreenchido, parcial } = await calcularAlertaPresenca();
+    const totalPendente = naoPreenchido.length + parcial.length;
+    const cardPendenteEl = document.getElementById('card-presenca-pendente');
+    if(totalPendente > 0 && cardPendenteEl){
+      cardPendenteEl.style.display = 'block';
+      document.getElementById('m-presenca-pendente').textContent = totalPendente;
+      const todos = [...naoPreenchido, ...parcial].slice(0,3);
+      const linha = r => {
+        const tipoLabel = r.tipo==='dom' ? 'Dominical' : `Semanal (${r.semanaLabel})`;
+        return `<div style="padding:6px 0;border-bottom:1px solid #f5e0e0;font-size:12.5px;color:#7a2020">
+          <strong>${r.hora}</strong> ${tipoLabel} — ${r.ddmm} · ${r.totalMarcados} de ${r.totalEscalados} marcados
+        </div>`;
+      };
+      document.getElementById('dash-presenca-pendente').innerHTML = todos.map(linha).join('') +
+        (totalPendente > 3 ? `<p style="font-size:11px;color:#a06565;margin:6px 0 0">+ ${totalPendente-3} outra(s)...</p>` : '') +
+        `<button onclick="nav('alerta-presenca')" style="width:100%;margin-top:10px;padding:9px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:12px;font-weight:700;cursor:pointer">Ver todas e cobrar</button>`;
+    } else if(cardPendenteEl){
+      cardPendenteEl.style.display = 'none';
+    }
+  }catch(e){
+    const cardPendenteEl = document.getElementById('card-presenca-pendente');
+    if(cardPendenteEl) cardPendenteEl.style.display = 'none';
   }
 }
 
@@ -4846,6 +4873,75 @@ async function _lerEscalaDocRaw(key){
   try{ const d = await getDoc(doc(db,'escalas',key)); escalas[key] = d.exists()? d.data() : {}; }
   catch(e){ escalas[key] = {}; }
   return escalas[key];
+}
+
+// ===== ALERTA DE PRESENÇA =====
+// Verifica todas as missas JÁ PASSADAS do mês atual (dominical + semanal) e compara quantos
+// ministros foram escalados contra quantos tiveram presença de fato marcada. Separa em duas
+// categorias: quem não marcou NADA, e quem marcou só PARTE dos escalados.
+async function calcularAlertaPresenca(){
+  const mesKey = getMesAtual();
+  const mMes = mesKey.match(/^([a-z]{3})(\d{4})$/);
+  const mesIdx = _MESES_KEY_INIT.indexOf(mMes[1]);
+  const ano = parseInt(mMes[2]);
+  const cal = calcularCalendario(ano, mesIdx);
+  const agora = new Date();
+
+  function dataHoraMissa(ddmm, hora){
+    const [dd,mm] = ddmm.split('/');
+    const [h,min] = hora.replace('h','').split(':');
+    return new Date(ano, parseInt(mm)-1, parseInt(dd), parseInt(h), parseInt(min||'0'));
+  }
+  function paraISO(ddmm){
+    const [dd,mm] = ddmm.split('/');
+    return `${ano}-${mm}-${dd}`;
+  }
+
+  const resultados = []; // {tipo, hora, ddmm, dataISO, responsavel, respTel, totalEscalados, totalMarcados}
+
+  async function avaliar(tipo, ddmm, hora, grupo, semanaLabel){
+    if(!grupo || !(grupo.ministros||[]).length) return;
+    if(dataHoraMissa(ddmm, hora) > agora) return; // ainda não aconteceu — não avalia
+    const totalEscalados = grupo.ministros.length;
+    const dataISO = paraISO(ddmm);
+    let registros = {};
+    try{ const d = await getDoc(doc(db,'presencas', chavePresenca(dataISO, hora))); registros = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+    const totalMarcados = Object.values(registros).filter(r=>r?.status).length;
+    if(totalMarcados >= totalEscalados) return; // completo, sem alerta
+    const respObj = ministros.find(x=>x.nome===grupo.responsavel);
+    resultados.push({
+      tipo, hora, ddmm, dataISO, semanaLabel,
+      responsavel: grupo.responsavel || '(sem responsável definido)',
+      respTel: respObj?.tel || '',
+      totalEscalados, totalMarcados
+    });
+  }
+
+  // DOMINICAL
+  const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
+  for(const ddmm of cal.domingos){
+    for(const hora of MISSAS_DOM){
+      await avaliar('dom', ddmm, hora, docDom[hora], null);
+    }
+  }
+
+  // SEMANAL
+  for(const semNum of Object.keys(cal.semanas)){
+    const semana = cal.semanas[semNum];
+    const docSem = await _lerEscalaDocRaw(`escala_sem_sem${semNum}_${mesKey}`);
+    for(const diaObj of semana.dias){
+      if(!diaObj.mesRef) continue;
+      const horariosDoDia = MISSAS_SEM_DIAS[diaObj.dia] || [];
+      for(const hora of horariosDoDia){
+        await avaliar('sem', diaObj.data, hora, docSem[hora], semana.label);
+      }
+    }
+  }
+
+  resultados.sort((a,b)=> (a.dataISO+a.hora).localeCompare(b.dataISO+b.hora));
+  const naoPreenchido = resultados.filter(r=>r.totalMarcados===0);
+  const parcial = resultados.filter(r=>r.totalMarcados>0);
+  return { naoPreenchido, parcial };
 }
 
 // Busca rápida: "onde esse ministro está servindo" — usada na tela inicial. Filtra o nome
@@ -9034,8 +9130,67 @@ window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId,
   renderCorpoDataPresenca(i, corpo.dataset.docid, jaSalvo);
 };
 
-// ===== ENVIO DE LINKS DE PRESENÇA POR HORÁRIO (RESPONSÁVEIS) =====
 function _horarioParaCodigo(hora){ return hora.replace(':',''); } // "12:00h" -> "1200h"
+
+// Manda uma cobrança educada por WhatsApp pro responsável de um horário específico com pendência
+window.cobrarPresencaResponsavel = function(responsavelNome, tipo, hora, dataISO, semanaNum, totalEscalados, totalMarcados, mesKey){
+  const m = ministros.find(x=>x.nome===responsavelNome);
+  if(!m || !m.tel){ toast('Esse responsável não tem telefone cadastrado.','warn'); return; }
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+  const [ano,mes,dia] = dataISO.split('-');
+  const dataBR = `${dia}/${mes}`;
+  const codigo = tipo==='dom' ? `dom-${_horarioParaCodigo(hora)}-${mesKey}` : `sem-${semanaNum}-${_horarioParaCodigo(hora)}-${mesKey}`;
+  const link = `${APP_URL}/?presresp=${codigo}`;
+  const situacao = totalMarcados===0
+    ? `ainda não tem nenhuma presença marcada`
+    : `está com a presença incompleta (${totalMarcados} de ${totalEscalados} marcados)`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nA missa das *${hora}* do dia *${dataBR}* ${situacao}.\n\nPode marcar quando puder, direto por aqui:\n${link}\n\nObrigado! 🕊️\n_Coordenação MESCE — Basílica de Nazaré_`;
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`, 'sogi_zap_cobranca');
+};
+
+window.renderAlertaPresenca = async function(){
+  const cont = document.getElementById('alerta-presenca-body');
+  if(!cont) return;
+  cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Verificando missas já realizadas...</p>';
+  try{
+    const mesKey = getMesAtual();
+    const { naoPreenchido, parcial } = await calcularAlertaPresenca();
+
+    if(!naoPreenchido.length && !parcial.length){
+      cont.innerHTML = `<div style="background:#eef7f2;border:1.5px solid #cde8d8;border-radius:9px;padding:14px">
+        <p style="margin:0;font-size:13px;font-weight:700;color:#1D9E75">✓ Todas as missas já realizadas este mês têm a presença completa.</p>
+      </div>`;
+      return;
+    }
+
+    const linha = r => {
+      const tipoLabel = r.tipo==='dom' ? 'Dominical' : `Semanal (${r.semanaLabel})`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f0f0f0;gap:10px">
+        <div style="flex:1;min-width:0">
+          <p style="margin:0;font-size:13px;font-weight:700">${r.hora} — ${tipoLabel} — ${r.ddmm}</p>
+          <p style="margin:2px 0 0;font-size:12px;color:#666">Responsável: ${r.responsavel} · ${r.totalMarcados} de ${r.totalEscalados} marcados</p>
+        </div>
+        <button onclick="cobrarPresencaResponsavel('${r.responsavel.replace(/'/g,"\\'")}','${r.tipo}','${r.hora}','${r.dataISO}',${r.tipo==='sem'?`'${Object.keys(CAL.semanas).find(k=>CAL.semanas[k].label===r.semanaLabel)||''}'`:'null'},${r.totalEscalados},${r.totalMarcados},'${mesKey}')" style="flex-shrink:0;padding:8px 12px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:11.5px;font-weight:700;cursor:pointer">📲 Cobrar</button>
+      </div>`;
+    };
+
+    const blocoNao = naoPreenchido.length ? `
+      <p style="font-size:13px;font-weight:700;color:#A32D2D;margin:0 0 6px">❌ Não preencheu nada (${naoPreenchido.length}):</p>
+      <div style="background:#FBEAEA;border:1.5px solid #E9A8A8;border-radius:9px;padding:4px 12px;margin-bottom:16px">
+        ${naoPreenchido.map(linha).join('')}
+      </div>` : '';
+
+    const blocoParcial = parcial.length ? `
+      <p style="font-size:13px;font-weight:700;color:#BA7517;margin:0 0 6px">⚠️ Preencheu só parte (${parcial.length}):</p>
+      <div style="background:#FFF3CD;border:1.5px solid #F0DE9A;border-radius:9px;padding:4px 12px">
+        ${parcial.map(linha).join('')}
+      </div>` : '';
+
+    cont.innerHTML = blocoNao + blocoParcial;
+  }catch(e){
+    cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;padding:10px 0">Erro ao verificar: ${e.message}</p>`;
+  }
+};
 
 window.renderEnvioLinksPresenca = async function(){
   const mesKey = getMesAtual();
@@ -11995,6 +12150,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </button>
   </div>
 
+  <div class="card" id="card-presenca-pendente" style="display:none;border:1.5px solid #E9A8A8;background:linear-gradient(135deg,#fffafa 0%,#fdf3f3 100%)">
+    <p class="ct" style="color:#A32D2D">🚨 Presença pendente <span id="m-presenca-pendente" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
+    <div id="dash-presenca-pendente"></div>
+  </div>
   <div class="card" id="card-alertas">
     <p class="ct">⚠️ Ministros com faltas <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
     <div id="dash-alertas"></div>
@@ -12313,6 +12472,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <!-- MAIS -->
 <!-- ENVIO EM LOTE DE CARTEIRINHAS -->
 <!-- ENVIO DE LINKS DE PRESENÇA (RESPONSÁVEIS) -->
+<div id="s-alerta-presenca" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #E9A8A8;background:#FBEAEA">
+    <p class="ct" style="color:#A32D2D">🚨 Alerta de Presença</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0">Toda missa já realizada este mês, comparando quantos foram escalados contra quantos tiveram presença marcada de verdade. Toque em "Cobrar" pra mandar um lembrete direto pro responsável, por WhatsApp.</p>
+  </div>
+  <div id="alerta-presenca-body"></div>
+</div>
+
 <div id="s-envio-presenca" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card" style="border:1.5px solid #185FA5;background:#eef5fb">
