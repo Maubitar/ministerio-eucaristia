@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.86.0';
+const APP_VERSAO = '19.87.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3226,7 +3226,68 @@ window.carregarNumSemanas = function(){
   }catch(e){}
 };
 
-window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); carregarDomingosCustom(); };
+// ===== FLAGS DE ALTA SUBSTITUIÇÃO =====
+// Antes de montar a escala de um mês, calcula quem teve 50% ou mais das próprias escalas do
+// MÊS ANTERIOR substituídas — ajuda a decidir, na hora de escalar de novo, se vale a pena
+// continuar contando com essa pessoa naquele horário. Populado em segundo plano ao abrir a
+// tela de Escala; consultado no exato momento em que o ministro é adicionado a um horário.
+let _flagsAltaSubstituicao = {};
+async function calcularFlagsAltaSubstituicao(){
+  try{
+    const mesKeyAtual = getMesAtual();
+    const mMes = mesKeyAtual.match(/^([a-z]{3})(\d{4})$/);
+    if(!mMes) return;
+    let mesIdx = _MESES_KEY_INIT.indexOf(mMes[1]);
+    let ano = parseInt(mMes[2]);
+    mesIdx--; if(mesIdx<0){ mesIdx=11; ano--; }
+    const mesKeyAnterior = `${_MESES_KEY_INIT[mesIdx]}${ano}`;
+    const cal = calcularCalendario(ano, mesIdx);
+
+    // Total ESCALADO por ministro no mês anterior (dominical conta os domingos do mês;
+    // semanal conta os dias válidos de cada semana em que a pessoa aparece)
+    const escaladoPorNome = {};
+    const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKeyAnterior}`);
+    for(const hora of MISSAS_DOM){
+      const grupo = docDom[hora];
+      if(!grupo) continue;
+      (grupo.ministros||[]).forEach(nome=>{ escaladoPorNome[nome] = (escaladoPorNome[nome]||0) + cal.domingos.length; });
+    }
+    for(const semNum of Object.keys(cal.semanas)){
+      const semana = cal.semanas[semNum];
+      const docSem = await _lerEscalaDocRaw(`escala_sem_sem${semNum}_${mesKeyAnterior}`);
+      const diasValidos = (semana.dias||[]).filter(d=>d.mesRef && d.dia!=='Domingo').length;
+      for(const hora of MISSAS_SEM){
+        const grupo = docSem[hora];
+        if(!grupo) continue;
+        (grupo.ministros||[]).forEach(nome=>{ escaladoPorNome[nome] = (escaladoPorNome[nome]||0) + diasValidos; });
+      }
+    }
+
+    // Total SUBSTITUÍDO no mês anterior (varre as presenças salvas daquele mês)
+    const prefixoData = `${ano}-${String(mesIdx+1).padStart(2,'0')}`;
+    const snap = await getDocs(collection(db,'presencas'));
+    const substituidoPorNome = {};
+    snap.docs.forEach(d=>{
+      const dados = d.data();
+      if(!(dados.data||'').startsWith(prefixoData)) return;
+      Object.values(dados.registros||{}).forEach(reg=>{
+        if(reg?.substituto && reg.substituiuNome){
+          substituidoPorNome[reg.substituiuNome] = (substituidoPorNome[reg.substituiuNome]||0) + 1;
+        }
+      });
+    });
+
+    _flagsAltaSubstituicao = {};
+    Object.entries(escaladoPorNome).forEach(([nome, totalEscalado])=>{
+      const totalSubstituido = substituidoPorNome[nome] || 0;
+      if(totalEscalado > 0 && (totalSubstituido/totalEscalado) >= 0.5){
+        _flagsAltaSubstituicao[nome] = { totalEscalado, totalSubstituido, percentual: Math.round((totalSubstituido/totalEscalado)*100), mesKeyAnterior };
+      }
+    });
+  }catch(e){ console.log('Erro ao calcular flags de substituição:', e); }
+}
+
+window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); carregarDomingosCustom(); calcularFlagsAltaSubstituicao(); };
 
 window.verEscalaAnterior = function(){
   const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
@@ -3727,6 +3788,17 @@ window.addMin = function(key, hora, nome, acId){
         if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
         return;
       }
+    }
+  }
+
+  // ALERTA DE ALTA SUBSTITUIÇÃO: no mês anterior, essa pessoa foi substituída em 50% ou mais
+  // das vezes em que estava escalada — vale parar e pensar antes de escalar de novo.
+  if(_flagsAltaSubstituicao[nome]){
+    const info = _flagsAltaSubstituicao[nome];
+    const ok = confirm(`⚠️ ATENÇÃO — Pede substituição com frequência\n\n${nome} foi substituído(a) em ${info.percentual}% das vezes em que serviu em ${mesKeyLegivel(info.mesKeyAnterior)} (${info.totalSubstituido} de ${info.totalEscalado}).\n\nVale considerar se faz sentido continuar escalando essa pessoa neste horário.\n\nDeseja escalá-lo(a) mesmo assim?`);
+    if(!ok){
+      if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+      return;
     }
   }
 
