@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.83.0';
+const APP_VERSAO = '19.85.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4970,7 +4970,8 @@ async function calcularAlertaPresenca(){
     }
   }
 
-  // SEMANAL
+  // SEMANAL — checagem diária: cada dia, cada horário, é avaliado sozinho, assim que a data e
+  // hora daquela missa específica já tiverem passado. Não espera a semana toda terminar.
   for(const semNum of Object.keys(cal.semanas)){
     const semana = cal.semanas[semNum];
     const docSem = await _lerEscalaDocRaw(`escala_sem_sem${semNum}_${mesKey}`);
