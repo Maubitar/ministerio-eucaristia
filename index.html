@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.69.0';
+const APP_VERSAO = '19.70.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -8914,11 +8914,20 @@ window.marcarPresencaResponsavel = async function(ministroId, status){
   const corposAbertos = document.querySelectorAll('[id^="pr-corpo-"]');
   for(const corpo of corposAbertos){
     if(corpo.style.display==='block' && corpo.dataset.docid && corpo.innerHTML.includes(`marcarPresencaResponsavel('${ministroId}'`)){
-      await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, status, registrante);
+      const ok = await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, status, registrante);
       const idx = parseInt(corpo.id.replace('pr-corpo-',''));
       let jaSalvo = {};
       try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
       renderCorpoDataPresenca(idx, corpo.dataset.docid, jaSalvo);
+      if(ok){
+        const ctx = _presRespCtx;
+        const ministro = ctx.escaladosObjs.find(m=>m.id===ministroId) || ctx.todosMinistros.find(m=>m.id===ministroId);
+        const nome = ministro?.nome || 'Ministro';
+        const dataLabel = ctx.datas[idx]?.data || '';
+        const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição' };
+        const tipoLabel = ctx.tipo==='dom' ? 'Dominical' : `Semanal (${ctx.semana}ª semana)`;
+        toast(`✓ Salvo: ${nome} — ${STATUS_LABEL[status]||status} — Missa ${ctx.horario} ${tipoLabel} — ${dataLabel}`, 'ok');
+      }
       return;
     }
   }
@@ -8935,7 +8944,8 @@ async function _salvarPresencaResponsavel(docId, ministroId, status, registrante
       atualizadoEm: serverTimestamp(),
       viaResponsavel: true
     }, {merge:true});
-  }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); }
+    return true;
+  }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); return false; }
 }
 
 window.buscarSubstitutoPresenca = function(inp, i, substituiuId, substituiuNome){
