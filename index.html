@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.85.0';
+const APP_VERSAO = '19.86.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4926,8 +4926,20 @@ async function calcularAlertaPresenca(){
   const mMes = mesKey.match(/^([a-z]{3})(\d{4})$/);
   const mesIdx = _MESES_KEY_INIT.indexOf(mMes[1]);
   const ano = parseInt(mMes[2]);
-  const cal = calcularCalendario(ano, mesIdx);
   const agora = new Date();
+
+  // Garante que DOMINGOS_MES e SEMANAS_MES refletem o mês certo, COM qualquer ajuste manual
+  // que o coordenador tenha feito (domingo derramado, semana com período customizado) — essa é
+  // a mesma fonte de verdade usada na Escala e na Presença. Recalcular do zero aqui, ignorando
+  // essas customizações, foi o que causou o alerta de setembro tratando a semana errada como
+  // "2ª semana" quando o coordenador tinha configurado esse período manualmente.
+  const cal = calcularCalendario(ano, mesIdx);
+  DOMINGOS_MES.length = 0;
+  cal.domingos.forEach(d=>DOMINGOS_MES.push(d));
+  Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
+  Object.assign(SEMANAS_MES, cal.semanas);
+  if(typeof carregarDomingosCustom==='function') carregarDomingosCustom();
+  if(typeof carregarSemanasLocais==='function') carregarSemanasLocais();
 
   function dataHoraMissa(ddmm, hora){
     const [dd,mm] = ddmm.split('/');
@@ -4962,20 +4974,21 @@ async function calcularAlertaPresenca(){
     });
   }
 
-  // DOMINICAL
+  // DOMINICAL — usa DOMINGOS_MES (já com customização aplicada), não o calendário cru
   const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
-  for(const ddmm of cal.domingos){
+  for(const ddmm of DOMINGOS_MES){
     for(const hora of MISSAS_DOM){
       await avaliar('dom', ddmm, hora, docDom[hora], null);
     }
   }
 
-  // SEMANAL — checagem diária: cada dia, cada horário, é avaliado sozinho, assim que a data e
-  // hora daquela missa específica já tiverem passado. Não espera a semana toda terminar.
-  for(const semNum of Object.keys(cal.semanas)){
-    const semana = cal.semanas[semNum];
+  // SEMANAL — usa SEMANAS_MES (já com período customizado aplicado), checagem diária: cada
+  // dia, cada horário, é avaliado sozinho, assim que a data e hora daquela missa específica já
+  // tiverem passado. Não espera a semana toda terminar.
+  for(const semNum of Object.keys(SEMANAS_MES)){
+    const semana = SEMANAS_MES[semNum];
     const docSem = await _lerEscalaDocRaw(`escala_sem_sem${semNum}_${mesKey}`);
-    for(const diaObj of semana.dias){
+    for(const diaObj of (semana.dias||[])){
       if(!diaObj.mesRef) continue;
       const horariosDoDia = MISSAS_SEM_DIAS[diaObj.dia] || [];
       for(const hora of horariosDoDia){
