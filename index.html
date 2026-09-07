@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.79.0';
+const APP_VERSAO = '19.80.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -162,7 +162,7 @@ const MISSAS_SEM_DIAS = {
   'Sábado':   ['07:00h','09:00h','12:00h','18:00h'],
 };
 
-let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={};
+let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={}, substitutosPorTitular={};
 let _presencaChaveCarregada = null;
 
 // ===== PROTEÇÃO CONTRA PERDA DE DADOS NÃO SALVOS =====
@@ -4698,6 +4698,7 @@ window.renderPresenca = async function(){
   if(info.iso !== _presencaChaveCarregada){
     _presencaChaveCarregada = info.iso;
     Object.keys(presAtual).forEach(k=>delete presAtual[k]); // limpa resíduo de outra data
+    Object.keys(substitutosPorTitular).forEach(k=>delete substitutosPorTitular[k]);
     for(const missa of missas){
       if(!missa.ministros.length) continue;
       try{
@@ -4705,7 +4706,13 @@ window.renderPresenca = async function(){
         const d = await getDoc(doc(db,'presencas',key));
         if(d.exists()){
           const registros = d.data().registros||{};
-          Object.entries(registros).forEach(([id,reg])=>{ presAtual[id] = { status:reg.status||'', justificativa:reg.justificativa||'' }; });
+          Object.entries(registros).forEach(([id,reg])=>{
+            presAtual[id] = { status:reg.status||'', justificativa:reg.justificativa||'' };
+            if(reg.substituto && reg.substituiuNome){
+              const substitutoObj = ministros.find(x=>x.id===id);
+              if(substitutoObj) substitutosPorTitular[reg.substituiuNome] = substitutoObj.nome;
+            }
+          });
         }
       }catch(e){}
     }
@@ -4734,13 +4741,15 @@ window.renderPresenca = async function(){
     const s = id ? (presAtual[id]?.status||'') : '';
     const j = id ? (presAtual[id]?.justificativa||'') : '';
     const seloRef = ehReforco ? ' <span style="font-size:9px;background:#e0f2f1;color:#0A5F5E;padding:1px 6px;border-radius:10px;font-weight:700">+ Reforço</span>' : '';
+    const nomeSubstituto = substitutosPorTitular[nome];
+    const seloSubstituto = nomeSubstituto ? ` <span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700;white-space:nowrap">🔄 veio ${nomeSubstituto.split(' ')[0]}</span>` : '';
     const fotoTela = m?.foto
       ? `<img src="${m.foto}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
       : `<div style="width:32px;height:32px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
     return `<div style="padding:7px 0;border-bottom:1px solid #eee">
       <div style="display:flex;align-items:center;gap:8px">
         ${fotoTela}
-        <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}${seloRef}</span>
+        <span style="flex:1;font-size:13px">${nome}${isResp?' <span style="font-size:10px;background:#faeeda;color:#633806;padding:1px 6px;border-radius:20px;font-weight:600">★ Responsável</span>':''}${seloRef}${seloSubstituto}</span>
         ${btnPFS(id,'P','#085041','#e1f5ee',s)}
         ${btnPFS(id,'F','#A32D2D','#fcebeb',s)}
         ${btnPFS(id,'S','#BA7517','#faeeda',s)}
@@ -12431,6 +12440,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <button class="tab" onclick="tabPres('reuniao',this)">Reunião</button>
       <button class="tab" onclick="tabPres('adoracao',this)">Adoração</button>
     </div>
+    <button onclick="nav('relatorios');setTimeout(()=>selecionarRelatorio('substituicoes'),150)" style="width:100%;margin:10px 0;padding:10px;border:1.5px dashed #185FA5;border-radius:8px;background:#eef5fb;color:#185FA5;font-size:12.5px;font-weight:700;cursor:pointer">📊 Relatórios deste setor (faltas, substituições, pendências)</button>
     <div id="tp-missa">
       <!-- Seletor de mês/ano da presença -->
       <div style="display:flex;gap:6px;margin-bottom:10px">
