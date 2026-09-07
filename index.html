@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.74.0';
+const APP_VERSAO = '19.76.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4879,6 +4879,14 @@ async function _lerEscalaDocRaw(key){
 // Verifica todas as missas JÁ PASSADAS do mês atual (dominical + semanal) e compara quantos
 // ministros foram escalados contra quantos tiveram presença de fato marcada. Separa em duas
 // categorias: quem não marcou NADA, e quem marcou só PARTE dos escalados.
+// O link de presença por responsável só passou a valer a partir de setembro/2026 — meses
+// anteriores a isso nunca geram alerta, mesmo que alguém navegue de volta pra eles.
+// O link de presença por responsável passou a valer em datas DIFERENTES pra cada tipo de escala
+// (a Dominical de setembro/2026 começou dia 06/09, a Semanal começou dia 07/09) — por isso são
+// duas datas de corte separadas, não uma data única por mês. Nunca alerta antes da data em que
+// aquele tipo específico de escala realmente começou a ser controlado.
+const DATA_INICIO_ALERTA_DOMINICAL = new Date(2026, 8, 6); // 06/09/2026
+const DATA_INICIO_ALERTA_SEMANAL   = new Date(2026, 8, 7); // 07/09/2026
 async function calcularAlertaPresenca(){
   const mesKey = getMesAtual();
   const mMes = mesKey.match(/^([a-z]{3})(\d{4})$/);
@@ -4901,7 +4909,10 @@ async function calcularAlertaPresenca(){
 
   async function avaliar(tipo, ddmm, hora, grupo, semanaLabel){
     if(!grupo || !(grupo.ministros||[]).length) return;
-    if(dataHoraMissa(ddmm, hora) > agora) return; // ainda não aconteceu — não avalia
+    const dataHora = dataHoraMissa(ddmm, hora);
+    if(dataHora > agora) return; // ainda não aconteceu — não avalia
+    const corteDoTipo = tipo==='dom' ? DATA_INICIO_ALERTA_DOMINICAL : DATA_INICIO_ALERTA_SEMANAL;
+    if(dataHora < corteDoTipo) return; // antes desse tipo de escala começar a valer — nunca alerta
     const totalEscalados = grupo.ministros.length;
     const dataISO = paraISO(ddmm);
     let registros = {};
