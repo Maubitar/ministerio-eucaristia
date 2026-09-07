@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.77.0';
+const APP_VERSAO = '19.78.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4544,7 +4544,13 @@ async function autoPosicionarDataComEscala(datas){
     if(!horas.length) continue;
     // chave do documento (1 por dia distinto, cacheado)
     let key = null;
-    if(d.diaSemana==='Domingo'){ key = `escala_dom_${getMesAtual()}`; }
+    // Só considera o domingo se ele realmente pertence ao mês selecionado na tela — sem essa
+    // checagem, um domingo de fora do mês (da margem de navegação) era comparado contra a
+    // escala do mês ERRADO (sempre o mês atualmente selecionado), causando seleção equivocada.
+    if(d.diaSemana==='Domingo'){
+      if(!CAL.domingos.includes(d.data)) continue;
+      key = `escala_dom_${getMesAtual()}`;
+    }
     else {
       let sem=null;
       Object.entries(SEMANAS_MES).forEach(([k,v])=>{ if(v.dias.some(x=>x.data===d.data && x.dia===d.diaSemana)) sem=k; });
