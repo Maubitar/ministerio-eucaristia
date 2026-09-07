@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.70.0';
+const APP_VERSAO = '19.71.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -8842,7 +8842,12 @@ window.toggleDataPresenca = async function(i){
 
   const ctx = _presRespCtx;
   const dt = ctx.datas[i];
-  const docId = `${dt.data.split('/').reverse().join('-')}_${ctx.horario.replace(':','')}`;
+  // Monta a data completa (yyyy-mm-dd) igual à tela principal de Presença — sem o ano,
+  // as marcações do responsável iam pra um documento diferente e nunca apareciam no app.
+  const [dd, mm] = dt.data.split('/');
+  const mAno = (ctx.mesKey||'').match(/(\d{4})$/);
+  const ano = mAno ? mAno[1] : new Date().getFullYear();
+  const docId = `${ano}-${mm}-${dd}_${ctx.horario.replace(':','')}`;
   let jaSalvo = {};
   try{ const d = await getDoc(doc(db,'presencas',docId)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
 
