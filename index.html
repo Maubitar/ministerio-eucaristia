@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.93.0';
+const APP_VERSAO = '19.95.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2101,15 +2101,24 @@ async function atualizarCardPresencaPendente(){
   }
 }
 
-// Mantém o card de Presença Pendente "ao vivo" enquanto a tela Início estiver aberta — a cada
-// 5 minutos, recalcula sozinho, sem precisar sair e voltar da tela pra atualizar.
-let _intervaloPresencaPendente = null;
+// Mantém o card de Presença Pendente "ao vivo" de verdade, reagindo NO INSTANTE em que
+// qualquer presença é salva no banco — usa o recurso de tempo real do Firebase (onSnapshot),
+// não um intervalo de tempo fixo. O pequeno atraso (debounce) é só pra evitar recalcular várias
+// vezes seguidas quando o Firebase manda várias mudanças de uma vez (ex.: ao ligar o listener).
+let _unsubPresencaPendente = null;
+let _debouncePresencaPendente = null;
 function iniciarAtualizacaoAutomaticaPresencaPendente(){
   pararAtualizacaoAutomaticaPresencaPendente();
-  _intervaloPresencaPendente = setInterval(atualizarCardPresencaPendente, 5*60*1000);
+  try{
+    _unsubPresencaPendente = onSnapshot(collection(db,'presencas'), ()=>{
+      clearTimeout(_debouncePresencaPendente);
+      _debouncePresencaPendente = setTimeout(atualizarCardPresencaPendente, 1200);
+    }, (e)=>console.warn('[SOGI] erro no tempo real da Presença Pendente', e));
+  }catch(e){ console.warn('[SOGI] tempo real indisponível, sem atualização automática', e); }
 }
 function pararAtualizacaoAutomaticaPresencaPendente(){
-  if(_intervaloPresencaPendente){ clearInterval(_intervaloPresencaPendente); _intervaloPresencaPendente = null; }
+  if(_unsubPresencaPendente){ _unsubPresencaPendente(); _unsubPresencaPendente = null; }
+  clearTimeout(_debouncePresencaPendente);
 }
 
 function iniciais(nome){ return nome.split(' ').map(x=>x[0]).slice(0,2).join(''); }
@@ -9439,9 +9448,26 @@ window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId,
 function _horarioParaCodigo(hora){ return hora.replace(':',''); } // "12:00h" -> "1200h"
 
 // Manda uma cobrança educada por WhatsApp pro responsável de um horário específico com pendência
-window.cobrarPresencaResponsavel = function(responsavelNome, tipo, hora, dataISO, semanaNum, totalEscalados, totalMarcados, mesKey){
+window.cobrarPresencaResponsavel = async function(responsavelNome, tipo, hora, dataISO, semanaNum, totalEscalados, totalMarcados, mesKey){
   const m = ministros.find(x=>x.nome===responsavelNome);
   if(!m || !m.tel){ toast('Esse responsável não tem telefone cadastrado.','warn'); return; }
+
+  // BLINDAGEM CONTRA DADO DESATUALIZADO: os números recebidos aqui são de quando a tela do
+  // Alerta foi carregada — se a pessoa marcou a presença DEPOIS disso (e antes do clique em
+  // "Cobrar"), cobrar com o número antigo seria um erro grave e injusto. Por isso, confere o
+  // dado mais atual no banco agora, na hora, antes de mandar qualquer mensagem.
+  try{
+    const d = await getDoc(doc(db,'presencas', chavePresenca(dataISO, hora)));
+    const registrosAgora = d.exists() ? (d.data().registros||{}) : {};
+    const totalMarcadoAgora = Object.values(registrosAgora).filter(r=>r?.status).length;
+    if(totalMarcadoAgora >= totalEscalados){
+      toast('✓ Essa presença já foi preenchida nesse meio tempo — cobrança cancelada, nada foi enviado.','ok');
+      if(typeof renderAlertaPresenca==='function') renderAlertaPresenca();
+      return;
+    }
+    totalMarcados = totalMarcadoAgora; // usa o número real e atual na mensagem
+  }catch(e){ /* se a checagem falhar, segue com o número que já tinha, sem travar o coordenador */ }
+
   const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
   const [ano,mes,dia] = dataISO.split('-');
   const dataBR = `${dia}/${mes}`;
