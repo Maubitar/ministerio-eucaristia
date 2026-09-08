@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.91.0';
+const APP_VERSAO = '19.93.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1870,6 +1870,10 @@ window.nav = function(id, btn){
     if(_navHistorico.length > 30) _navHistorico.shift();
   }
   _navAtual = id;
+  // A atualização automática do card de Presença Pendente só faz sentido com a tela Início
+  // visível — para sempre que sair dela, e só volta a ligar dentro de renderInicio() se for
+  // realmente pra lá que a navegação está indo.
+  pararAtualizacaoAutomaticaPresencaPendente();
 
   document.querySelectorAll('.sec').forEach(s=>s.style.display='none');
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
@@ -2063,6 +2067,14 @@ async function renderInicio(){
   }
 
   // Card de Presença Pendente — só aparece se houver missa já realizada sem presença completa
+  await atualizarCardPresencaPendente();
+  iniciarAtualizacaoAutomaticaPresencaPendente();
+}
+
+// Atualiza o card de Presença Pendente na tela Início. Separado de renderInicio() pra poder ser
+// chamado sozinho, em intervalo, sem precisar redesenhar a tela toda — é o que mantém o alerta
+// "ao vivo" enquanto o coordenador estiver com a tela Início aberta.
+async function atualizarCardPresencaPendente(){
   try{
     const { naoPreenchido, parcial } = await calcularAlertaPresenca();
     const totalPendente = naoPreenchido.length + parcial.length;
@@ -2087,6 +2099,17 @@ async function renderInicio(){
     const cardPendenteEl = document.getElementById('card-presenca-pendente');
     if(cardPendenteEl) cardPendenteEl.style.display = 'none';
   }
+}
+
+// Mantém o card de Presença Pendente "ao vivo" enquanto a tela Início estiver aberta — a cada
+// 5 minutos, recalcula sozinho, sem precisar sair e voltar da tela pra atualizar.
+let _intervaloPresencaPendente = null;
+function iniciarAtualizacaoAutomaticaPresencaPendente(){
+  pararAtualizacaoAutomaticaPresencaPendente();
+  _intervaloPresencaPendente = setInterval(atualizarCardPresencaPendente, 5*60*1000);
+}
+function pararAtualizacaoAutomaticaPresencaPendente(){
+  if(_intervaloPresencaPendente){ clearInterval(_intervaloPresencaPendente); _intervaloPresencaPendente = null; }
 }
 
 function iniciais(nome){ return nome.split(' ').map(x=>x[0]).slice(0,2).join(''); }
@@ -4157,11 +4180,11 @@ window.compartilharEscala = async function(){
 // Nenhuma configuração externa pode degradar tamanho, resolução ou conteúdo.
 // Padrões MÍNIMOS garantidos por contrato interno:
 const SOGI_QUALIDADE = Object.freeze({
-  ESCALA_ALVO: 8,           // multiplicador de resolução desejado
+  ESCALA_ALVO: 8,           // multiplicador de resolução desejado — NUNCA reduzido pra caber em limite de tamanho
   ESCALA_MINIMA: 3,         // NUNCA gera abaixo disto (blindagem)
   LADO_MAXIMO: 16000,       // limite físico do navegador
   TAMANHO_MINIMO_BYTES: 5000, // abaixo disto = falha, tenta de novo
-  TAMANHO_MAXIMO_BYTES: 15*1024*1024 // 15MB — com margem sob o limite de 16MB do WhatsApp
+  TAMANHO_MAXIMO_BYTES: 15*1024*1024 // 15MB — limite seguro do WhatsApp (16MB), usado para decidir se divide em mais páginas
 });
 
 async function capturarImagemAlta(elemento){
@@ -4191,16 +4214,6 @@ async function capturarImagemAlta(elemento){
 
   // 4) BLINDAGEM DE INTEGRIDADE: se a captura veio corrompida/pequena, refaz com html2canvas
   if(!blob || blob.size < SOGI_QUALIDADE.TAMANHO_MINIMO_BYTES){
-    const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
-    blob = await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
-  }
-
-  // 4b) BLINDAGEM DE TAMANHO: se mesmo assim o arquivo saiu maior que o limite seguro do
-  // WhatsApp (16MB), reduz a resolução gradualmente e refaz, até caber ou chegar no mínimo.
-  let tentativasReducao = 0;
-  while(blob && blob.size > SOGI_QUALIDADE.TAMANHO_MAXIMO_BYTES && escala > SOGI_QUALIDADE.ESCALA_MINIMA && tentativasReducao < 5){
-    tentativasReducao++;
-    escala = Math.max(SOGI_QUALIDADE.ESCALA_MINIMA, escala * 0.75);
     const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
     blob = await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
   }
@@ -5326,6 +5339,57 @@ function cardHorarioFin(hObj){
 }
 
 // Monta UMA "PÁGINA" (mesmo tamanho/proporção da dominical: 1900px, cabeçalho com logos) para um conjunto de cards
+// Gera a(s) imagem(ns) de uma faixa (semana ou domingo), em qualidade MÁXIMA sempre.
+// Se o conjunto inteiro de cards gerar um arquivo grande demais pro WhatsApp (16MB), divide os
+// cards em duas metades balanceadas por peso e gera duas imagens separadas — cada uma continua
+// na resolução máxima (8x). Nunca reduz nitidez pra caber no limite de tamanho.
+async function capturarPaginaComDivisao(rotulo, tituloFaixa, cards, corBorda, nivel){
+  nivel = nivel || 1;
+  const paginaHtml = montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda);
+  if(!paginaHtml) return [];
+
+  const BASE_W = 1900;
+  const wrap=document.createElement('div');
+  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
+  wrap.innerHTML = paginaHtml;
+  document.body.appendChild(wrap);
+  let blob;
+  try{
+    await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
+      img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
+    ));
+    await new Promise(r=>setTimeout(r,150));
+    blob = await capturarImagemAlta(wrap);
+  }finally{
+    document.body.removeChild(wrap);
+  }
+
+  // Cabe dentro do limite seguro, ou só tem 1 card (não dá mais pra dividir) — retorna como está
+  if(blob.size <= SOGI_QUALIDADE.TAMANHO_MAXIMO_BYTES || cards.length <= 1 || nivel > 4){
+    return [{ blob, label: tituloFaixa }];
+  }
+
+  // Passou do limite: divide os cards em duas metades balanceadas por peso, e gera cada
+  // metade como sua própria imagem em qualidade máxima
+  const ordenados = [...cards].sort((a,b)=>b.peso-a.peso);
+  const grupoA = [], grupoB = [];
+  let pesoA = 0, pesoB = 0;
+  ordenados.forEach(c=>{
+    if(pesoA <= pesoB){ grupoA.push(c); pesoA += c.peso; }
+    else{ grupoB.push(c); pesoB += c.peso; }
+  });
+  // Restaura a ordem original dentro de cada grupo (evita embaralhar os horários na imagem)
+  const emGrupoA = new Set(grupoA);
+  const parteA = cards.filter(c=>emGrupoA.has(c));
+  const parteB = cards.filter(c=>!emGrupoA.has(c));
+
+  const tituloA = `${tituloFaixa} — parte 1 de 2`;
+  const tituloB = `${tituloFaixa} — parte 2 de 2`;
+  const resultA = await capturarPaginaComDivisao(rotulo, tituloA, parteA, corBorda, nivel+1);
+  const resultB = await capturarPaginaComDivisao(rotulo, tituloB, parteB, corBorda, nivel+1);
+  return [...resultA, ...resultB];
+}
+
 function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
   if(!cards.length) return null;
   // Colunas balanceadas por altura. Usa mais colunas quando há muitos horários juntos (ex.: a
@@ -5361,6 +5425,9 @@ function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
 // Retorna um ARRAY de páginas — SEMPRE uma por semana/domingo, nunca dividida em partes.
 // Escalas com muitos horários juntos (Dominical) usam mais colunas em vez de mais páginas.
 // limite físico do navegador e a resolução cai sozinha pra caber).
+// Retorna um ARRAY com os dados de cada faixa (semana/domingo) — NÃO gera a imagem ainda.
+// A imagem só é gerada (e dividida em partes, se precisar) no momento da transmissão real,
+// via capturarPaginaComDivisao — assim a decisão de dividir usa o tamanho medido de verdade.
 function montarPaginasEscalaFinalizada(info){
   const paginas = [];
   (info.semanasComFoto||[]).forEach(sem=>{
@@ -5371,8 +5438,7 @@ function montarPaginasEscalaFinalizada(info){
     }).filter(Boolean);
     if(!cards.length) return;
     const tituloFaixa = sem.label ? `${sem.label}${sem.periodo?' — '+sem.periodo:''}` : (sem.periodo || '');
-    const pagina = montarPaginaEscalaFin(info.rotulo, tituloFaixa, cards, '#085041');
-    if(pagina) paginas.push(pagina);
+    paginas.push({ rotulo: info.rotulo, tituloFaixa, cards, corBorda: '#085041', label: sem.label || tituloFaixa });
   });
   return paginas;
 }
@@ -5724,8 +5790,9 @@ window.transmitirPaginaIndividual = async function(docId, indice){
     const pagina = paginas[indice];
     if(!pagina){ toast('Página não encontrada.','warn'); return; }
     toast('Gerando imagem...','ok');
-    const blob = await gerarBlobDePaginaEscala(pagina);
-    await compartilharVariasImagens([{ blob, nomeArq:`escala_${docId}_${indice+1}.png` }], 'Escala MESCE', info.rotulo);
+    const resultados = await capturarPaginaComDivisao(pagina.rotulo, pagina.tituloFaixa, pagina.cards, pagina.corBorda);
+    const itens = resultados.map((r,i)=>({ blob: r.blob, nomeArq:`escala_${docId}_${indice+1}${resultados.length>1?'_p'+(i+1):''}.png` }));
+    await compartilharVariasImagens(itens, 'Escala MESCE', info.rotulo);
   }catch(e){ toast('Erro ao transmitir: '+e.message,'warn'); }
 };
 
@@ -5740,8 +5807,10 @@ window.compartilharEscalaFinalizada = async function(docId){
     const itens = [];
     for(let i=0;i<paginas.length;i++){
       try{
-        const blob = await gerarBlobDePaginaEscala(paginas[i]);
-        itens.push({ blob, nomeArq:`escala_finalizada_${docId}_${i+1}.png` });
+        const resultados = await capturarPaginaComDivisao(paginas[i].rotulo, paginas[i].tituloFaixa, paginas[i].cards, paginas[i].corBorda);
+        resultados.forEach((r,j)=>{
+          itens.push({ blob: r.blob, nomeArq:`escala_finalizada_${docId}_${i+1}${resultados.length>1?'_p'+(j+1):''}.png` });
+        });
       }catch(e){
         toast('Erro ao gerar imagem '+(i+1)+': '+e.message,'err');
       }
@@ -5765,10 +5834,10 @@ window.transmitirTudoEscalaWhats = async function(mesKey){
     // Ordem fixa: Dominical primeiro, depois as semanas em ordem crescente (1ª, 2ª, 3ª, 4ª...)
     const paginasComNome = [];
     if(infoDom){
-      montarPaginasEscalaFinalizada(infoDom).forEach((html,i)=> paginasComNome.push({html, nome:`dominical${i>0?'_'+(i+1):''}`}));
+      montarPaginasEscalaFinalizada(infoDom).forEach((p,i)=> paginasComNome.push({...p, nome:`dominical${i>0?'_'+(i+1):''}`}));
     }
     if(infoSem){
-      montarPaginasEscalaFinalizada(infoSem).forEach((html,i)=> paginasComNome.push({html, nome:`semana${i+1}`}));
+      montarPaginasEscalaFinalizada(infoSem).forEach((p,i)=> paginasComNome.push({...p, nome:`semana${i+1}`}));
     }
     if(!paginasComNome.length){ toast('Nenhum ministro escalado ainda pra esse mês.','warn'); return; }
     toast(`Gerando ${paginasComNome.length} imagem(ns), na ordem certa...`,'ok');
@@ -5776,11 +5845,14 @@ window.transmitirTudoEscalaWhats = async function(mesKey){
     // Numera o nome do arquivo (1-, 2-, 3-...) pra garantir a ordem certa mesmo se o WhatsApp
     // Desktop pedir pra selecionar os arquivos manualmente numa pasta (aí a ordenação por nome já ajuda)
     const itens = [];
+    let numeroArquivo = 1;
     for(let i=0;i<paginasComNome.length;i++){
       try{
-        const blob = await gerarBlobDePaginaEscala(paginasComNome[i].html);
-        const numero = String(i+1).padStart(2,'0');
-        itens.push({ blob, nomeArq:`${numero}-escala_${mesKey}_${paginasComNome[i].nome}.png` });
+        const resultados = await capturarPaginaComDivisao(paginasComNome[i].rotulo, paginasComNome[i].tituloFaixa, paginasComNome[i].cards, paginasComNome[i].corBorda);
+        resultados.forEach((r,j)=>{
+          const numero = String(numeroArquivo++).padStart(2,'0');
+          itens.push({ blob: r.blob, nomeArq:`${numero}-escala_${mesKey}_${paginasComNome[i].nome}${resultados.length>1?'_p'+(j+1):''}.png` });
+        });
       }catch(e){
         toast('Erro ao gerar imagem '+(i+1)+': '+e.message,'err');
       }
