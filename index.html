@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.89.0';
+const APP_VERSAO = '19.90.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4607,27 +4607,10 @@ window.popularSeletorDatasPresenca = async function(){
   const todas = proximasDatasComMissa();
   let datas = todas.filter(d => modo==='dom' ? d.diaSemana==='Domingo' : d.diaSemana!=='Domingo');
 
-  if(modo==='sem'){
-    // Uma opção por SEMANA (não por dia) — a escala semanal vale para a semana toda
-    const vistas = new Set();
-    const unicas = [];
-    datas.forEach(d=>{
-      const per = periodoDaSemana(d.data, d.diaSemana);
-      const chave = per || d.data;
-      if(!vistas.has(chave)){ vistas.add(chave); unicas.push(d); }
-    });
-    datas = unicas;
-  }
-
   datas.forEach(d=>{
     const opt = document.createElement('option');
     opt.value = JSON.stringify({data:d.data, diaSemana:d.diaSemana, iso:d.iso});
-    if(modo==='sem'){
-      const per = periodoDaSemana(d.data, d.diaSemana);
-      opt.textContent = per ? `Semana de ${per}` : `${d.diaSemana}, ${d.data}`;
-    } else {
-      opt.textContent = `${d.diaSemana}, ${d.data}`;
-    }
+    opt.textContent = `${d.diaSemana}, ${d.data}`;
     sel.appendChild(opt);
   });
   await autoPosicionarDataComEscala(datas);
