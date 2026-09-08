@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.90.0';
+const APP_VERSAO = '19.91.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4160,7 +4160,8 @@ const SOGI_QUALIDADE = Object.freeze({
   ESCALA_ALVO: 8,           // multiplicador de resolução desejado
   ESCALA_MINIMA: 3,         // NUNCA gera abaixo disto (blindagem)
   LADO_MAXIMO: 16000,       // limite físico do navegador
-  TAMANHO_MINIMO_BYTES: 5000 // abaixo disto = falha, tenta de novo
+  TAMANHO_MINIMO_BYTES: 5000, // abaixo disto = falha, tenta de novo
+  TAMANHO_MAXIMO_BYTES: 15*1024*1024 // 15MB — com margem sob o limite de 16MB do WhatsApp
 });
 
 async function capturarImagemAlta(elemento){
@@ -4190,6 +4191,16 @@ async function capturarImagemAlta(elemento){
 
   // 4) BLINDAGEM DE INTEGRIDADE: se a captura veio corrompida/pequena, refaz com html2canvas
   if(!blob || blob.size < SOGI_QUALIDADE.TAMANHO_MINIMO_BYTES){
+    const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+    blob = await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
+  }
+
+  // 4b) BLINDAGEM DE TAMANHO: se mesmo assim o arquivo saiu maior que o limite seguro do
+  // WhatsApp (16MB), reduz a resolução gradualmente e refaz, até caber ou chegar no mínimo.
+  let tentativasReducao = 0;
+  while(blob && blob.size > SOGI_QUALIDADE.TAMANHO_MAXIMO_BYTES && escala > SOGI_QUALIDADE.ESCALA_MINIMA && tentativasReducao < 5){
+    tentativasReducao++;
+    escala = Math.max(SOGI_QUALIDADE.ESCALA_MINIMA, escala * 0.75);
     const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
     blob = await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
   }
