@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.99.6';
+const APP_VERSAO = '19.99.7';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2248,44 +2248,10 @@ window.zerarContadoresFaltasAntigas = async function(){
   toast(`✓ ${zerados} contador(es) zerado(s)${falhas?`, ${falhas} falharam`:''}.`, 'ok');
 };
 
-// Corrige registros de Reunião/Adoração salvos pelo quiosque com o campo ERRADO (status:'P' em
-// vez de presente:true) — bug que fazia todo mundo escaneado nesses setores ser contado como
-// falta nos relatórios, mesmo tendo comparecido de verdade. Só ajusta o campo, não mexe em nada
-// mais.
-window.corrigirRegistrosReuniaoAdoracao = async function(){
-  toast('Procurando registros de Reunião/Adoração salvos com o campo errado...','ok');
-  let totalCorrigidos = 0, totalDocs = 0;
-  try{
-    for(const colecao of ['reunioes','adoracoes']){
-      const snap = await getDocs(collection(db,colecao));
-      for(const d of snap.docs){
-        const dados = d.data();
-        const registros = dados.registros || {};
-        let precisaCorrigir = false;
-        const registrosCorrigidos = {};
-        Object.entries(registros).forEach(([id,reg])=>{
-          if(reg && typeof reg==='object' && reg.status && reg.presente===undefined){
-            registrosCorrigidos[id] = { presente: reg.status==='P' };
-            precisaCorrigir = true;
-          } else {
-            registrosCorrigidos[id] = reg;
-          }
-        });
-        if(precisaCorrigir){
-          totalDocs++;
-          const qtdNesseDoc = Object.values(registrosCorrigidos).filter((r,idx)=>{
-            const original = Object.values(registros)[idx];
-            return original && original.status && original.presente===undefined;
-          }).length;
-          totalCorrigidos += qtdNesseDoc;
-          await setDoc(doc(db,colecao,d.id), { registros: registrosCorrigidos }, {merge:true});
-        }
-      }
-    }
-  }catch(e){ toast('Erro ao corrigir: '+e.message,'warn'); return; }
-  if(totalCorrigidos===0){ toast('✓ Nenhum registro com o campo errado encontrado — tudo certo.','ok'); return; }
-  toast(`✓ ${totalCorrigidos} registro(s) corrigido(s) em ${totalDocs} evento(s) — presenças reais restauradas.`, 'ok');
-};
+// NOTA: a ferramenta que existia aqui (corrigirRegistrosReuniaoAdoracao) partia de uma
+// suposição errada sobre o formato de dados de Reunião/Adoração — foi removida. O campo real
+// sempre foi "status" (igual Missa), não "presente". Ver calcularFaltasConsolidadas() para o
+// cálculo corrigido.
 
 window.corrigirPresencasComDataIncompleta = async function(){
   toast('Procurando registros com data incompleta...','ok');
@@ -7088,9 +7054,7 @@ async function relExcecoes(){
 // ===== CORREÇÃO DE REGISTROS DE PRESENÇA (relatórios) — nunca mexe no cadastro do ministro =====
 window.corrigirParaPresente = async function(colecao, docId, ministroId){
   try{
-    const campo = `registros.${ministroId}.` + (colecao==='presencas' ? 'status' : 'presente');
-    const valor = colecao==='presencas' ? 'P' : true;
-    await updateDoc(doc(db,colecao,docId), { [campo]: valor });
+    await updateDoc(doc(db,colecao,docId), { [`registros.${ministroId}.status`]: 'P' });
     toast('✓ Corrigido para presente!');
     if(typeof abrirCorrecaoFaltas._reabrir==='function') abrirCorrecaoFaltas._reabrir();
     else if(typeof renderRelatorios==='function') renderRelatorios();
@@ -7098,11 +7062,16 @@ window.corrigirParaPresente = async function(colecao, docId, ministroId){
 };
 
 // Marca uma falta como JUSTIFICADA — o ministro ligou/avisou com antecedência que não poderia
-// ir. Mantém o registro como falta (não vira presença, seria mentir), mas ela para de contar
-// no total de faltas e some da lista — sem apagar o histórico de verdade.
+// ir. Missa não tem um status próprio pra isso, então usa uma marcação à parte. Reunião e
+// Adoração já têm um status nativo "J" (o mesmo botão que aparece nessas telas), então usa ele
+// — assim fica sempre coerente com o que aparece lá.
 window.marcarFaltaJustificada = async function(colecao, docId, ministroId){
   try{
-    await updateDoc(doc(db,colecao,docId), { [`registros.${ministroId}.justificado`]: true });
+    if(colecao==='presencas'){
+      await updateDoc(doc(db,colecao,docId), { [`registros.${ministroId}.justificado`]: true });
+    } else {
+      await updateDoc(doc(db,colecao,docId), { [`registros.${ministroId}.status`]: 'J' });
+    }
     toast('✓ Marcado como justificado — não conta mais como falta.');
     if(typeof relConsolidado==='function') relConsolidado();
   }catch(e){ toast('Erro ao justificar: '+e.message,'err'); }
@@ -7128,7 +7097,7 @@ window.removerMinistroDaListaFaltas = async function(ministroId, nomeMinistro, c
     snap.docs.forEach(d=>{
       const reg = (d.data().registros||{})[ministroId];
       if(!reg) return;
-      const faltou = colecao==='presencas' ? (reg.status==='F') : (!reg.presente);
+      const faltou = reg.status==='F';
       if(faltou) updates.push(updateDoc(doc(db,colecao,d.id), { [`registros.${ministroId}`]: deleteField() }));
     });
     await Promise.all(updates);
@@ -7151,7 +7120,7 @@ window.abrirCorrecaoFaltas = async function(ministroId, nomeMinistro, colecao){
     const data = d.data();
     const reg = (data.registros||{})[ministroId];
     if(!reg) return;
-    const faltou = colecao==='presencas' ? (reg.status==='F') : (!reg.presente);
+    const faltou = reg.status==='F';
     if(!faltou) return;
     const label = colecao==='presencas'
       ? `⛪ Missa ${data.horario||''} — ${(data.data||'').split('-').reverse().join('/')}`
@@ -7273,6 +7242,23 @@ async function calcularFaltasConsolidadas(){
   // Missa usa o corte por tipo (06/09 dominical, 07/09 semanal), igual ao Alerta de Presença.
   const CORTE_REUNIAO_ADORACAO = new Date(2026, 8, 2);
 
+  // O banco pode ter registros de Reunião/Adoração em DOIS formatos diferentes — o padrão
+  // "status" (usado desde sempre pelas telas manuais e pelo quiosque) e "presente" (formato que
+  // uma correção anterior criou por engano). Essa função entende os dois, pra nenhum registro
+  // ficar invisível pro cálculo, seja qual for o formato em que estiver salvo.
+  function interpretarPresenca(reg){
+    if(!reg || typeof reg!=='object') return 'nenhum';
+    if(typeof reg.status==='string' && reg.status){
+      if(reg.status==='P') return 'presente';
+      if(reg.status==='J') return 'justificado';
+      if(reg.status==='F') return reg.justificado ? 'justificado' : 'falta';
+      return 'nenhum';
+    }
+    if(reg.presente===true) return 'presente';
+    if(reg.presente===false) return reg.justificado ? 'justificado' : 'falta';
+    return 'nenhum';
+  }
+
   snapM.docs.forEach(d=>{
     const data = d.data();
     if(data.data){
@@ -7301,8 +7287,13 @@ async function calcularFaltasConsolidadas(){
     }
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
-      if(reg.presente) cont[id].reunP++;
-      else if(!reg.justificado){ cont[id].reunF++; cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||'', colecao:'reunioes', docId:d.id}); }
+      const r = interpretarPresenca(reg);
+      if(r==='presente') cont[id].reunP++;
+      else if(r==='falta'){
+        cont[id].reunF++;
+        cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||'', colecao:'reunioes', docId:d.id});
+      }
+      // 'justificado' e 'nenhum' nunca contam como falta.
     });
   });
   snapA.docs.forEach(d=>{
@@ -7313,8 +7304,13 @@ async function calcularFaltasConsolidadas(){
     }
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
-      if(reg.presente) cont[id].adorP++;
-      else if(!reg.justificado){ cont[id].adorF++; cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||'', colecao:'adoracoes', docId:d.id}); }
+      const r = interpretarPresenca(reg);
+      if(r==='presente') cont[id].adorP++;
+      else if(r==='falta'){
+        cont[id].adorF++;
+        cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||'', colecao:'adoracoes', docId:d.id});
+      }
+      // 'justificado' e 'nenhum' nunca contam como falta.
     });
   });
 
@@ -7884,8 +7880,8 @@ async function relReunioes(){
   docs.forEach(r=>{
     Object.entries(r.registros||{}).forEach(([id,reg])=>{
       if(!contadores[id]) contadores[id]={presentes:0,faltas:0,justificadas:0};
-      if(reg.presente) contadores[id].presentes++;
-      else{ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
+      if(reg.status==='P') contadores[id].presentes++;
+      else if(reg.status==='F'){ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
     });
   });
 
@@ -7900,7 +7896,7 @@ async function relReunioes(){
     <div style="margin-bottom:12px">
       ${docs.slice(0,5).map(r=>{
         const tot=Object.keys(r.registros||{}).length;
-        const pres=Object.values(r.registros||{}).filter(x=>x.presente).length;
+        const pres=Object.values(r.registros||{}).filter(x=>x.status==='P').length;
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
           <span>${r.data.split('-').reverse().join('/')}</span>
           <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${pres}/${tot} presentes</span>
@@ -7939,8 +7935,8 @@ async function relAdoracoes(){
   docs.forEach(r=>{
     Object.entries(r.registros||{}).forEach(([id,reg])=>{
       if(!contadores[id]) contadores[id]={presentes:0,faltas:0,justificadas:0};
-      if(reg.presente) contadores[id].presentes++;
-      else{ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
+      if(reg.status==='P') contadores[id].presentes++;
+      else if(reg.status==='F'){ contadores[id].faltas++; if((reg.justificativa||'').trim()) contadores[id].justificadas++; }
     });
   });
 
@@ -10597,9 +10593,7 @@ async function qLerFrame(video){
           else{
             _qLidos.add(id);
             if(!_qConfig.registros) _qConfig.registros={};
-            _qConfig.registros[id] = (_qConfig.tipo==='reuniao' || _qConfig.tipo==='adoracao')
-              ? {presente:true}
-              : {status:'P', justificativa:''};
+            _qConfig.registros[id] = {status:'P', justificativa:''};
             qSalvarParcial();
             qFeedback(m,false);
           }
@@ -10687,9 +10681,7 @@ window.confirmarPresencaManualQuiosque = function(id){
   else{
     _qLidos.add(id);
     if(!_qConfig.registros) _qConfig.registros={};
-    _qConfig.registros[id] = (_qConfig.tipo==='reuniao' || _qConfig.tipo==='adoracao')
-      ? {presente:true}
-      : {status:'P', justificativa:''};
+    _qConfig.registros[id] = {status:'P', justificativa:''};
     qSalvarParcial();
     qFeedback(m, false);
   }
@@ -13217,16 +13209,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       exato em que foi marcado.
     </p>
     <button onclick="corrigirPresencasComDataIncompleta()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:14px;font-weight:700;cursor:pointer">🔧 Verificar e corrigir agora</button>
-  </div>
-  <div class="card" style="border:1.5px solid #E9A8A8;background:#fff5f5">
-    <p class="ct" style="color:#A32D2D">🚨 Recuperar presenças de Reunião/Adoração (quiosque)</p>
-    <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 12px">
-      Corrige um bug grave já resolvido: o quiosque estava salvando presenças de Reunião e
-      Adoração com o campo errado, fazendo todo mundo escaneado ser contado como FALTA nos
-      relatórios, mesmo tendo comparecido de verdade. Isso move cada registro pro formato certo,
-      sem apagar nada — restaura a presença real de quem foi escaneado.
-    </p>
-    <button onclick="corrigirRegistrosReuniaoAdoracao()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer">🚨 Verificar e corrigir agora</button>
   </div>
   <div class="card" style="border:1.5px solid #e1d4f0;background:#faf7ff">
     <p class="ct">🔄 Zerar contadores antigos de faltas</p>
