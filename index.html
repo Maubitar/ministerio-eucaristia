@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.99.1';
+const APP_VERSAO = '19.99.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7078,7 +7078,7 @@ window.removerMinistroDaListaFaltas = async function(ministroId, nomeMinistro, c
     snap.docs.forEach(d=>{
       const reg = (d.data().registros||{})[ministroId];
       if(!reg) return;
-      const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (!reg.presente);
+      const faltou = colecao==='presencas' ? (reg.status==='F') : (!reg.presente);
       if(faltou) updates.push(updateDoc(doc(db,colecao,d.id), { [`registros.${ministroId}`]: deleteField() }));
     });
     await Promise.all(updates);
@@ -7101,7 +7101,7 @@ window.abrirCorrecaoFaltas = async function(ministroId, nomeMinistro, colecao){
     const data = d.data();
     const reg = (data.registros||{})[ministroId];
     if(!reg) return;
-    const faltou = colecao==='presencas' ? (reg.status==='F'||reg.status==='S') : (!reg.presente);
+    const faltou = colecao==='presencas' ? (reg.status==='F') : (!reg.presente);
     if(!faltou) return;
     const label = colecao==='presencas'
       ? `⛪ Missa ${data.horario||''} — ${(data.data||'').split('-').reverse().join('/')}`
@@ -7234,10 +7234,12 @@ async function calcularFaltasConsolidadas(){
       init(id);
       const status = typeof reg==='string'?reg:(reg?.status||'');
       if(status==='P') cont[id].missaP++;
-      else if(status==='F'||status==='S'){
+      else if(status==='F'){
         cont[id].missaF++;
         cont[id].eventos.push({tipo:'⛪ Missa', label:`⛪ Missa ${data.horario||''} — ${fmtData(data.data)}`, data:data.data||'', colecao:'presencas', docId:d.id});
       }
+      // status==='S' (Substituição) NUNCA conta como falta — a pessoa arranjou cobertura,
+      // isso não é uma falha dela. Só "F" (Faltou mesmo, sem avisar) conta como falta.
     });
   });
   snapR.docs.forEach(d=>{
@@ -7328,7 +7330,7 @@ async function relConsolidado(){
     <p style="font-size:12px;font-weight:700;color:#333;margin:0 0 2px">⚠️ Ministros com faltas, do maior pro menor (${comFaltas.length})</p>
     <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque num nome para ver exatamente quando e onde faltou.</p>
     <div style="border:1px solid #eee;border-radius:10px;overflow:hidden">${listaHtml}</div>
-    <p style="font-size:10px;color:#888;margin-top:8px">Faltas de missa incluem substituições (S). % geral considera todos os setores juntos.</p>`
+    <p style="font-size:10px;color:#888;margin-top:8px">Substituição (S) nunca conta como falta — só quem faltou sem avisar (F) entra nessa lista. % geral considera todos os setores juntos.</p>`
     : '<p style="font-size:13px;color:#888;padding:8px 0">Nenhum registro de presença ainda em nenhum setor.</p>';
 }
 
