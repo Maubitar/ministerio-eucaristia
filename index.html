@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.97.0';
+const APP_VERSAO = '19.98.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7217,9 +7217,19 @@ async function calcularFaltasConsolidadas(){
   const cont = {};
   function init(id){ if(!cont[id]) cont[id]={missaP:0,missaF:0,reunP:0,reunF:0,adorP:0,adorF:0,eventos:[]}; }
   const fmtData = iso => (iso||'').split('-').reverse().join('/');
+  // Mesma regra usada no resto do sistema: nada antes de quando o controle digital passou a
+  // valer de verdade entra na contagem — evita misturar faltas "de contexto antigo" com dado
+  // real de agora. Reunião e Adoração usam 02/09 (dia em que o quiosque começou a valer);
+  // Missa usa o corte por tipo (06/09 dominical, 07/09 semanal), igual ao Alerta de Presença.
+  const CORTE_REUNIAO_ADORACAO = new Date(2026, 8, 2);
 
   snapM.docs.forEach(d=>{
     const data = d.data();
+    if(data.data){
+      const dataObj = new Date(data.data+'T12:00:00');
+      const corte = dataObj.getDay()===0 ? DATA_INICIO_ALERTA_DOMINICAL : DATA_INICIO_ALERTA_SEMANAL;
+      if(dataObj < corte) return;
+    }
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       const status = typeof reg==='string'?reg:(reg?.status||'');
@@ -7232,6 +7242,10 @@ async function calcularFaltasConsolidadas(){
   });
   snapR.docs.forEach(d=>{
     const data = d.data();
+    if(data.data){
+      const dataObj = new Date(data.data+'T12:00:00');
+      if(dataObj < CORTE_REUNIAO_ADORACAO) return;
+    }
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       if(reg.presente) cont[id].reunP++;
@@ -7240,6 +7254,10 @@ async function calcularFaltasConsolidadas(){
   });
   snapA.docs.forEach(d=>{
     const data = d.data();
+    if(data.data){
+      const dataObj = new Date(data.data+'T12:00:00');
+      if(dataObj < CORTE_REUNIAO_ADORACAO) return;
+    }
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       if(reg.presente) cont[id].adorP++;
