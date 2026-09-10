@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.99.2';
+const APP_VERSAO = '19.99.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7532,31 +7532,76 @@ async function relSubstituicoes(){
     return;
   }
 
-  const linhaTitular = t => `<div style="padding:9px 0;border-bottom:1px solid #f0f0f0">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:13px;font-weight:600">${t.nome}</span>
-      <span style="font-size:11px;background:${t.vezes>=3?'#fcebeb':'#fff3cd'};color:${t.vezes>=3?'#A32D2D':'#BA7517'};padding:2px 9px;border-radius:20px;font-weight:700">${t.vezes}x pediu substituição</span>
+  // As ocorrências vêm com data em "dd/mm" — assume o ano corrente pra achar o dia da semana
+  const fmtDiaSemana = ddmm => {
+    const [dd,mm] = (ddmm||'').split('/');
+    if(!dd || !mm) return ddmm||'';
+    const dias = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+    try{
+      const d = new Date(2026, parseInt(mm)-1, parseInt(dd), 12);
+      return `${dias[d.getDay()]}, ${ddmm}`;
+    }catch(e){ return ddmm; }
+  };
+  const ordenaRecente = lista => [...lista].sort((a,b)=>{
+    const chave = o => { const [dd,mm]=(o.data||'').split('/'); return `${mm}${dd}`; };
+    return chave(b).localeCompare(chave(a));
+  });
+
+  const linhaTitular = (t,i) => `<div style="border-bottom:1px solid #eee">
+    <div onclick="toggleDetalheSubstTitular(${i})" style="display:flex;align-items:center;gap:10px;padding:11px 4px;cursor:pointer">
+      <span style="flex:1;font-size:13.5px;font-weight:600;color:#222">${t.nome}</span>
+      <span style="font-size:11px;padding:2px 9px;border-radius:20px;background:${t.vezes>=3?'#fcebeb':'#fff3cd'};color:${t.vezes>=3?'#A32D2D':'#BA7517'};font-weight:700;flex-shrink:0">${t.vezes}x</span>
+      <span id="seta-subt-${i}" style="color:#bbb;font-size:12px;flex-shrink:0">▾</span>
     </div>
-    <p style="font-size:11px;color:#888;margin:4px 0 0">${t.ocorrencias.map(o=>`${o.horario} (${o.data}) — veio ${o.substituto.split(' ')[0]}`).join(' · ')}</p>
+    <div id="det-subt-${i}" style="display:none;padding:0 4px 10px 4px;background:#fafafa">
+      ${ordenaRecente(t.ocorrencias).map(o=>`
+        <div style="padding:6px 8px;border-top:1px solid #f0f0f0;font-size:12px;color:#444">
+          ${fmtDiaSemana(o.data)} · ${o.horario} — veio ${primeiroNomes(o.substituto)}
+        </div>`).join('')}
+    </div>
   </div>`;
 
-  const linhaSubstituto = s => `<div style="padding:9px 0;border-bottom:1px solid #f0f0f0">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:13px;font-weight:600">${s.nome}</span>
-      <span style="font-size:11px;background:#e1f5ee;color:#1D9E75;padding:2px 9px;border-radius:20px;font-weight:700">${s.vezes}x veio substituir</span>
+  const linhaSubstituto = (s,i) => `<div style="border-bottom:1px solid #eee">
+    <div onclick="toggleDetalheSubstSubstituto(${i})" style="display:flex;align-items:center;gap:10px;padding:11px 4px;cursor:pointer">
+      <span style="flex:1;font-size:13.5px;font-weight:600;color:#222">${s.nome}</span>
+      <span style="font-size:11px;padding:2px 9px;border-radius:20px;background:#e1f5ee;color:#1D9E75;font-weight:700;flex-shrink:0">${s.vezes}x</span>
+      <span id="seta-subs-${i}" style="color:#bbb;font-size:12px;flex-shrink:0">▾</span>
     </div>
-    <p style="font-size:11px;color:#888;margin:4px 0 0">${s.ocorrencias.map(o=>`${o.horario} (${o.data}) — no lugar de ${o.titular.split(' ')[0]}`).join(' · ')}</p>
+    <div id="det-subs-${i}" style="display:none;padding:0 4px 10px 4px;background:#fafafa">
+      ${ordenaRecente(s.ocorrencias).map(o=>`
+        <div style="padding:6px 8px;border-top:1px solid #f0f0f0;font-size:12px;color:#444">
+          ${fmtDiaSemana(o.data)} · ${o.horario} — no lugar de ${primeiroNomes(o.titular)}
+        </div>`).join('')}
+    </div>
   </div>`;
 
   document.getElementById('rel-body').innerHTML = `
-    <p style="font-size:12px;font-weight:700;color:#A32D2D;margin:0 0 4px">🔄 Quem mais pediu substituição</p>
-    <p style="font-size:11px;color:#888;margin:0 0 10px">Ajuda a avaliar se vale a pena continuar escalando — quem pede demais pode precisar de um horário diferente ou de reforço fixo.</p>
-    ${porTitular.map(linhaTitular).join('')}
-    <p style="font-size:12px;font-weight:700;color:#1D9E75;margin:20px 0 4px">🙋 Quem mais veio como substituto</p>
-    <p style="font-size:11px;color:#888;margin:0 0 10px">Ministros de confiança pra chamar quando falta alguém.</p>
-    ${porSubstituto.map(linhaSubstituto).join('')}
+    <p style="font-size:12px;font-weight:700;color:#A32D2D;margin:0 0 2px">🔄 Quem mais pediu substituição (${porTitular.length})</p>
+    <p style="font-size:11px;color:#888;margin:0 0 8px">Toque num nome pra ver quando e com quem. Ajuda a avaliar se vale a pena continuar escalando.</p>
+    <div style="border:1px solid #eee;border-radius:10px;overflow:hidden;margin-bottom:20px">${porTitular.map(linhaTitular).join('')}</div>
+
+    <p style="font-size:12px;font-weight:700;color:#1D9E75;margin:0 0 2px">🙋 Quem mais veio como substituto (${porSubstituto.length})</p>
+    <p style="font-size:11px;color:#888;margin:0 0 8px">Ministros de confiança pra chamar quando falta alguém.</p>
+    <div style="border:1px solid #eee;border-radius:10px;overflow:hidden">${porSubstituto.map(linhaSubstituto).join('')}</div>
   `;
 }
+
+window.toggleDetalheSubstTitular = function(i){
+  const el = document.getElementById('det-subt-'+i);
+  const seta = document.getElementById('seta-subt-'+i);
+  if(!el) return;
+  const abrindo = el.style.display==='none';
+  el.style.display = abrindo ? 'block' : 'none';
+  if(seta) seta.textContent = abrindo ? '▴' : '▾';
+};
+window.toggleDetalheSubstSubstituto = function(i){
+  const el = document.getElementById('det-subs-'+i);
+  const seta = document.getElementById('seta-subs-'+i);
+  if(!el) return;
+  const abrindo = el.style.display==='none';
+  el.style.display = abrindo ? 'block' : 'none';
+  if(seta) seta.textContent = abrindo ? '▴' : '▾';
+};
 
 async function relFaltas(){
   const dados=ministros.map(m=>({
