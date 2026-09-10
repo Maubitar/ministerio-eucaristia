@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.99.3';
+const APP_VERSAO = '19.99.5';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2246,6 +2246,45 @@ window.zerarContadoresFaltasAntigas = async function(){
     }catch(e){ falhas++; }
   }
   toast(`✓ ${zerados} contador(es) zerado(s)${falhas?`, ${falhas} falharam`:''}.`, 'ok');
+};
+
+// Corrige registros de Reunião/Adoração salvos pelo quiosque com o campo ERRADO (status:'P' em
+// vez de presente:true) — bug que fazia todo mundo escaneado nesses setores ser contado como
+// falta nos relatórios, mesmo tendo comparecido de verdade. Só ajusta o campo, não mexe em nada
+// mais.
+window.corrigirRegistrosReuniaoAdoracao = async function(){
+  toast('Procurando registros de Reunião/Adoração salvos com o campo errado...','ok');
+  let totalCorrigidos = 0, totalDocs = 0;
+  try{
+    for(const colecao of ['reunioes','adoracoes']){
+      const snap = await getDocs(collection(db,colecao));
+      for(const d of snap.docs){
+        const dados = d.data();
+        const registros = dados.registros || {};
+        let precisaCorrigir = false;
+        const registrosCorrigidos = {};
+        Object.entries(registros).forEach(([id,reg])=>{
+          if(reg && typeof reg==='object' && reg.status && reg.presente===undefined){
+            registrosCorrigidos[id] = { presente: reg.status==='P' };
+            precisaCorrigir = true;
+          } else {
+            registrosCorrigidos[id] = reg;
+          }
+        });
+        if(precisaCorrigir){
+          totalDocs++;
+          const qtdNesseDoc = Object.values(registrosCorrigidos).filter((r,idx)=>{
+            const original = Object.values(registros)[idx];
+            return original && original.status && original.presente===undefined;
+          }).length;
+          totalCorrigidos += qtdNesseDoc;
+          await setDoc(doc(db,colecao,d.id), { registros: registrosCorrigidos }, {merge:true});
+        }
+      }
+    }
+  }catch(e){ toast('Erro ao corrigir: '+e.message,'warn'); return; }
+  if(totalCorrigidos===0){ toast('✓ Nenhum registro com o campo errado encontrado — tudo certo.','ok'); return; }
+  toast(`✓ ${totalCorrigidos} registro(s) corrigido(s) em ${totalDocs} evento(s) — presenças reais restauradas.`, 'ok');
 };
 
 window.corrigirPresencasComDataIncompleta = async function(){
@@ -7058,6 +7097,17 @@ window.corrigirParaPresente = async function(colecao, docId, ministroId){
   }catch(e){ toast('Erro ao corrigir: '+e.message,'err'); }
 };
 
+// Marca uma falta como JUSTIFICADA — o ministro ligou/avisou com antecedência que não poderia
+// ir. Mantém o registro como falta (não vira presença, seria mentir), mas ela para de contar
+// no total de faltas e some da lista — sem apagar o histórico de verdade.
+window.marcarFaltaJustificada = async function(colecao, docId, ministroId){
+  try{
+    await updateDoc(doc(db,colecao,docId), { [`registros.${ministroId}.justificado`]: true });
+    toast('✓ Marcado como justificado — não conta mais como falta.');
+    if(typeof relConsolidado==='function') relConsolidado();
+  }catch(e){ toast('Erro ao justificar: '+e.message,'err'); }
+};
+
 window.removerRegistroPresenca = async function(colecao, docId, nomeEvento, ministroId){
   if(!confirm(`Remover o registro de "${nomeEvento}" para este ministro?\n\nIsso apaga essa falta específica (como se o evento não valesse pra ele) — não afeta o cadastro do ministro.`)) return;
   try{
@@ -7234,12 +7284,13 @@ async function calcularFaltasConsolidadas(){
       init(id);
       const status = typeof reg==='string'?reg:(reg?.status||'');
       if(status==='P') cont[id].missaP++;
-      else if(status==='F'){
+      else if(status==='F' && !reg?.justificado){
         cont[id].missaF++;
         cont[id].eventos.push({tipo:'⛪ Missa', label:`⛪ Missa ${data.horario||''} — ${fmtData(data.data)}`, data:data.data||'', colecao:'presencas', docId:d.id});
       }
       // status==='S' (Substituição) NUNCA conta como falta — a pessoa arranjou cobertura,
       // isso não é uma falha dela. Só "F" (Faltou mesmo, sem avisar) conta como falta.
+      // Falta marcada como justificada (avisou com antecedência) também não conta.
     });
   });
   snapR.docs.forEach(d=>{
@@ -7251,7 +7302,7 @@ async function calcularFaltasConsolidadas(){
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       if(reg.presente) cont[id].reunP++;
-      else { cont[id].reunF++; cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||'', colecao:'reunioes', docId:d.id}); }
+      else if(!reg.justificado){ cont[id].reunF++; cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||'', colecao:'reunioes', docId:d.id}); }
     });
   });
   snapA.docs.forEach(d=>{
@@ -7263,7 +7314,7 @@ async function calcularFaltasConsolidadas(){
     Object.entries(data.registros||{}).forEach(([id,reg])=>{
       init(id);
       if(reg.presente) cont[id].adorP++;
-      else { cont[id].adorF++; cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||'', colecao:'adoracoes', docId:d.id}); }
+      else if(!reg.justificado){ cont[id].adorF++; cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||'', colecao:'adoracoes', docId:d.id}); }
     });
   });
 
@@ -7318,6 +7369,7 @@ async function relConsolidado(){
           <div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-top:1px solid #f0f0f0">
             <span style="flex:1;font-size:12px;color:#444">${fmtDataLabel(e)} — ${e.tipo}</span>
             <button onclick="event.stopPropagation();corrigirParaPresente('${e.colecao}','${e.docId}','${m.id}')" style="font-size:9px;padding:4px 7px;border:1.5px solid #1D9E75;border-radius:6px;background:white;color:#1D9E75;cursor:pointer;font-weight:600;flex-shrink:0">✅ Presente</button>
+            <button onclick="event.stopPropagation();marcarFaltaJustificada('${e.colecao}','${e.docId}','${m.id}')" style="font-size:9px;padding:4px 7px;border:1.5px solid #185FA5;border-radius:6px;background:white;color:#185FA5;cursor:pointer;font-weight:600;flex-shrink:0;white-space:nowrap">📞 Justificar</button>
             <button onclick="event.stopPropagation();removerRegistroPresenca('${e.colecao}','${e.docId}','${e.label.replace(/'/g,"")}','${m.id}')" style="font-size:9px;padding:4px 7px;border:1.5px solid #A32D2D;border-radius:6px;background:white;color:#A32D2D;cursor:pointer;font-weight:600;flex-shrink:0">🗑️</button>
           </div>`).join('')}
       </div>
@@ -10508,7 +10560,9 @@ async function qLerFrame(video){
           else{
             _qLidos.add(id);
             if(!_qConfig.registros) _qConfig.registros={};
-            _qConfig.registros[id]={status:'P',justificativa:''};
+            _qConfig.registros[id] = (_qConfig.tipo==='reuniao' || _qConfig.tipo==='adoracao')
+              ? {presente:true}
+              : {status:'P', justificativa:''};
             qSalvarParcial();
             qFeedback(m,false);
           }
@@ -10596,7 +10650,9 @@ window.confirmarPresencaManualQuiosque = function(id){
   else{
     _qLidos.add(id);
     if(!_qConfig.registros) _qConfig.registros={};
-    _qConfig.registros[id] = {status:'P', justificativa:''};
+    _qConfig.registros[id] = (_qConfig.tipo==='reuniao' || _qConfig.tipo==='adoracao')
+      ? {presente:true}
+      : {status:'P', justificativa:''};
     qSalvarParcial();
     qFeedback(m, false);
   }
@@ -13123,6 +13179,16 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       exato em que foi marcado.
     </p>
     <button onclick="corrigirPresencasComDataIncompleta()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:14px;font-weight:700;cursor:pointer">🔧 Verificar e corrigir agora</button>
+  </div>
+  <div class="card" style="border:1.5px solid #E9A8A8;background:#fff5f5">
+    <p class="ct" style="color:#A32D2D">🚨 Recuperar presenças de Reunião/Adoração (quiosque)</p>
+    <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 12px">
+      Corrige um bug grave já resolvido: o quiosque estava salvando presenças de Reunião e
+      Adoração com o campo errado, fazendo todo mundo escaneado ser contado como FALTA nos
+      relatórios, mesmo tendo comparecido de verdade. Isso move cada registro pro formato certo,
+      sem apagar nada — restaura a presença real de quem foi escaneado.
+    </p>
+    <button onclick="corrigirRegistrosReuniaoAdoracao()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer">🚨 Verificar e corrigir agora</button>
   </div>
   <div class="card" style="border:1.5px solid #e1d4f0;background:#faf7ff">
     <p class="ct">🔄 Zerar contadores antigos de faltas</p>
