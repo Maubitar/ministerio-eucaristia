@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.96.0';
+const APP_VERSAO = '19.97.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -383,6 +383,7 @@ window.addEventListener('load', async()=>{
     db = getFirestore(app);
     window._db = db;
     await carregarMinistros();
+    migracaoInicioControleSetembro2026();
     escutarMinistrosTempoReal();
     if(typeof carregarAusencias==='function') carregarAusencias();
     setTimeout(()=>{
@@ -1774,6 +1775,29 @@ window.salvarAutoCadastro = async function(){
     b.disabled=false; b.textContent='✓ Confirmar cadastro';
   }
 };
+
+// ===== MIGRAÇÃO AUTOMÁTICA: início do controle digital em setembro/2026 =====
+// Roda sozinha, uma única vez, na próxima vez que o app abrir — zera os contadores de faltas
+// de Reunião e Adoração acumulados antes do controle digital começar de verdade, pra contagem
+// passar a valer a partir de setembro/2026 em todos os setores (missas, reuniões, adorações).
+// Marca num documento no banco que já rodou, pra nunca repetir e nunca zerar de novo sem querer.
+async function migracaoInicioControleSetembro2026(){
+  try{
+    const flagRef = doc(db,'config','migracoes');
+    const flagSnap = await getDoc(flagRef);
+    if(flagSnap.exists() && flagSnap.data().faltasZeradasSetembro2026) return; // já rodou antes
+
+    const comFaltas = ministros.filter(m => (m.faltasReuniao||0) > 0 || (m.faltasAdoracao||0) > 0);
+    for(const m of comFaltas){
+      try{
+        await updateDoc(doc(db,'ministros',m.id), { faltasReuniao:0, faltasAdoracao:0 });
+        m.faltasReuniao = 0; m.faltasAdoracao = 0;
+      }catch(e){}
+    }
+    await setDoc(flagRef, { faltasZeradasSetembro2026: true, executadoEm: serverTimestamp(), zerados: comFaltas.length }, {merge:true});
+    if(comFaltas.length) toast(`✓ Contagem de faltas reiniciada a partir de setembro/2026 (${comFaltas.length} ministro(s) zerado(s)).`, 'ok');
+  }catch(e){ console.warn('[SOGI] migração de início de controle não pôde rodar agora', e); }
+}
 
 async function carregarMinistros(){
   const snap = await getDocs(collection(db,'ministros'));
