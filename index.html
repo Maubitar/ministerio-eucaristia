@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.99.7';
+const APP_VERSAO = '19.99.8';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7386,6 +7386,37 @@ async function relConsolidado(){
 // Diagnóstico: mostra os dados CRUS (sem nenhum cálculo) de um ministro específico, em todas
 // as coleções — usado quando um número parece errado e precisamos ver exatamente o que está
 // gravado no banco, em vez de adivinhar.
+// Diagnóstico por EVENTO inteiro — mostra TODOS os registros de uma data específica de uma vez
+// (não ministro por ministro), pra ver exatamente o que está gravado e comparar com quem
+// realmente participou.
+window.diagnosticarEventoInteiro = async function(colecao, dataISO){
+  const cont = document.getElementById('diag-evento-body');
+  if(!cont) return;
+  cont.style.display = 'block';
+  cont.innerHTML = '<p style="font-size:12px;color:#888">Buscando o documento...</p>';
+  try{
+    const d = await getDoc(doc(db,colecao,dataISO));
+    if(!d.exists()){
+      cont.innerHTML = `<p style="font-size:12px;color:#A32D2D">Não existe nenhum documento "${dataISO}" na coleção "${colecao}". Talvez o quiosque tenha salvo com outro nome de data — veja abaixo a lista de TODOS os documentos dessa coleção pra comparar.</p>`;
+      const snap = await getDocs(collection(db,colecao));
+      cont.innerHTML += `<p style="font-size:11px;font-weight:700;margin:10px 0 4px">Documentos que existem em "${colecao}" (${snap.docs.length}):</p>
+        <pre style="font-size:10.5px;background:#f5f5f3;padding:10px;border-radius:8px;overflow-x:auto;max-height:300px;overflow-y:auto">${snap.docs.map(x=>`"${x.id}" — ${Object.keys(x.data().registros||{}).length} registro(s)`).join('\n')}</pre>`;
+      return;
+    }
+    const dados = d.data();
+    const registros = dados.registros || {};
+    const nomesPorId = {};
+    ministros.forEach(m=>{ nomesPorId[m.id] = m.nome; });
+    const linhas = Object.entries(registros).map(([id,reg])=>`${nomesPorId[id]||'(id desconhecido: '+id+')'} → ${JSON.stringify(reg)}`);
+    cont.innerHTML = `
+      <p style="font-size:12px;font-weight:700;margin:0 0 4px">🔍 Documento "${dataISO}" em "${colecao}"</p>
+      <p style="font-size:11px;color:#888;margin:0 0 8px">${Object.keys(registros).length} pessoa(s) com registro nesse documento, de ${ministros.length} ministros ativos no total.</p>
+      <pre style="font-size:10.5px;background:#f5f5f3;padding:10px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow-y:auto">${linhas.join('\n') || '(nenhum registro dentro do documento)'}</pre>`;
+  }catch(e){
+    cont.innerHTML = `<p style="font-size:12px;color:#A32D2D">Erro: ${e.message}</p>`;
+  }
+};
+
 window.diagnosticarMinistroFaltas = async function(ministroId, nomeMinistro){
   const cont = document.getElementById('diag-faltas-body');
   if(!cont) return;
@@ -13218,6 +13249,22 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       no histórico de presenças salvas — só reinicia o contador.
     </p>
     <button onclick="zerarContadoresFaltasAntigas()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#6B4FA0;color:white;font-size:14px;font-weight:700;cursor:pointer">🔄 Zerar contadores agora</button>
+  </div>
+  <div class="card" style="border:1.5px solid #999;background:#f7f7f7">
+    <p class="ct">🔍 Ver documento cru de um evento</p>
+    <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 10px">
+      Mostra TODOS os registros de uma Reunião ou Adoração numa data específica, direto do banco,
+      sem nenhum cálculo por cima — usado pra investigar quando um número parece errado.
+    </p>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <select id="diag-ev-colecao" style="flex:1;margin:0;padding:9px;border:1px solid #ccc;border-radius:8px;font-size:13px">
+        <option value="adoracoes">Adoração</option>
+        <option value="reunioes">Reunião</option>
+      </select>
+      <input type="date" id="diag-ev-data" value="2026-09-02" style="flex:1;margin:0;padding:9px;border:1px solid #ccc;border-radius:8px;font-size:13px">
+    </div>
+    <button onclick="diagnosticarEventoInteiro(document.getElementById('diag-ev-colecao').value, document.getElementById('diag-ev-data').value)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#333;color:white;font-size:14px;font-weight:700;cursor:pointer">🔍 Ver documento cru</button>
+    <div id="diag-evento-body" style="display:none;margin-top:12px"></div>
   </div>
 
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
