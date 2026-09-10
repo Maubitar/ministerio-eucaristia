@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '19.99.9';
+const APP_VERSAO = '20.0.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7279,21 +7279,30 @@ async function calcularFaltasConsolidadas(){
       // Falta marcada como justificada (avisou com antecedência) também não conta.
     });
   });
+  // Um evento de Reunião/Adoração "já aconteceu" quando o dia dele já terminou de verdade —
+  // só então quem não tem presença registrada passa a contar como falta automaticamente.
+  function eventoJaTerminou(dataISO){
+    if(!dataISO) return false;
+    try{ return new Date(`${dataISO}T23:59:59`) < new Date(); }catch(e){ return false; }
+  }
+
   snapR.docs.forEach(d=>{
     const data = d.data();
     if(data.data){
       const dataObj = new Date(data.data+'T12:00:00');
       if(dataObj < CORTE_REUNIAO_ADORACAO) return;
     }
-    Object.entries(data.registros||{}).forEach(([id,reg])=>{
-      init(id);
-      const r = interpretarPresenca(reg);
-      if(r==='presente') cont[id].reunP++;
-      else if(r==='falta'){
-        cont[id].reunF++;
-        cont[id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||'', colecao:'reunioes', docId:d.id});
+    if(!eventoJaTerminou(data.data)) return; // ainda não aconteceu (ou é hoje) — não avalia ninguém
+    // LÓGICA DIRETA, sem depender de ninguém clicar em nada: avalia TODO ministro ativo. Quem
+    // não tem presença/justificativa registrada nesse evento que já passou já é falta na hora.
+    ministros.forEach(m=>{
+      init(m.id);
+      const r = interpretarPresenca((data.registros||{})[m.id]);
+      if(r==='presente') cont[m.id].reunP++;
+      else if(r!=='justificado'){ // 'falta' OU 'nenhum' (nunca registrado) — os dois contam
+        cont[m.id].reunF++;
+        cont[m.id].eventos.push({tipo:'📋 Reunião', label:`📋 Reunião — ${fmtData(data.data)}`, data:data.data||'', colecao:'reunioes', docId:d.id});
       }
-      // 'justificado' e 'nenhum' nunca contam como falta.
     });
   });
   snapA.docs.forEach(d=>{
@@ -7302,15 +7311,15 @@ async function calcularFaltasConsolidadas(){
       const dataObj = new Date(data.data+'T12:00:00');
       if(dataObj < CORTE_REUNIAO_ADORACAO) return;
     }
-    Object.entries(data.registros||{}).forEach(([id,reg])=>{
-      init(id);
-      const r = interpretarPresenca(reg);
-      if(r==='presente') cont[id].adorP++;
-      else if(r==='falta'){
-        cont[id].adorF++;
-        cont[id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||'', colecao:'adoracoes', docId:d.id});
+    if(!eventoJaTerminou(data.data)) return;
+    ministros.forEach(m=>{
+      init(m.id);
+      const r = interpretarPresenca((data.registros||{})[m.id]);
+      if(r==='presente') cont[m.id].adorP++;
+      else if(r!=='justificado'){
+        cont[m.id].adorF++;
+        cont[m.id].eventos.push({tipo:'🙏 Adoração', label:`🙏 Adoração — ${fmtData(data.data)}`, data:data.data||'', colecao:'adoracoes', docId:d.id});
       }
-      // 'justificado' e 'nenhum' nunca contam como falta.
     });
   });
 
@@ -7389,31 +7398,10 @@ async function relConsolidado(){
 // Diagnóstico por EVENTO inteiro — mostra TODOS os registros de uma data específica de uma vez
 // (não ministro por ministro), pra ver exatamente o que está gravado e comparar com quem
 // realmente participou.
-// FINALIZAR EVENTO: a peça que faltava. O sistema só registra quem FOI escaneado/marcado — quem
-// não aparece fica com o campo vazio, nunca "F". Isso finaliza o evento: todo ministro ativo que
-// ainda não tem presença registrada (nem P, nem J) passa a ser marcado como FALTOU de verdade.
-// Sem isso, quem faltou fica invisível pra sempre nos relatórios.
-window.finalizarEventoReuniaoAdoracao = async function(colecao, dataISO){
-  const nomeEvento = colecao==='adoracoes' ? 'Adoração' : 'Reunião';
-  if(!confirm(`Isso vai marcar como FALTOU todo ministro ativo que ainda NÃO tem presença registrada nessa ${nomeEvento} (${dataISO}) — geralmente quem não foi escaneado. Confirma?`)) return;
-  try{
-    const d = await getDoc(doc(db,colecao,dataISO));
-    const dados = d.exists() ? d.data() : {};
-    const registros = dados.registros || {};
-    let marcados = 0;
-    ministros.forEach(m=>{
-      const reg = registros[m.id];
-      const jaResolvido = reg && (reg.status==='P' || reg.status==='J' || reg.presente===true || reg.presente===false);
-      if(!jaResolvido){
-        registros[m.id] = { status:'F', justificativa: reg?.justificativa||'' };
-        marcados++;
-      }
-    });
-    await setDoc(doc(db,colecao,dataISO), { data:dataISO, registros, atualizadoEm:serverTimestamp() }, {merge:true});
-    toast(`✓ Evento finalizado — ${marcados} ministro(s) marcado(s) como falta (quem não tinha presença registrada).`, 'ok');
-    if(typeof diagnosticarEventoInteiro==='function') diagnosticarEventoInteiro(colecao, dataISO);
-  }catch(e){ toast('Erro ao finalizar: '+e.message, 'err'); }
-};
+// NOTA: existiu aqui uma função "finalizarEventoReuniaoAdoracao" que escrevia "F" no banco pra
+// quem não tinha presença registrada — era um atalho manual. Foi removida porque a lógica em
+// calcularFaltasConsolidadas() agora faz isso sozinha, direto no cálculo, sempre que o evento
+// já tiver acontecido — sem precisar de nenhum clique nem gravar nada extra no banco.
 
 window.diagnosticarEventoInteiro = async function(colecao, dataISO){
   const cont = document.getElementById('diag-evento-body');
@@ -13289,8 +13277,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </select>
       <input type="date" id="diag-ev-data" value="2026-09-02" style="flex:1;margin:0;padding:9px;border:1px solid #ccc;border-radius:8px;font-size:13px">
     </div>
-    <button onclick="diagnosticarEventoInteiro(document.getElementById('diag-ev-colecao').value, document.getElementById('diag-ev-data').value)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#333;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">🔍 Ver documento cru</button>
-    <button onclick="finalizarEventoReuniaoAdoracao(document.getElementById('diag-ev-colecao').value, document.getElementById('diag-ev-data').value)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:14px;font-weight:700;cursor:pointer">🔒 Finalizar evento (marcar quem não veio como falta)</button>
+    <button onclick="diagnosticarEventoInteiro(document.getElementById('diag-ev-colecao').value, document.getElementById('diag-ev-data').value)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#333;color:white;font-size:14px;font-weight:700;cursor:pointer">🔍 Ver documento cru</button>
     <div id="diag-evento-body" style="display:none;margin-top:12px"></div>
   </div>
 
