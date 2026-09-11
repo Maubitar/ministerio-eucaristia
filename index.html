@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.0.2';
+const APP_VERSAO = '20.1.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3293,6 +3293,24 @@ window.carregarNumSemanas = function(){
 // continuar contando com essa pessoa naquele horário. Populado em segundo plano ao abrir a
 // tela de Escala; consultado no exato momento em que o ministro é adicionado a um horário.
 let _flagsAltaSubstituicao = {};
+// ===== CARTÃO AMARELO: 3+ FALTAS EM REUNIÃO/ADORAÇÃO =====
+// Antes de montar a escala, verifica quem já acumulou 3 ou mais faltas (Reunião + Adoração
+// somadas) — usa o MESMO cálculo confiável de calcularFaltasConsolidadas() que já foi blindado
+// e testado, não os contadores antigos (faltasReuniao/faltasAdoracao) que já causaram engano.
+let _cartaoAmarelo = {};
+async function calcularCartaoAmarelo(){
+  try{
+    const dados = await calcularFaltasConsolidadas();
+    _cartaoAmarelo = {};
+    dados.forEach(m=>{
+      const totalReunAdor = m.c.reunF + m.c.adorF;
+      if(totalReunAdor >= 3){
+        _cartaoAmarelo[m.nome] = { total: totalReunAdor, reunF: m.c.reunF, adorF: m.c.adorF };
+      }
+    });
+  }catch(e){ console.log('Erro ao calcular cartão amarelo:', e); }
+}
+
 async function calcularFlagsAltaSubstituicao(){
   try{
     const mesKeyAtual = getMesAtual();
@@ -3358,7 +3376,7 @@ async function calcularFlagsAltaSubstituicao(){
   }catch(e){ console.log('Erro ao calcular flags de substituição:', e); }
 }
 
-window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); carregarDomingosCustom(); calcularFlagsAltaSubstituicao(); };
+window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); carregarDomingosCustom(); calcularFlagsAltaSubstituicao(); calcularCartaoAmarelo(); };
 
 window.verEscalaAnterior = function(){
   const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
@@ -3867,6 +3885,17 @@ window.addMin = function(key, hora, nome, acId){
   if(_flagsAltaSubstituicao[nome]){
     const info = _flagsAltaSubstituicao[nome];
     const ok = confirm(`⚠️ ATENÇÃO — Pede substituição com frequência\n\n${nome} foi substituído(a) em ${info.percentual}% das vezes em que serviu em ${mesKeyLegivel(info.mesKeyAnterior)} (${info.totalSubstituido} de ${info.totalEscalado}).\n\nVale considerar se faz sentido continuar escalando essa pessoa neste horário.\n\nDeseja escalá-lo(a) mesmo assim?`);
+    if(!ok){
+      if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+      return;
+    }
+  }
+
+  // CARTÃO AMARELO: 3 ou mais faltas em Reunião/Adoração — o padre pediu atenção específica a
+  // ministros faltosos. Avisa na hora de escalar, com o motivo declarado, não só um número solto.
+  if(_cartaoAmarelo[nome]){
+    const info = _cartaoAmarelo[nome];
+    const ok = confirm(`🟡 CARTÃO AMARELO — Ministro com restrição por faltas\n\n${nome} tem ${info.total} falta(s) em Reunião/Adoração (${info.reunF} reunião, ${info.adorF} adoração).\n\nEsse ministro tem restrições por motivo de faltas.\n\nDeseja escalá-lo(a) assim mesmo?`);
     if(!ok){
       if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
       return;
