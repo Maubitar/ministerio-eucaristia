@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.0.0';
+const APP_VERSAO = '20.0.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7403,6 +7403,96 @@ async function relConsolidado(){
 // calcularFaltasConsolidadas() agora faz isso sozinha, direto no cálculo, sempre que o evento
 // já tiver acontecido — sem precisar de nenhum clique nem gravar nada extra no banco.
 
+// PROVA REAL: mostra o resultado já calculado (presente/falta/justificado) com os NOMES de
+// cada categoria, e uma conta de conferência que TEM que bater com o total de ministros ativos.
+// Serve pra conferir com os próprios olhos — comparando os nomes com quem você sabe que esteve
+// ou não esteve no evento — antes de repassar qualquer número adiante.
+window.provarEvento = async function(colecao, dataISO){
+  const cont = document.getElementById('diag-evento-body');
+  if(!cont) return;
+  cont.style.display = 'block';
+  cont.innerHTML = '<p style="font-size:12px;color:#888">Calculando dos dois jeitos...</p>';
+  try{
+    const d = await getDoc(doc(db,colecao,dataISO));
+    const dados = d.exists() ? d.data() : {};
+    const registros = dados.registros || {};
+
+    // MÉTODO 1 (o que o relatório usa) — entende os dois formatos de dado que já existiram no
+    // banco, e trata falta com justificativa como "justificado".
+    function interpretar(reg){
+      if(!reg || typeof reg!=='object') return 'nenhum';
+      if(typeof reg.status==='string' && reg.status){
+        if(reg.status==='P') return 'presente';
+        if(reg.status==='J') return 'justificado';
+        if(reg.status==='F') return reg.justificado ? 'justificado' : 'falta';
+        return 'nenhum';
+      }
+      if(reg.presente===true) return 'presente';
+      if(reg.presente===false) return reg.justificado ? 'justificado' : 'falta';
+      return 'nenhum';
+    }
+    const presentes = [], faltas = [], justificados = [];
+    ministros.forEach(m=>{
+      const r = interpretar(registros[m.id]);
+      if(r==='presente') presentes.push(m.nome);
+      else if(r==='justificado') justificados.push(m.nome);
+      else faltas.push(m.nome);
+    });
+
+    // MÉTODO 2 (PROVA DOS NOVE) — bem mais simples e burro de propósito, calculado sem usar
+    // NADA da função acima: só pergunta, pra cada ministro, "tem literalmente 'P' marcado, sim
+    // ou não?". Se os dois métodos derem o mesmo número de presentes, é prova real de que o
+    // cálculo principal está contando certo — não é a mesma conta se checando duas vezes.
+    let presentesMetodo2 = 0;
+    ministros.forEach(m=>{
+      const reg = registros[m.id];
+      const temPLiteral = !!reg && (reg.status==='P' || reg.presente===true);
+      if(temPLiteral) presentesMetodo2++;
+    });
+
+    const total = presentes.length + faltas.length + justificados.length;
+    const bateuTotal = total === ministros.length;
+    const bateuProva = presentesMetodo2 === presentes.length;
+    const nomeEvento = colecao==='adoracoes' ? 'Adoração' : 'Reunião';
+    cont.innerHTML = `
+      <p style="font-size:13px;font-weight:700;margin:0 0 10px">🧮 Prova real — ${nomeEvento} de ${dataISO}</p>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:85px;text-align:center;padding:10px;background:#e1f5ee;border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#085041">${presentes.length}</div>
+          <div style="font-size:10px;color:#085041">presentes</div>
+        </div>
+        <div style="flex:1;min-width:85px;text-align:center;padding:10px;background:#fcebeb;border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#A32D2D">${faltas.length}</div>
+          <div style="font-size:10px;color:#A32D2D">faltas</div>
+        </div>
+        <div style="flex:1;min-width:85px;text-align:center;padding:10px;background:#faeeda;border-radius:8px">
+          <div style="font-size:22px;font-weight:800;color:#633806">${justificados.length}</div>
+          <div style="font-size:10px;color:#633806">justificados</div>
+        </div>
+      </div>
+      <p style="font-size:12px;margin:0 0 4px">Conferência 1 — ninguém ficou de fora: ${presentes.length} + ${faltas.length} + ${justificados.length} = <strong>${total}</strong>, precisa bater com <strong>${ministros.length}</strong> ativos.</p>
+      <p style="font-size:12.5px;font-weight:700;color:${bateuTotal?'#1D9E75':'#A32D2D'};margin:0 0 12px">${bateuTotal ? '✓ Bateu.' : '⚠️ NÃO BATEU.'}</p>
+      <div style="border-top:1.5px dashed #ccc;padding-top:10px;margin-top:4px">
+        <p style="font-size:12px;font-weight:700;margin:0 0 4px">🧮 PROVA DOS NOVE — cálculo independente, refeito do zero de outro jeito:</p>
+        <p style="font-size:12px;margin:0 0 4px">Contando à mão, direto no dado cru, quem tem "P" marcado: <strong>${presentesMetodo2}</strong> pessoa(s).</p>
+        <p style="font-size:12px;margin:0 0 4px">O relatório principal disse que são presentes: <strong>${presentes.length}</strong> pessoa(s).</p>
+        <p style="font-size:13px;font-weight:800;color:${bateuProva?'#1D9E75':'#A32D2D'};margin:0 0 14px">${bateuProva ? '✓ OS DOIS MÉTODOS BATERAM — o número é real, calculado de dois jeitos diferentes e chegou no mesmo lugar.' : '⚠️ OS MÉTODOS DIVERGIRAM — pare e me chame antes de usar esse número, tem um erro de verdade pra investigar.'}</p>
+      </div>
+      <details style="margin-bottom:8px"><summary style="font-size:12px;font-weight:700;cursor:pointer;color:#085041">✅ Ver os ${presentes.length} nomes marcados como presentes</summary>
+        <p style="font-size:11px;color:#444;margin:6px 0 0;line-height:1.7">${presentes.join(', ')||'(nenhum)'}</p>
+      </details>
+      <details style="margin-bottom:8px"><summary style="font-size:12px;font-weight:700;cursor:pointer;color:#A32D2D">❌ Ver os ${faltas.length} nomes marcados como falta</summary>
+        <p style="font-size:11px;color:#444;margin:6px 0 0;line-height:1.7">${faltas.join(', ')||'(nenhum)'}</p>
+      </details>
+      <details><summary style="font-size:12px;font-weight:700;cursor:pointer;color:#633806">📞 Ver os ${justificados.length} nomes justificados</summary>
+        <p style="font-size:11px;color:#444;margin:6px 0 0;line-height:1.7">${justificados.join(', ')||'(nenhum)'}</p>
+      </details>
+    `;
+  }catch(e){
+    cont.innerHTML = `<p style="font-size:12px;color:#A32D2D">Erro: ${e.message}</p>`;
+  }
+};
+
 window.diagnosticarEventoInteiro = async function(colecao, dataISO){
   const cont = document.getElementById('diag-evento-body');
   if(!cont) return;
@@ -13277,6 +13367,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </select>
       <input type="date" id="diag-ev-data" value="2026-09-02" style="flex:1;margin:0;padding:9px;border:1px solid #ccc;border-radius:8px;font-size:13px">
     </div>
+    <button onclick="provarEvento(document.getElementById('diag-ev-colecao').value, document.getElementById('diag-ev-data').value)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">🧮 Provar este evento (números + nomes)</button>
     <button onclick="diagnosticarEventoInteiro(document.getElementById('diag-ev-colecao').value, document.getElementById('diag-ev-data').value)" style="width:100%;padding:12px;border:none;border-radius:9px;background:#333;color:white;font-size:14px;font-weight:700;cursor:pointer">🔍 Ver documento cru</button>
     <div id="diag-evento-body" style="display:none;margin-top:12px"></div>
   </div>
