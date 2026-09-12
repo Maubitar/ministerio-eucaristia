@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.2.0';
+const APP_VERSAO = '20.2.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -327,6 +327,7 @@ window.addEventListener('load', async()=>{
     const app2 = initializeApp(FB);
     db = getFirestore(app2);
     modoIdentificacao(ministroId);
+    if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
   }
   const dispId = params.get('disp');
@@ -334,6 +335,7 @@ window.addEventListener('load', async()=>{
     const app = initializeApp(FB);
     db = getFirestore(app);
     modoDisponibilidade(dispId);
+    if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
   }
   // LINK DO RESPONSÁVEL: abre painel de presença do horário que ele responde (sem login)
@@ -342,6 +344,10 @@ window.addEventListener('load', async()=>{
     const app = initializeApp(FB);
     db = getFirestore(app);
     modoPresencaResponsavel(presRespCodigo);
+    // BLINDAGEM: sem isso, quem já tinha o link salvo no celular podia ficar preso numa versão
+    // antiga em cache do navegador, sem nenhum aviso — a mesma checagem automática da tela
+    // principal também roda aqui, detectando e recarregando sozinho quando sai versão nova.
+    if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
   }
   // LINK UNIVERSAL DE CADASTRO: um único link para todos os ministros se cadastrarem
@@ -350,6 +356,7 @@ window.addEventListener('load', async()=>{
     const app = initializeApp(FB);
     db = getFirestore(app);
     modoAutoCadastro();
+    if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
   }
 
