@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.1.1';
+const APP_VERSAO = '20.2.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9550,6 +9550,29 @@ async function modoPresencaResponsavel(codigo){
     const porNome = {}; todosMinistros.forEach(mm=>{ porNome[mm.nome]=mm; });
     const escaladosObjs = (grupo.ministros||[]).map(nome=>porNome[nome]).filter(Boolean);
 
+    // REFORÇO: horários 12:00h e 18:00h semanais têm equipes extras de reforço (Quinta 18h,
+    // Sábado 12h e 17h) — guardadas à parte da escala normal. Sem isso, o responsável nunca
+    // conseguia marcar a presença de quem serviu só no reforço.
+    const REFORCOS_DO_HORARIO = {
+      '12:00h': [{id:'sab12', label:'Sábado 12h'}],
+      '18:00h': [{id:'qui18', label:'Quinta 18h'}, {id:'sab17', label:'Sábado 17h'}]
+    };
+    const reforcoNomesJaVistos = new Set(escaladosObjs.map(m=>m.nome));
+    if(tipo==='sem' && REFORCOS_DO_HORARIO[horario]){
+      for(const refInfo of REFORCOS_DO_HORARIO[horario]){
+        try{
+          const refKey = `reforco_${refInfo.id}_${mesKey}`;
+          const dRef = await getDoc(doc(db,'reforcos',refKey));
+          const listaRef = dRef.exists() ? (dRef.data().ministros||[]) : [];
+          listaRef.forEach(nome=>{
+            if(reforcoNomesJaVistos.has(nome)) return; // evita duplicar quem já está na escala normal
+            const obj = porNome[nome];
+            if(obj){ escaladosObjs.push({...obj, ehReforco:true, reforcoLabel:refInfo.label}); reforcoNomesJaVistos.add(nome); }
+          });
+        }catch(e){}
+      }
+    }
+
     renderPainelPresencaResponsavel({ tipo, horario, mesKey, semana, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros });
   }catch(e){
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: '+e.message+'</div>';
@@ -9665,10 +9688,11 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
     return `<button onclick="marcarPresencaResponsavel('${m.id}','${valor}')" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
   }
   const tagSubstituto = !ehOriginal ? `<span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700;white-space:nowrap">${reg?.substituiuNome ? 'veio no lugar de '+reg.substituiuNome.split(' ')[0] : 'SUBSTITUTO'}</span>` : '';
+  const tagReforco = m.ehReforco ? `<span style="font-size:9px;background:#faeeda;color:#5a4500;padding:1px 6px;border-radius:10px;font-weight:800;white-space:nowrap">⭐ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
   return `<div>
     <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:${ehOriginal?'none':'1px solid #eee'}">
       ${fotoHtml}
-      <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${tagSubstituto?' '+tagSubstituto:''}</span>
+      <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${tagSubstituto?' '+tagSubstituto:''}${tagReforco?' '+tagReforco:''}</span>
       <div style="display:flex;gap:5px;flex-shrink:0">
         ${botao('P','#1D9E75','P')}
         ${botao('F','#A32D2D','F')}
