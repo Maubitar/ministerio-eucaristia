@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.2.2';
+const APP_VERSAO = '20.3.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9674,16 +9674,69 @@ function renderCorpoDataPresenca(i, docId, registrosSalvos){
   corpo.dataset.carregado='1';
   corpo.dataset.docid=docId;
 
-  // Junta escalados originais + qualquer substituto já adicionado antes (registrado mas não escalado)
+  // Junta escalados originais + qualquer substituto ou reforço extra já adicionado antes
+  // (registrado mas não fazia parte da escala nem do reforço planejado do mês)
   const idsEscalados = new Set(ctx.escaladosObjs.map(m=>m.id));
   const substitutosSalvos = Object.keys(registrosSalvos).filter(id=>!idsEscalados.has(id) && registrosSalvos[id]?.substituto);
+  const reforcosExtraSalvos = Object.keys(registrosSalvos).filter(id=>!idsEscalados.has(id) && registrosSalvos[id]?.reforcoExtra);
   const listaCompleta = [
     ...ctx.escaladosObjs.map(m=>({m, original:true})),
-    ...substitutosSalvos.map(id=>({m:ctx.todosMinistros.find(x=>x.id===id), original:false})).filter(x=>x.m)
+    ...substitutosSalvos.map(id=>({m:ctx.todosMinistros.find(x=>x.id===id), original:false})).filter(x=>x.m),
+    ...reforcosExtraSalvos.map(id=>{ const m=ctx.todosMinistros.find(x=>x.id===id); return m ? {m:{...m, ehReforcoExtra:true}, original:false} : null; }).filter(Boolean)
   ];
 
-  corpo.innerHTML = `<div id="pr-lista-${i}">${listaCompleta.map(({m,original})=>linhaPresencaResponsavel(m, registrosSalvos[m.id], i, original)).join('')}</div>`;
+  corpo.innerHTML = `<div id="pr-lista-${i}">${listaCompleta.map(({m,original})=>linhaPresencaResponsavel(m, registrosSalvos[m.id], i, original)).join('')}</div>
+    <div style="padding:10px 0 4px 4px;position:relative">
+      <a href="#" onclick="toggleReforcoExtraInline(${i});return false" style="font-size:12px;color:#BA7517;font-weight:700;text-decoration:none">➕ Adicionar reforço extra (chegou de última hora)</a>
+      <div id="pr-reforco-extra-${i}" style="display:none;margin-top:6px">
+        <input type="text" id="pr-busca-reforco-${i}" placeholder="🔍 Buscar ministro que veio de reforço..." autocomplete="off"
+          oninput="buscarReforcoExtra(this,${i})"
+          style="width:100%;padding:10px;border:1.5px dashed #BA7517;border-radius:9px;font-size:13px;box-sizing:border-box">
+        <div id="pr-ac-reforco-${i}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+      </div>
+    </div>`;
 }
+
+window.toggleReforcoExtraInline = function(i){
+  const el = document.getElementById('pr-reforco-extra-'+i);
+  if(!el) return;
+  const abrir = el.style.display==='none';
+  el.style.display = abrir ? 'block' : 'none';
+  if(abrir){ const inp=document.getElementById('pr-busca-reforco-'+i); if(inp) inp.focus(); }
+};
+
+window.buscarReforcoExtra = function(inp, i){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById('pr-ac-reforco-'+i);
+  if(!ac) return;
+  if(v.length<2){ ac.style.display='none'; return; }
+  const ctx = _presRespCtx;
+  const jaNaLista = new Set(ctx.escaladosObjs.map(m=>m.nome));
+  const ms = ctx.todosMinistros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaNaLista.has(m.nome)).slice(0,8);
+  if(!ms.length){ ac.style.display='none'; return; }
+  ac.style.display='block';
+  ac.innerHTML = ms.map(m=>`<div onclick="adicionarReforcoExtra('${m.id}',${i})" style="padding:12px;cursor:pointer;font-size:14px;border-bottom:1px solid #f0f0f0">${m.nome}</div>`).join('');
+};
+
+window.adicionarReforcoExtra = async function(ministroId, i){
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de marcar, informe quem está registrando (no topo da tela).','warn'); return; }
+  const corpo = document.getElementById('pr-corpo-'+i);
+  if(!corpo || !corpo.dataset.docid) return;
+  try{
+    await setDoc(doc(db,'presencas',corpo.dataset.docid), {
+      registros: { [ministroId]: { status:'P', reforcoExtra:true, justificativa:'', registradoPor:registrante, registradoEm: Date.now() } },
+      atualizadoEm: serverTimestamp(),
+      viaResponsavel: true
+    }, {merge:true});
+    const ctx = _presRespCtx;
+    const nome = ctx.todosMinistros.find(m=>m.id===ministroId)?.nome || 'Ministro';
+    let jaSalvo = {};
+    try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+    renderCorpoDataPresenca(i, corpo.dataset.docid, jaSalvo);
+    toast(`✓ ${nome} adicionado(a) como reforço extra e já marcado(a) como presente.`, 'ok');
+  }catch(e){ toast('Erro ao adicionar: '+e.message,'warn'); }
+};
 
 function linhaPresencaResponsavel(m, reg, i, ehOriginal){
   const status = reg?.status || '';
@@ -9697,10 +9750,11 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
   }
   const tagSubstituto = !ehOriginal ? `<span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700;white-space:nowrap">${reg?.substituiuNome ? 'veio no lugar de '+reg.substituiuNome.split(' ')[0] : 'SUBSTITUTO'}</span>` : '';
   const tagReforco = m.ehReforco ? `<span style="font-size:9px;background:#faeeda;color:#5a4500;padding:1px 6px;border-radius:10px;font-weight:800;white-space:nowrap">⭐ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
+  const tagReforcoExtra = m.ehReforcoExtra ? `<span style="font-size:9px;background:#faeeda;color:#5a4500;padding:1px 6px;border-radius:10px;font-weight:800;white-space:nowrap">⭐ REFORÇO EXTRA</span>` : '';
   return `<div>
     <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:${ehOriginal?'none':'1px solid #eee'}">
       ${fotoHtml}
-      <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${tagSubstituto?' '+tagSubstituto:''}${tagReforco?' '+tagReforco:''}</span>
+      <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${tagSubstituto?' '+tagSubstituto:''}${tagReforco?' '+tagReforco:''}${tagReforcoExtra?' '+tagReforcoExtra:''}</span>
       <div style="display:flex;gap:5px;flex-shrink:0">
         ${botao('P','#1D9E75','P')}
         ${botao('F','#A32D2D','F')}
