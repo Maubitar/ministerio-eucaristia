@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.3.1';
+const APP_VERSAO = '20.4.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5148,6 +5148,10 @@ async function _lerEscalaDocRaw(key){
 // aquele tipo específico de escala realmente começou a ser controlado.
 const DATA_INICIO_ALERTA_DOMINICAL = new Date(2026, 8, 6); // 06/09/2026
 const DATA_INICIO_ALERTA_SEMANAL   = new Date(2026, 8, 7); // 07/09/2026
+// Reunião e Adoração passaram a ter controle digital confiável a partir de 02/09/2026 (dia em
+// que o quiosque de Adoração começou a valer de verdade). Registros de antes disso são de
+// teste/imprecisos — usado pelos relatórios de Reunião e Adoração pra não misturar com dado real.
+const DATA_CORTE_REUNIAO_ADORACAO_STR = '2026-09-02';
 async function calcularAlertaPresenca(){
   const mesKey = getMesAtual();
   const mMes = mesKey.match(/^([a-z]{3})(\d{4})$/);
@@ -8108,8 +8112,17 @@ window.verTodasEscalas = async function(){
 
 async function relReunioes(){
   const snap=await getDocs(collection(db,'reunioes'));
-  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
-  if(!docs.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma reunião registrada ainda.</p>';return;}
+  const CORTE = DATA_CORTE_REUNIAO_ADORACAO_STR;
+  const todosDocs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
+  const antigos = todosDocs.filter(r=>(r.data||'') < CORTE);
+  const docs = todosDocs.filter(r=>(r.data||'') >= CORTE);
+
+  const avisoAntigos = antigos.length ? `<div style="background:#FFF3CD;border:1.5px solid #F0DE9A;border-radius:9px;padding:10px 12px;margin-bottom:12px">
+      <p style="font-size:12px;color:#856404;margin:0 0 8px"><strong>⚠️ ${antigos.length} registro(s) antigo(s)</strong> de antes de 02/09/2026 — não contam mais nos totais, mas ainda ficam guardados. Você pode apagá-los definitivamente:</p>
+      <button onclick="limparReuniaoAdoracaoAntigas('reunioes')" style="font-size:11px;padding:6px 12px;border:1.5px solid #856404;border-radius:16px;background:white;color:#856404;cursor:pointer;font-weight:600">🧹 Limpar registros antigos</button>
+    </div>` : '';
+
+  if(!docs.length){document.getElementById('rel-body').innerHTML=avisoAntigos+'<p style="font-size:12px;color:#888">Nenhuma reunião registrada a partir de 02/09/2026 ainda.</p>';return;}
 
   const contadores={};
   docs.forEach(r=>{
@@ -8127,14 +8140,19 @@ async function relReunioes(){
   }).sort((a,b)=>b.c.faltas-a.c.faltas);
 
   document.getElementById('rel-body').innerHTML=`
-    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} reunião(ões) registrada(s)</p>
+    ${avisoAntigos}
+    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} reunião(ões) registrada(s) a partir de 02/09/2026</p>
     <div style="margin-bottom:12px">
-      ${docs.slice(0,5).map(r=>{
+      ${docs.slice(0,10).map(r=>{
         const tot=Object.keys(r.registros||{}).length;
         const pres=Object.values(r.registros||{}).filter(x=>x.status==='P').length;
+        const dataFmt = (r.data||'').split('-').reverse().join('/');
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
-          <span>${r.data.split('-').reverse().join('/')}</span>
-          <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${pres}/${tot} presentes</span>
+          <span>${dataFmt}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px">${pres}/${tot} presentes</span>
+            <button onclick="excluirEventoPresenca('reunioes','${r.id}','${dataFmt}')" title="Excluir este registro" style="border:none;background:none;color:#c99;font-size:15px;cursor:pointer;padding:2px 4px">🗑️</button>
+          </div>
         </div>`;
       }).join('')}
     </div>
@@ -8163,8 +8181,17 @@ async function relReunioes(){
 
 async function relAdoracoes(){
   const snap=await getDocs(collection(db,'adoracoes'));
-  const docs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
-  if(!docs.length){document.getElementById('rel-body').innerHTML='<p style="font-size:12px;color:#888">Nenhuma adoração registrada ainda.</p>';return;}
+  const CORTE = DATA_CORTE_REUNIAO_ADORACAO_STR;
+  const todosDocs=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
+  const antigos = todosDocs.filter(r=>(r.data||'') < CORTE);
+  const docs = todosDocs.filter(r=>(r.data||'') >= CORTE);
+
+  const avisoAntigos = antigos.length ? `<div style="background:#FFF3CD;border:1.5px solid #F0DE9A;border-radius:9px;padding:10px 12px;margin-bottom:12px">
+      <p style="font-size:12px;color:#856404;margin:0 0 8px"><strong>⚠️ ${antigos.length} registro(s) antigo(s)</strong> de antes de 02/09/2026 — não contam mais nos totais, mas ainda ficam guardados. Você pode apagá-los definitivamente:</p>
+      <button onclick="limparReuniaoAdoracaoAntigas('adoracoes')" style="font-size:11px;padding:6px 12px;border:1.5px solid #856404;border-radius:16px;background:white;color:#856404;cursor:pointer;font-weight:600">🧹 Limpar registros antigos</button>
+    </div>` : '';
+
+  if(!docs.length){document.getElementById('rel-body').innerHTML=avisoAntigos+'<p style="font-size:12px;color:#888">Nenhuma adoração registrada a partir de 02/09/2026 ainda.</p>';return;}
 
   const contadores={};
   docs.forEach(r=>{
@@ -8182,7 +8209,23 @@ async function relAdoracoes(){
   }).sort((a,b)=>b.c.faltas-a.c.faltas);
 
   document.getElementById('rel-body').innerHTML=`
-    <p style="font-size:12px;color:#888;margin-bottom:4px">${docs.length} adoração(ões) registrada(s)</p>
+    ${avisoAntigos}
+    <p style="font-size:12px;color:#888;margin-bottom:10px">${docs.length} adoração(ões) registrada(s) a partir de 02/09/2026</p>
+    <div style="margin-bottom:12px">
+      ${docs.slice(0,10).map(r=>{
+        const tot=Object.keys(r.registros||{}).length;
+        const pres=Object.values(r.registros||{}).filter(x=>x.status==='P').length;
+        const dataFmt = (r.data||'').split('-').reverse().join('/');
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px">
+          <span>${dataFmt}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;padding:2px 8px;background:#e6f1fb;color:#185FA5;border-radius:20px">${pres}/${tot} presentes</span>
+            <button onclick="excluirEventoPresenca('adoracoes','${r.id}','${dataFmt}')" title="Excluir este registro" style="border:none;background:none;color:#c99;font-size:15px;cursor:pointer;padding:2px 4px">🗑️</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <p style="font-size:12px;font-weight:600;color:#333;margin-bottom:4px">Frequência por ministro</p>
     <p style="font-size:11px;color:#aaa;margin:0 0 8px">Toque em ✏️ para corrigir uma falta lançada errada.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
@@ -8203,6 +8246,66 @@ async function relAdoracoes(){
       </tr>`).join('')}</tbody>
     </table>`;
 }
+
+// Exclui UM evento inteiro de Reunião ou Adoração (ex: registro duplicado do mesmo dia) e
+// corrige de volta as faltas que ele tiver gerado nos ministros — pra não deixar contador
+// desatualizado depois de apagar o registro que causou aquela falta.
+window.excluirEventoPresenca = async function(colecao, docId, dataLabel){
+  const nomeEvento = colecao==='reunioes' ? 'Reunião' : 'Adoração';
+  if(!confirm(`Excluir este registro de ${nomeEvento} — ${dataLabel}?\n\nIsso remove o evento inteiro (todas as presenças marcadas nele) e corrige as faltas que ele gerou nos ministros. Não pode ser desfeito.`)) return;
+  try{
+    const d = await getDoc(doc(db,colecao,docId));
+    if(d.exists()){
+      const registros = d.data().registros||{};
+      const campoFalta = colecao==='reunioes' ? 'faltasReuniao' : 'faltasAdoracao';
+      for(const [ministroId, reg] of Object.entries(registros)){
+        if(reg?.status==='F'){
+          const m = ministros.find(x=>x.id===ministroId);
+          const atual = m ? (m[campoFalta]||0) : 0;
+          if(atual>0){
+            await updateDoc(doc(db,'ministros',ministroId), {[campoFalta]: atual-1});
+            if(m) m[campoFalta] = atual-1;
+          }
+        }
+      }
+    }
+    await deleteDoc(doc(db,colecao,docId));
+    toast('✓ Registro excluído e faltas corrigidas.','ok');
+    if(typeof renderRelatorios==='function') renderRelatorios();
+  }catch(e){ toast('Erro ao excluir: '+e.message,'err'); }
+};
+
+// Apaga TODOS os registros de Reunião ou Adoração de antes de 02/09/2026 de uma vez (dados de
+// teste/imprecisos, de antes do controle digital valer de verdade), corrigindo as faltas que
+// eles tiverem gerado nos ministros antes de remover.
+window.limparReuniaoAdoracaoAntigas = async function(colecao){
+  const CORTE = DATA_CORTE_REUNIAO_ADORACAO_STR;
+  const nomeEvento = colecao==='reunioes' ? 'reuniões' : 'adorações';
+  try{
+    const snap = await getDocs(collection(db,colecao));
+    const antigos = snap.docs.filter(d=>((d.data().data)||'') < CORTE);
+    if(!antigos.length){ toast('Nenhum registro antigo para limpar.','ok'); return; }
+    if(!confirm(`Excluir ${antigos.length} registro(s) de ${nomeEvento} de antes de 02/09/2026?\n\nSão registros antigos/de teste que não contam mais para nada. As faltas que eles tiverem gerado serão corrigidas nos ministros. Não pode ser desfeito.`)) return;
+
+    const campoFalta = colecao==='reunioes' ? 'faltasReuniao' : 'faltasAdoracao';
+    for(const d of antigos){
+      const registros = d.data().registros||{};
+      for(const [ministroId, reg] of Object.entries(registros)){
+        if(reg?.status==='F'){
+          const m = ministros.find(x=>x.id===ministroId);
+          const atual = m ? (m[campoFalta]||0) : 0;
+          if(atual>0){
+            await updateDoc(doc(db,'ministros',ministroId), {[campoFalta]: atual-1});
+            if(m) m[campoFalta] = atual-1;
+          }
+        }
+      }
+      await deleteDoc(doc(db,colecao,d.id));
+    }
+    toast(`✓ ${antigos.length} registro(s) antigo(s) de ${nomeEvento} removido(s).`,'ok');
+    if(typeof renderRelatorios==='function') renderRelatorios();
+  }catch(e){ toast('Erro ao limpar: '+e.message,'err'); }
+};
 
 // O antigo relatório de eventos foi substituído pelo Módulo de Eventos Especiais.
 // Mantido aqui apenas redirecionando, caso algo ainda chame relEventos.
