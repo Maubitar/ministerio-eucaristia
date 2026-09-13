@@ -4702,12 +4702,68 @@ window.filtrarEnvio = function(){
 
 let presQrInstances = {};
 
+// Calcula o ISO (yyyy-mm-dd) de uma data dd/mm dentro de uma semana da escala, cobrindo o caso
+// de a semana virar o ano (ex: última semana de dezembro que entra em janeiro) — mesma lógica
+// já usada em ddmmParaISO() para não desalinhar o ano quando a semana "vaza" de mês.
+function _isoDaDataSemanaPresenca(ddmm, mesSelZeroBased, anoSel){
+  const [dd,mm] = ddmm.split('/');
+  const mesNum = parseInt(mm); // 1-based
+  let ano = anoSel;
+  if(mesNum < (mesSelZeroBased+1) && (mesSelZeroBased+1) >= 11) ano = anoSel+1;
+  else if(mesNum > (mesSelZeroBased+1) && (mesSelZeroBased+1) <= 2) ano = anoSel-1;
+  return `${ano}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+}
+
 window.popularSeletorDatasPresenca = async function(){
   const sel = document.getElementById('pres-data');
   if(!sel || sel.options.length) return;
   const modo = window.presModo || 'dom';
+
+  if(modo === 'sem'){
+    // ORGANIZA POR SEMANA — usa exatamente as mesmas semanas configuradas na Escala (mesmo
+    // período, mesma ordem e mesmos dias, inclusive quando a semana cruza o mês), em vez de
+    // uma lista corrida com dias soltos de meses diferentes.
+    const semanasKeys = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((a,b)=>parseInt(a)-parseInt(b));
+
+    if(!semanasKeys.length){
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Nenhuma semana definida — configure em Escala';
+      sel.appendChild(opt);
+      renderPresenca();
+      return;
+    }
+
+    const mesSel = parseInt(document.getElementById('pres-mes')?.value ?? CAL.mes);
+    const anoBase = parseInt(document.getElementById('pres-ano')?.value ?? CAL.ano);
+    const datasParaAuto = [];
+
+    semanasKeys.forEach(k=>{
+      const info = SEMANAS_MES[k];
+      const dias = (info?.dias||[]).filter(d=>d.dia!=='Domingo');
+      if(!dias.length) return;
+      const grupo = document.createElement('optgroup');
+      grupo.label = `${info.label||k+'ª semana'} — ${info.periodo||''}`;
+      dias.forEach(d=>{
+        const iso = _isoDaDataSemanaPresenca(d.data, mesSel, anoBase);
+        const item = {data:d.data, diaSemana:d.dia, iso};
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify(item);
+        opt.textContent = `${d.dia}, ${d.data}`;
+        grupo.appendChild(opt);
+        datasParaAuto.push(item);
+      });
+      sel.appendChild(grupo);
+    });
+
+    await autoPosicionarDataComEscala(datasParaAuto);
+    renderPresenca();
+    return;
+  }
+
+  // MODO DOMINICAL — lista simples dos domingos do período (já era enxuta, sem mudanças)
   const todas = proximasDatasComMissa();
-  let datas = todas.filter(d => modo==='dom' ? d.diaSemana==='Domingo' : d.diaSemana!=='Domingo');
+  let datas = todas.filter(d => d.diaSemana==='Domingo');
 
   datas.forEach(d=>{
     const opt = document.createElement('option');
@@ -4839,17 +4895,21 @@ window.trocarMesPresenca = function(){
   const m = parseInt(document.getElementById('pres-mes')?.value ?? CAL.mes);
   const a = parseInt(document.getElementById('pres-ano')?.value ?? CAL.ano);
   // Atualiza CAL e SEMANAS_MES para o mês escolhido
+  let cal = null;
   if(typeof calcularCalendario==='function'){
-    const cal = calcularCalendario(a, m);
+    cal = calcularCalendario(a, m);
     Object.assign(CAL, cal);
   }
   const MESES_KEY = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   window.MES_ATUAL_DIN = `${MESES_KEY[m]}${a}`;
-  // Carrega as semanas salvas desse mês (para presença semanal)
-  if(typeof carregarSemanasLocais==='function'){
-    _periodoSemanaCustom = {};
-    Object.keys(SEMANAS_MES).forEach(k=>{ if(!isNaN(k)) delete SEMANAS_MES[k]; });
-    carregarSemanasLocais();
+  // Carrega as semanas salvas desse mês (para presença semanal) — prioriza as datas que o
+  // coordenador já configurou em "Definir datas" na Escala; se nunca configurou pra este mês,
+  // usa o cálculo automático do calendário (as mesmas semanas padrão que a Escala mostraria).
+  Object.keys(SEMANAS_MES).forEach(k=>{ if(!isNaN(k)) delete SEMANAS_MES[k]; });
+  _periodoSemanaCustom = {};
+  if(typeof carregarSemanasLocais==='function') carregarSemanasLocais();
+  if(!Object.keys(_periodoSemanaCustom||{}).length && cal?.semanas){
+    Object.assign(SEMANAS_MES, cal.semanas);
   }
   // Limpa e repopula o seletor de datas
   const sel = document.getElementById('pres-data');
@@ -14176,7 +14236,7 @@ function tabPres(tipo,btn){
   if(tipo==='dominical'||tipo==='semanal'){
     window.presModo = tipo==='dominical' ? 'dom' : 'sem';
     const lbl=document.getElementById('pres-data-label');
-    if(lbl) lbl.textContent = tipo==='dominical' ? '📅 Domingo da missa' : '📅 Dia da missa (semana)';
+    if(lbl) lbl.textContent = tipo==='dominical' ? '📅 Domingo da missa' : '📅 Dia da missa — organizado por semana da escala';
     // Repopula o seletor para o modo escolhido
     const sel=document.getElementById('pres-data');
     if(sel) sel.innerHTML='';
