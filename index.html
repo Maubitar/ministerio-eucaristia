@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.2.1';
+const APP_VERSAO = '20.2.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -9692,7 +9692,8 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
     : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${(m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}</div>`;
   function botao(letra, cor, valor){
     const ativo = status===valor;
-    return `<button onclick="marcarPresencaResponsavel('${m.id}','${valor}')" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
+    const proximoValor = ativo ? '' : valor; // clicar de novo no botão já marcado DESMARCA
+    return `<button onclick="marcarPresencaResponsavel('${m.id}','${proximoValor}')" title="${ativo?'Toque para desmarcar':''}" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
   }
   const tagSubstituto = !ehOriginal ? `<span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700;white-space:nowrap">${reg?.substituiuNome ? 'veio no lugar de '+reg.substituiuNome.split(' ')[0] : 'SUBSTITUTO'}</span>` : '';
   const tagReforco = m.ehReforco ? `<span style="font-size:9px;background:#faeeda;color:#5a4500;padding:1px 6px;border-radius:10px;font-weight:800;white-space:nowrap">⭐ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
@@ -9760,9 +9761,9 @@ window.marcarPresencaResponsavel = async function(ministroId, status){
         const ministro = ctx.escaladosObjs.find(m=>m.id===ministroId) || ctx.todosMinistros.find(m=>m.id===ministroId);
         const nome = ministro?.nome || 'Ministro';
         const dataLabel = ctx.datas[idx]?.data || '';
-        const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição' };
+        const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição', '':'Desmarcado' };
         const tipoLabel = ctx.tipo==='dom' ? 'Dominical' : `Semanal (${ctx.semana}ª semana)`;
-        toast(`✓ Salvo: ${nome} — ${STATUS_LABEL[status]||status} — Missa ${ctx.horario} ${tipoLabel} — ${dataLabel}`, 'ok');
+        toast(`✓ ${status==='' ? 'Desmarcado' : 'Salvo'}: ${nome} — ${status===''?'':STATUS_LABEL[status]+' — '}Missa ${ctx.horario} ${tipoLabel} — ${dataLabel}`, 'ok');
       }
       return;
     }
