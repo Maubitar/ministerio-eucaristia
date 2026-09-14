@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.4.0';
+const APP_VERSAO = '20.5.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3319,6 +3319,55 @@ async function calcularCartaoAmarelo(){
   }catch(e){ console.log('Erro ao calcular cartão amarelo:', e); }
 }
 
+// ===== ALERTA DE JUSTIFICATIVAS RECORRENTES (Missa) — Governança S.O.G.I. =====
+// Uma justificativa (J) isolada é normal: imprevisto, doença, motivo pessoal — não é falta e
+// não deve pesar como uma. O que importa observar é o PADRÃO: 2 ou mais justificativas no
+// MESMO mês já merece atenção (nível 1). Se esse padrão se repete em OUTRO mês também —
+// recorrência —, vira nível 2 ("2º cartão amarelo"), e o sistema avisa de novo na hora de
+// escalar essa pessoa, pra evitar que a exceção vire rotina sem ninguém perceber.
+let _alertaJustificativas = {};
+// Converte 'YYYY-MM' (formato usado nas chaves de presenças) para algo legível tipo 'setembro/2026'.
+function _mesISOLegivel(mesISO){
+  const NOMES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const m = (mesISO||'').match(/^(\d{4})-(\d{2})$/);
+  if(!m) return mesISO;
+  const idx = parseInt(m[2])-1;
+  return `${NOMES[idx]||m[2]}/${m[1]}`;
+}
+async function calcularAlertaJustificativas(){
+  try{
+    const snap = await getDocs(collection(db,'presencas'));
+    const porMinistroPorMes = {}; // { ministroId: { 'YYYY-MM': contagem de J } }
+    snap.docs.forEach(d=>{
+      const data = d.data();
+      const dataISO = data.data || '';
+      if(!dataISO) return;
+      const mesKey = dataISO.slice(0,7);
+      Object.entries(data.registros||{}).forEach(([ministroId, reg])=>{
+        const status = typeof reg==='string' ? reg : (reg?.status||'');
+        if(status !== 'J') return;
+        if(!porMinistroPorMes[ministroId]) porMinistroPorMes[ministroId] = {};
+        porMinistroPorMes[ministroId][mesKey] = (porMinistroPorMes[ministroId][mesKey]||0) + 1;
+      });
+    });
+
+    _alertaJustificativas = {};
+    Object.entries(porMinistroPorMes).forEach(([ministroId, porMes])=>{
+      const mesesAltos = Object.entries(porMes).filter(([,qtd])=>qtd>=2).map(([mesKey,qtd])=>({mesKey,qtd}));
+      if(!mesesAltos.length) return;
+      const m = ministros.find(x=>x.id===ministroId);
+      if(!m) return;
+      const totalJustificativas = Object.values(porMes).reduce((a,b)=>a+b,0);
+      _alertaJustificativas[m.nome] = {
+        nivel: mesesAltos.length >= 2 ? 2 : 1,
+        mesesAltos,
+        totalJustificativas,
+        porMes
+      };
+    });
+  }catch(e){ console.log('Erro ao calcular alerta de justificativas:', e); }
+}
+
 async function calcularFlagsAltaSubstituicao(){
   try{
     const mesKeyAtual = getMesAtual();
@@ -3384,7 +3433,7 @@ async function calcularFlagsAltaSubstituicao(){
   }catch(e){ console.log('Erro ao calcular flags de substituição:', e); }
 }
 
-window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); carregarDomingosCustom(); calcularFlagsAltaSubstituicao(); calcularCartaoAmarelo(); };
+window.inicializarEscala = function(){ carregarNumSemanas(); recalcularComSemanas(); carregarDomingosCustom(); calcularFlagsAltaSubstituicao(); calcularCartaoAmarelo(); calcularAlertaJustificativas(); };
 
 window.verEscalaAnterior = function(){
   const mesAtualNum = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
@@ -3907,6 +3956,23 @@ window.addMin = function(key, hora, nome, acId){
     if(info.missa >= 3) motivos.push(`${info.missa} falta(s) em Missa`);
     if(info.reunAdor >= 3) motivos.push(`${info.reunAdor} falta(s) em Reunião/Adoração (${info.reunF} reunião, ${info.adorF} adoração)`);
     const ok = confirm(`🟡 CARTÃO AMARELO — Ministro com restrição por faltas\n\n${nome} tem ${motivos.join(' e ')}.\n\nEsse ministro tem restrições por motivo de faltas.\n\nDeseja escalá-lo(a) assim mesmo?`);
+    if(!ok){
+      if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+      return;
+    }
+  }
+
+  // ALERTA DE JUSTIFICATIVAS RECORRENTES: 2+ justificativas (J) no mesmo mês já pede atenção;
+  // se isso se repetiu em mais de um mês, vira recorrência — 2º cartão amarelo. Justificativa
+  // não é falta, mas o PADRÃO de justificar muito merece ser observado antes de escalar de novo.
+  if(_alertaJustificativas[nome]){
+    const info = _alertaJustificativas[nome];
+    const mesesTxt = info.mesesAltos.map(x=>`${_mesISOLegivel(x.mesKey)} (${x.qtd}x)`).join(', ');
+    const titulo = info.nivel===2 ? '🟠 2º CARTÃO AMARELO — Justificativas recorrentes' : '🟡 ATENÇÃO — Muitas justificativas no mês';
+    const corpo = info.nivel===2
+      ? `${nome} justificou falta 2+ vezes no mesmo mês em MAIS DE UM MÊS (${mesesTxt}, ${info.totalJustificativas} justificativa(s) no total).\n\nJustificativa isolada é normal, mas esse padrão repetido merece uma conversa — pode estar virando rotina.\n\nDeseja escalá-lo(a) assim mesmo?`
+      : `${nome} já justificou falta 2 ou mais vezes em ${mesesTxt} (${info.totalJustificativas} justificativa(s) no total).\n\nVale ficar de olho — se repetir em outro mês, o sistema vai alertar com mais peso.\n\nDeseja escalá-lo(a) assim mesmo?`;
+    const ok = confirm(`${titulo}\n\n${corpo}`);
     if(!ok){
       if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
       return;
@@ -4999,10 +5065,14 @@ window.renderPresenca = async function(){
         ${btnPFS(id,'P','#085041','#e1f5ee',s)}
         ${btnPFS(id,'F','#A32D2D','#fcebeb',s)}
         ${btnPFS(id,'S','#BA7517','#faeeda',s)}
+        ${btnPFS(id,'J','#6B4FA0','#ece5f7',s)}
       </div>
       ${s==='F'?`<input type="text" placeholder="Justificativa da falta (opcional)..." value="${j}"
         oninput="setJustificativa('${id}',this.value)"
         style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#A32D2D;margin-top:5px">`:'' }
+      ${s==='J'?`<input type="text" placeholder="Motivo da justificativa: saúde, viagem, imprevisto..." value="${j}"
+        oninput="setJustificativa('${id}',this.value)"
+        style="width:100%;padding:5px 8px;border:1px solid #d8c8ee;border-radius:6px;font-size:11px;color:#6B4FA0;margin-top:5px">`:'' }
     </div>`;
   };
 
@@ -6950,7 +7020,7 @@ const REL_NOMES = {
   atualizacao:'✅ Quem atualizou cadastro', incompletos:'📸 Quem falta completar', arquidiocese:'📋 Relatório Arquidiocese',
   excecoes:'⚠️ Exceções na escala (log)', escalas:'🗂️ Histórico de escalas e responsáveis', eventos:'🎉 Eventos especiais',
   missas:'⛪ Missas', reunioes:'📋 Reuniões', adoracoes:'🙏 Adorações', consolidado:'🗂️ Presença consolidada', faltas:'🟡 Faltas disciplinares',
-  'disp-escala':'📋 Disponibilidade x Escala', substituicoes:'🔄 Substituições'
+  'disp-escala':'📋 Disponibilidade x Escala', substituicoes:'🔄 Substituições', justificativas:'📝 Justificativas recorrentes'
 };
 
 window.selecionarRelatorio = function(valor){
@@ -6985,6 +7055,7 @@ window.renderRelatorios = async function(){
   if(tab==='consolidado') await relConsolidado();
   if(tab==='disp-escala') await relDisponibilidadeEscala();
   if(tab==='faltas') await relFaltas();
+  if(tab==='justificativas') await relJustificativas();
   if(tab==='substituicoes') await relSubstituicoes();
   if(tab==='escalas') await relEscalas();
   if(tab==='eventos') await relEventos();
@@ -7338,7 +7409,7 @@ async function calcularFaltasConsolidadas(){
     getDocs(collection(db,'adoracoes'))
   ]);
   const cont = {};
-  function init(id){ if(!cont[id]) cont[id]={missaP:0,missaF:0,reunP:0,reunF:0,adorP:0,adorF:0,eventos:[]}; }
+  function init(id){ if(!cont[id]) cont[id]={missaP:0,missaF:0,missaJ:0,reunP:0,reunF:0,adorP:0,adorF:0,eventos:[]}; }
   const fmtData = iso => (iso||'').split('-').reverse().join('/');
   // Mesma regra usada no resto do sistema: nada antes de quando o controle digital passou a
   // valer de verdade entra na contagem — evita misturar faltas "de contexto antigo" com dado
@@ -7374,6 +7445,7 @@ async function calcularFaltasConsolidadas(){
       init(id);
       const status = typeof reg==='string'?reg:(reg?.status||'');
       if(status==='P') cont[id].missaP++;
+      else if(status==='J'){ cont[id].missaJ++; }
       else if(status==='F' && !reg?.justificado){
         cont[id].missaF++;
         cont[id].eventos.push({tipo:'⛪ Missa', label:`⛪ Missa ${data.horario||''} — ${fmtData(data.data)}`, data:data.data||'', colecao:'presencas', docId:d.id});
@@ -7428,7 +7500,7 @@ async function calcularFaltasConsolidadas(){
   });
 
   const dados = ministros.map(m=>{
-    const c = cont[m.id] || {missaP:0,missaF:0,reunP:0,reunF:0,adorP:0,adorF:0,eventos:[]};
+    const c = cont[m.id] || {missaP:0,missaF:0,missaJ:0,reunP:0,reunF:0,adorP:0,adorF:0,eventos:[]};
     const totalP = c.missaP + c.reunP + c.adorP;
     const totalF = c.missaF + c.reunF + c.adorF;
     const tot = totalP + totalF;
@@ -7467,7 +7539,7 @@ async function relConsolidado(){
       <div onclick="toggleDetalheConsolidado(${i})" style="display:flex;align-items:center;gap:10px;padding:11px 4px;cursor:pointer">
         <span style="flex:1;min-width:0">
           <span style="font-size:13.5px;font-weight:600;color:#222">${primeiroNomes(m.nome)}</span>
-          <span style="display:block;font-size:10.5px;color:#999;margin-top:1px">⛪${m.c.missaF} · 📋${m.c.reunF} · 🙏${m.c.adorF}</span>
+          <span style="display:block;font-size:10.5px;color:#999;margin-top:1px">⛪${m.c.missaF} · 📋${m.c.reunF} · 🙏${m.c.adorF}${m.c.missaJ?` · 📝${m.c.missaJ} justificada(s)`:''}</span>
         </span>
         <button onclick="event.stopPropagation();diagnosticarMinistroFaltas('${m.id}','${m.nome.replace(/'/g,"\\'")}')" title="Ver dados crus" style="font-size:12px;padding:5px 7px;border:1.5px solid #999;border-radius:6px;background:white;color:#666;cursor:pointer;flex-shrink:0">🔍</button>
         <span style="font-size:11px;padding:2px 8px;border-radius:20px;background:${m.pct>=80?'#e1f5ee':m.pct>=60?'#faeeda':'#fcebeb'};color:${m.pct>=80?'#085041':m.pct>=60?'#633806':'#A32D2D'};font-weight:600;flex-shrink:0">${m.pct}%</span>
@@ -7953,6 +8025,46 @@ async function relFaltas(){
         </div>
       </div>`).join('')}`
     :'<p style="font-size:13px;color:#1D9E75;padding:8px 0">✓ Nenhum ministro com faltas registradas.</p>';
+}
+
+// ===== RELATÓRIO: JUSTIFICATIVAS RECORRENTES (Missa) — Governança S.O.G.I. =====
+async function relJustificativas(){
+  await calcularAlertaJustificativas();
+  const nomes = Object.keys(_alertaJustificativas).sort((a,b)=>{
+    const na=_alertaJustificativas[a], nb=_alertaJustificativas[b];
+    if(nb.nivel !== na.nivel) return nb.nivel - na.nivel;
+    return nb.totalJustificativas - na.totalJustificativas;
+  });
+
+  const aviso = `<div style="background:#eef5fb;border:1.5px solid #b8d4ea;border-radius:9px;padding:10px 12px;margin-bottom:14px">
+      <p style="font-size:12px;color:#185FA5;margin:0;line-height:1.6">Uma justificativa (J) isolada é normal — imprevisto, saúde, motivo pessoal — e <strong>não conta como falta</strong>. O alerta aqui aparece quando um ministro justifica <strong>2 ou mais vezes no mesmo mês</strong>. Se esse padrão se repete <strong>em outro mês também</strong>, vira recorrência — 🟠 2º cartão amarelo — e o sistema avisa de novo na hora de escalar essa pessoa.</p>
+    </div>`;
+
+  if(!nomes.length){
+    document.getElementById('rel-body').innerHTML = aviso+'<p style="font-size:13px;color:#1D9E75;padding:8px 0">✓ Nenhum padrão de justificativa recorrente identificado.</p>';
+    return;
+  }
+
+  const linhas = nomes.map(nome=>{
+    const info = _alertaJustificativas[nome];
+    const corBadge = info.nivel===2 ? '#A32D2D' : '#BA7517';
+    const bgBadge = info.nivel===2 ? '#fcebeb' : '#faeeda';
+    const tituloBadge = info.nivel===2 ? '🟠 2º Cartão Amarelo' : '🟡 Atenção neste mês';
+    const mesesTxt = info.mesesAltos.map(x=>`${_mesISOLegivel(x.mesKey)} (${x.qtd}x)`).join(', ');
+    return `<div style="border-bottom:1px solid #eee;padding:11px 4px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="font-size:13.5px;font-weight:600;color:#222">${primeiroNomes(nome)}</span>
+        <span style="font-size:11px;padding:2px 9px;border-radius:20px;background:${bgBadge};color:${corBadge};font-weight:700;white-space:nowrap">${tituloBadge}</span>
+      </div>
+      <p style="font-size:11.5px;color:#666;margin:4px 0 0">📝 ${info.totalJustificativas} justificativa(s) ao todo · meses com 2+: ${mesesTxt}</p>
+    </div>`;
+  }).join('');
+
+  document.getElementById('rel-body').innerHTML = `
+    ${aviso}
+    <p style="font-size:12px;font-weight:700;color:#333;margin:0 0 8px">📝 Padrões de justificativa (${nomes.length})</p>
+    <div style="border:1px solid #eee;border-radius:10px;overflow:hidden">${linhas}</div>
+    <p style="font-size:10px;color:#888;margin-top:8px">Contagem baseada nas presenças de Missa marcadas com "J" (Justificado). Não afeta a % de presença nem soma para falta.</p>`;
 }
 
 window.removerDaListaFaltas = async function(ministroId, nome){
@@ -9922,8 +10034,15 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
         ${botao('P','#1D9E75','P')}
         ${botao('F','#A32D2D','F')}
         ${botao('S','#BA7517','S')}
+        ${botao('J','#6B4FA0','J')}
       </div>
     </div>
+    ${status==='J' ? `
+    <div style="padding:0 0 8px 44px">
+      <input type="text" placeholder="Motivo da justificativa (opcional): saúde, viagem, imprevisto..." value="${(reg?.justificativa||'').replace(/"/g,'&quot;')}"
+        onchange="atualizarJustificativaResponsavel('${m.id}',${i},this.value)"
+        style="width:100%;padding:8px 10px;border:1px dashed #6B4FA0;border-radius:8px;font-size:12px;color:#4a3570;box-sizing:border-box">
+    </div>` : ''}
     ${ehOriginal ? `
     <div style="padding:0 0 8px 44px">
       <a href="#" onclick="toggleSubstituirInline('${m.id}',${i});return false" style="font-size:11px;color:#185FA5;text-decoration:none">🔁 Alguém substituiu ${m.nome.split(' ')[0]}?</a>
@@ -9978,7 +10097,7 @@ window.marcarPresencaResponsavel = async function(ministroId, status){
         const ministro = ctx.escaladosObjs.find(m=>m.id===ministroId) || ctx.todosMinistros.find(m=>m.id===ministroId);
         const nome = ministro?.nome || 'Ministro';
         const dataLabel = ctx.datas[idx]?.data || '';
-        const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição', '':'Desmarcado' };
+        const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição', J:'Justificado', '':'Desmarcado' };
         const tipoLabel = ctx.tipo==='dom' ? 'Dominical' : `Semanal (${ctx.semana}ª semana)`;
         toast(`✓ ${status==='' ? 'Desmarcado' : 'Salvo'}: ${nome} — ${status===''?'':STATUS_LABEL[status]+' — '}Missa ${ctx.horario} ${tipoLabel} — ${dataLabel}`, 'ok');
       }
@@ -9987,20 +10106,31 @@ window.marcarPresencaResponsavel = async function(ministroId, status){
   }
 };
 
-async function _salvarPresencaResponsavel(docId, ministroId, status, registrante){
+async function _salvarPresencaResponsavel(docId, ministroId, status, registrante, justificativa){
   const ctx = _presRespCtx;
   const partesData = docId.split('_')[0]; // yyyy-mm-dd
   try{
     await setDoc(doc(db,'presencas',docId), {
       data: partesData,
       horario: ctx.horario,
-      registros: { [ministroId]: { status, justificativa:'', registradoPor:registrante, registradoEm: Date.now() } },
+      registros: { [ministroId]: { status, justificativa: justificativa||'', registradoPor:registrante, registradoEm: Date.now() } },
       atualizadoEm: serverTimestamp(),
       viaResponsavel: true
     }, {merge:true});
     return true;
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); return false; }
 }
+
+// Salva/atualiza só o motivo da justificativa de quem já está marcado como "J", sem mexer no
+// status. Disparado quando o responsável sai do campo de texto (onchange), não a cada letra.
+window.atualizarJustificativaResponsavel = async function(ministroId, i, valor){
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de escrever o motivo, informe quem está registrando (no topo da tela).','warn'); return; }
+  const corpo = document.getElementById('pr-corpo-'+i);
+  if(!corpo || !corpo.dataset.docid) return;
+  const ok = await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, 'J', registrante, valor);
+  if(ok) toast('✓ Motivo da justificativa salvo.','ok');
+};
 
 window.buscarSubstitutoPresenca = function(inp, i, substituiuId, substituiuNome){
   const v = normalizarBusca(inp.value);
@@ -10802,7 +10932,7 @@ window.verDisponiveisReforco = function(){
 };
 
 // ====================== MODO QUIOSQUE (TOTEM) ======================
-let _qStream=null, _qInterval=null, _qLidos=new Set(), _qPausado=false;
+let _qStream=null, _qInterval=null, _qLidos=new Set(), _qPausado=false, _qFocoInterval=null;
 let _qConfig=null; // {tipo, data, horario, senha, registros:{}}
 
 window.abrirQuiosqueCfg = function(){
@@ -10857,8 +10987,12 @@ function iniciarCameraQuiosque(facing){
   // Para stream anterior, se houver
   if(_qStream){ _qStream.getTracks().forEach(t=>t.stop()); _qStream=null; }
   if(_qInterval){ clearInterval(_qInterval); _qInterval=null; }
+  if(_qFocoInterval){ clearInterval(_qFocoInterval); _qFocoInterval=null; }
 
-  navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1280}, height:{ideal:1280}, focusMode:'continuous'}})
+  // Resolução mais alta = QR mais nítido na imagem capturada — ajuda muito a ler carteirinha
+  // mostrada na tela de outro celular (onde o QR já sai "menor" e mais sujeito a reflexo) e
+  // impressos/prints da tela. Pede também foco, exposição e balanço de branco automáticos.
+  navigator.mediaDevices.getUserMedia({video:{facingMode:facing, width:{ideal:1920}, height:{ideal:1920}, focusMode:'continuous', exposureMode:'continuous', whiteBalanceMode:'continuous'}})
     .then(stream=>{
       _qStream=stream;
       video.srcObject=stream;
@@ -10866,13 +11000,21 @@ function iniciarCameraQuiosque(facing){
       video.setAttribute('playsinline','');
       video.muted = true;
       // Tenta forçar foco automático contínuo (ajuda a ler de perto sem precisar ficar ajustando a distância)
-      try{
-        const track = stream.getVideoTracks()[0];
-        const caps = track.getCapabilities ? track.getCapabilities() : {};
-        if(caps.focusMode && caps.focusMode.includes('continuous')){
-          track.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
-        }
-      }catch(e){}
+      const track = stream.getVideoTracks()[0];
+      function reforcarFoco(){
+        try{
+          const caps = track.getCapabilities ? track.getCapabilities() : {};
+          const avancado = [];
+          if(caps.focusMode && caps.focusMode.includes('continuous')) avancado.push({focusMode:'continuous'});
+          if(caps.exposureMode && caps.exposureMode.includes('continuous')) avancado.push({exposureMode:'continuous'});
+          if(avancado.length) track.applyConstraints({advanced:avancado}).catch(()=>{});
+        }catch(e){}
+      }
+      reforcarFoco();
+      // REFOCO PERIÓDICO: o foco automático do navegador tende a "travar" na distância da
+      // última pessoa lida. Reaplicar o modo contínuo de tempos em tempos força o aparelho a
+      // reavaliar o foco pra quem chegou agora — é o que evita "um lê rápido, outro não lê".
+      _qFocoInterval = setInterval(reforcarFoco, 1800);
       // Mostra o botão de lanterna só se o aparelho realmente suportar
       _qTorchLigada = false;
       const btnTorch = document.getElementById('q-btn-torch');
@@ -10884,11 +11026,11 @@ function iniciarCameraQuiosque(facing){
         video.play().then(()=>{
           if(statusEl) statusEl.textContent = '📷 Lendo... aproxime a carteirinha';
           if(_qInterval) clearInterval(_qInterval);
-          _qInterval=setInterval(()=>qLerFrame(video),100);
+          _qInterval=setInterval(()=>qLerFrame(video),70);
         }).catch(()=>{
           if(statusEl) statusEl.textContent = 'Toque na tela para iniciar a câmera';
           const tela=document.getElementById('quiosque-tela');
-          tela.onclick = ()=>{ video.play(); tela.onclick=null; if(_qInterval) clearInterval(_qInterval); _qInterval=setInterval(()=>qLerFrame(video),100); };
+          tela.onclick = ()=>{ video.play(); tela.onclick=null; if(_qInterval) clearInterval(_qInterval); _qInterval=setInterval(()=>qLerFrame(video),70); };
         });
       };
     })
@@ -10942,7 +11084,6 @@ function obterBarcodeDetectorQuiosque(){
 }
 
 let _qLendoAgora = false;
-let _qTentativa = 0;
 async function qLerFrame(video){
   if(_qPausado || _qLendoAgora) return;
   if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
@@ -10961,41 +11102,44 @@ async function qLerFrame(video){
       }catch(e){ /* aparelho não deu suporte nesse frame — segue pro método de reserva */ }
     }
 
-    // MÉTODO DE RESERVA (jsQR): roda sempre que o detector nativo não existe ou não achou nada
-    if(!codigoLido){
+    // MÉTODO DE RESERVA (jsQR): roda sempre que o detector nativo não existe ou não achou nada.
+    // Testa a moldura central (caso comum, carteirinha bem posicionada) E o quadro inteiro
+    // SEMPRE, no mesmo frame — antes, o quadro inteiro só era tentado 1 em cada 4 chamadas, o
+    // que fazia a leitura parecer "sorteio" (às vezes pega rápido, às vezes não pega de jeito
+    // nenhum). Prioriza consistência: são 177 pessoas na fila, ler direito importa mais que
+    // economizar um pouco de processamento.
+    if(!codigoLido && window.jsQR){
       const canvas=document.getElementById('q-canvas');
       const ctx=canvas.getContext('2d');
       const vw=video.videoWidth, vh=video.videoHeight;
-      _qTentativa++;
-      // A cada 4ª tentativa, escaneia o quadro INTEIRO (fallback caso o QR esteja fora da moldura central)
-      const usarQuadroCheio = (_qTentativa % 4 === 0);
-      let sx, sy, lado;
-      if(usarQuadroCheio){
-        lado = Math.min(vw,vh); sx=Math.round((vw-lado)/2); sy=Math.round((vh-lado)/2);
-      } else {
-        lado = Math.round(Math.min(vw,vh) * 0.75);
-        sx = Math.round((vw-lado)/2); sy = Math.round((vh-lado)/2);
-      }
-      const tam = 720; // resolução de trabalho maior — mais nítido pra ler QR mostrado numa tela de celular
-      canvas.width=tam; canvas.height=tam;
-      ctx.drawImage(video, sx, sy, lado, lado, 0, 0, tam, tam);
-      if(window.jsQR){
+      const tam = 900; // resolução de trabalho maior — mais nítido pra ler QR de tela ou impresso
+
+      const tentarRegiao = (lado, sx, sy)=>{
+        canvas.width=tam; canvas.height=tam;
+        ctx.drawImage(video, sx, sy, lado, lado, 0, 0, tam, tam);
         const imageData=ctx.getImageData(0,0,tam,tam);
-        // Tenta ler normal primeiro
         let code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'attemptBoth'});
-        // Se não leu, reforça contraste e tenta de novo — ajuda muito quando o QR está na tela
-        // de um celular (brilho da tela, reflexo) em vez de impresso no papel
-        if(!code){
-          const data = imageData.data;
-          for(let i=0; i<data.length; i+=4){
-            const avg = (data[i]+data[i+1]+data[i+2])/3;
-            const v = avg > 128 ? Math.min(255, avg*1.3) : Math.max(0, avg*0.7);
-            data[i] = data[i+1] = data[i+2] = v;
-          }
-          code = jsQR(data, tam, tam, {inversionAttempts:'attemptBoth'});
+        if(code) return code;
+        // Reforça contraste — ajuda muito quando o QR está na tela de outro celular (brilho
+        // da tela, reflexo) ou é um print/impressão com contraste mais fraco
+        const data = imageData.data;
+        for(let i=0; i<data.length; i+=4){
+          const avg = (data[i]+data[i+1]+data[i+2])/3;
+          const v = avg > 128 ? Math.min(255, avg*1.3) : Math.max(0, avg*0.7);
+          data[i] = data[i+1] = data[i+2] = v;
         }
-        if(code && code.data) codigoLido = code.data;
+        return jsQR(data, tam, tam, {inversionAttempts:'attemptBoth'});
+      };
+
+      // 1) Moldura central (75% do quadro) — carteirinha bem posicionada na mira
+      const ladoCentro = Math.round(Math.min(vw,vh) * 0.75);
+      let code = tentarRegiao(ladoCentro, Math.round((vw-ladoCentro)/2), Math.round((vh-ladoCentro)/2));
+      // 2) Quadro inteiro — cobre QR pequeno, desviado da mira, ou carteirinha segurada de longe
+      if(!code){
+        const ladoTotal = Math.min(vw,vh);
+        code = tentarRegiao(ladoTotal, Math.round((vw-ladoTotal)/2), Math.round((vh-ladoTotal)/2));
       }
+      if(code && code.data) codigoLido = code.data;
     }
 
     if(codigoLido && codigoLido.includes('ministro=')){
@@ -11149,7 +11293,8 @@ window.tentarSairQuiosque = function(){
 function sairQuiosque(){
   if(_qStream) _qStream.getTracks().forEach(t=>t.stop());
   if(_qInterval) clearInterval(_qInterval);
-  _qStream=null; _qInterval=null;
+  if(_qFocoInterval) clearInterval(_qFocoInterval);
+  _qStream=null; _qInterval=null; _qFocoInterval=null;
   const total = _qLidos.size;
   _qLidos=new Set(); _qPausado=false;
   document.getElementById('quiosque-tela').style.display='none';
@@ -13432,6 +13577,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <option value="disp-escala">📋 Disponibilidade x Escala (por horário)</option>
       <option value="substituicoes">🔄 Substituições</option>
       <option value="faltas">Faltas disciplinares</option>
+      <option value="justificativas">📝 Justificativas recorrentes</option>
       <option value="escalas">🗂️ Histórico de escalas e responsáveis</option>
       <option value="eventos">Eventos especiais</option>
       <option value="arquidiocese">📋 Relatório Arquidiocese (nome, nascimento, fone)</option>
@@ -13460,6 +13606,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <button data-rel="consolidado" onclick="selecionarRelatorio('consolidado')" class="rel-chip">🗂️ Presença consolidada (todos os setores)</button>
         <button data-rel="disp-escala" onclick="selecionarRelatorio('disp-escala')" class="rel-chip">📋 Disponibilidade x Escala (por horário)</button>
         <button data-rel="faltas" onclick="selecionarRelatorio('faltas')" class="rel-chip">🟡 Faltas disciplinares</button>
+        <button data-rel="justificativas" onclick="selecionarRelatorio('justificativas')" class="rel-chip">📝 Justificativas recorrentes</button>
       </div>
     </div>
 
