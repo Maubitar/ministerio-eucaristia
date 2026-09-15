@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.10.1';
+const APP_VERSAO = '20.10.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5292,9 +5292,12 @@ window.renderPresenca = async function(){
     const setReforco = new Set(missa.reforco||[]);
     const temReforco = setReforco.size > 0;
     html += `<div style="margin-bottom:14px;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden">
-      <div style="background:#085041;color:white;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+      <div style="background:#085041;color:white;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px">
         <span style="font-weight:700;font-size:14px">⏰ ${missa.hora}${temReforco?' <span style="font-size:9px;background:rgba(255,255,255,.25);padding:1px 7px;border-radius:10px;font-weight:700">inclui reforço</span>':''}</span>
-        <span style="font-size:11px;opacity:.85">${missa.ministros.length} ministro(s)</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;opacity:.85">${missa.ministros.length} ministro(s)</span>
+          <button onclick="limparPresencaMissa('${missa.hora}')" title="Limpar toda a presença deste horário (ex: desfazer um teste)" style="border:none;background:rgba(255,255,255,.2);color:white;font-size:10.5px;padding:3px 8px;border-radius:14px;cursor:pointer;white-space:nowrap">🗑️ Limpar</button>
+        </div>
       </div>
       <div style="padding:4px 12px">
         ${ordenados.map(n=>linha(n, n===responsavel, setReforco.has(n))).join('')}
@@ -5315,6 +5318,22 @@ window.setJustificativa = function(id, val){
   if(!id) return;
   if(!presAtual[id]) presAtual[id]={status:'F',justificativa:''};
   presAtual[id].justificativa = val;
+};
+
+// Apaga por completo o registro de presença de UM horário numa data específica — não mexe em
+// nenhum outro horário nem em outras datas. Serve pra desfazer um teste ou corrigir um
+// lançamento errado sem precisar destoggle pessoa por pessoa.
+window.limparPresencaMissa = async function(hora){
+  if(!presListaAtual) return;
+  const { info } = presListaAtual;
+  if(!confirm(`Limpar TODA a presença da missa ${hora} — ${info.diaSemana}, ${info.data}?\n\nApaga o que foi marcado (P/F/S/J) só pra esse horário/data, incluindo o que veio pelo link do responsável. Não afeta outros horários nem outras datas. Ideal pra desfazer um teste.`)) return;
+  try{
+    const key = chavePresenca(info.iso, hora);
+    await deleteDoc(doc(db,'presencas',key));
+    toast(`✓ Presença da missa ${hora} de ${info.data} foi limpa.`,'ok');
+    _presencaChaveCarregada = null; // força recarregar do zero na próxima renderização
+    renderPresenca();
+  }catch(e){ toast('Erro ao limpar: '+e.message,'err'); }
 };
 
 window.salvarPres = async function(){
