@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.9.0';
+const APP_VERSAO = '20.10.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -162,7 +162,7 @@ const MISSAS_SEM_DIAS = {
   'Sábado':   ['07:00h','09:00h','12:00h','18:00h'],
 };
 
-let db, ministros=[], presAtual={}, presReuniao=new Set(), escalas={}, reforcos={}, substitutosPorTitular={};
+let db, ministros=[], presAtual={}, _presAtualOriginal={}, presReuniao=new Set(), escalas={}, reforcos={}, substitutosPorTitular={};
 let _presencaChaveCarregada = null;
 
 // ===== PROTEÇÃO CONTRA PERDA DE DADOS NÃO SALVOS =====
@@ -1192,7 +1192,7 @@ function cirioConfigPadrao(){
     horarios: ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'],
     grade: {
       dom_cirio:{'06:00':true,'16:00':true,'18:00':true,'20:00':true},
-      dom:      {'06:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true},
+      dom:      {'06:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true},
       seg:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
       ter:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
       qua:      {'05:45':true,'07:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
@@ -5212,6 +5212,7 @@ window.renderPresenca = async function(){
   if(info.iso !== _presencaChaveCarregada){
     _presencaChaveCarregada = info.iso;
     Object.keys(presAtual).forEach(k=>delete presAtual[k]); // limpa resíduo de outra data
+    Object.keys(_presAtualOriginal).forEach(k=>delete _presAtualOriginal[k]);
     Object.keys(substitutosPorTitular).forEach(k=>delete substitutosPorTitular[k]);
     for(const missa of missas){
       if(!missa.ministros.length) continue;
@@ -5222,6 +5223,7 @@ window.renderPresenca = async function(){
           const registros = d.data().registros||{};
           Object.entries(registros).forEach(([id,reg])=>{
             presAtual[id] = { status:reg.status||'', justificativa:reg.justificativa||'' };
+            _presAtualOriginal[id] = { status:reg.status||'', justificativa:reg.justificativa||'' };
             if(reg.substituto && reg.substituiuNome){
               const substitutoObj = ministros.find(x=>x.id===id);
               if(substitutoObj) substitutosPorTitular[reg.substituiuNome] = substitutoObj.nome;
@@ -5322,18 +5324,36 @@ window.salvarPres = async function(){
   try{
     for(const missa of missas){
       if(!missa.ministros.length) continue;
-      const registros = {};
+      const key = chavePresenca(info.iso, missa.hora);
+
+      // Busca o que está salvo AGORA no servidor — pode ter mudado por outra via (o próprio
+      // ministro marcando pelo link, reforço extra registrado, quiosque) desde que esta tela
+      // foi aberta. Usa isso como base e só sobrescreve o que o coordenador de fato alterou
+      // aqui, pra uma edição concorrente feita por outro caminho nunca ser apagada por engano.
+      let registrosServidor = {};
+      try{
+        const dAtual = await getDoc(doc(db,'presencas',key));
+        registrosServidor = dAtual.exists() ? (dAtual.data().registros||{}) : {};
+      }catch(e){}
+
+      const registros = { ...registrosServidor };
       missa.ministros.forEach(nome=>{
         const m = ministros.find(x=>x.nome===nome);
         if(!m) return;
-        const pr = presAtual[m.id];
-        registros[m.id] = { status: pr?.status||'', justificativa: pr?.justificativa||'' };
+        const pr = presAtual[m.id] || {status:'',justificativa:''};
+        const original = _presAtualOriginal[m.id];
+        const mudouAqui = !original || original.status!==pr.status || original.justificativa!==pr.justificativa;
+        if(mudouAqui){
+          registros[m.id] = { ...(registrosServidor[m.id]||{}), status: pr.status||'', justificativa: pr.justificativa||'' };
+        }
+        // se não mudou nesta tela, mantém o que já veio do servidor (registrosServidor[m.id]),
+        // preservando qualquer atualização feita por outra via nesse meio-tempo
       });
-      const key = chavePresenca(info.iso, missa.hora);
+
       await setDoc(doc(db,'presencas',key),{
         data:info.iso, horario:missa.hora, diaSemana:info.diaSemana,
         registros, atualizadoEm:serverTimestamp()
-      });
+      }, {merge:true});
       salvas++;
     }
     toast(`✓ Presenças salvas para ${salvas} missa(s) de ${info.diaSemana}, ${info.data}!`);
@@ -10263,7 +10283,7 @@ async function modoPresencaResponsavel(codigo){
       }
     }
 
-    renderPainelPresencaResponsavel({ tipo, horario, mesKey, semana, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros });
+    renderPainelPresencaResponsavel({ tipo, horario, mesKey, semana, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros, mesIdx, anoMesKey:ano });
   }catch(e){
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: '+e.message+'</div>';
   }
@@ -10297,6 +10317,22 @@ function renderPainelPresencaResponsavel(ctx){
   <div id="toast"></div>`;
 
   renderDatasPresencaResponsavel();
+}
+
+// Quando alguém tenta marcar presença sem antes informar quem está registrando, um toast que
+// passa em poucos segundos é fácil de não notar — isso já foi confundido com "o botão não
+// funciona". Em vez de só avisar, rola a tela até o campo e o destaca visualmente.
+function _destacarCampoRegistrante(){
+  const caixa = document.getElementById('pr-quem-registra');
+  if(!caixa) return;
+  caixa.style.display = 'block';
+  caixa.style.animation = 'none';
+  caixa.offsetHeight; // força reflow pra reiniciar a animação se já rodou antes
+  caixa.style.boxShadow = '0 0 0 4px rgba(186,117,23,.35)';
+  caixa.scrollIntoView({behavior:'smooth', block:'center'});
+  const inp = document.getElementById('pr-nome-registrante');
+  if(inp) setTimeout(()=>inp.focus(), 350);
+  setTimeout(()=>{ caixa.style.boxShadow = 'none'; }, 2200);
 }
 
 window.salvarRegistrante = function(){
@@ -10340,9 +10376,14 @@ window.toggleDataPresenca = async function(i){
   const dt = ctx.datas[i];
   // Monta a data completa (yyyy-mm-dd) igual à tela principal de Presença — sem o ano,
   // as marcações do responsável iam pra um documento diferente e nunca apareciam no app.
+  // Também trata o caso de a semana cruzar a virada do ano (ex: última semana de dezembro
+  // caindo em janeiro do ano seguinte) — sem isso, aquele dia específico ia pro ano errado.
   const [dd, mm] = dt.data.split('/');
-  const mAno = (ctx.mesKey||'').match(/(\d{4})$/);
-  const ano = mAno ? mAno[1] : new Date().getFullYear();
+  const mesNum = parseInt(mm); // 1-based
+  const mesLinkNum = (ctx.mesIdx!=null ? ctx.mesIdx : 0) + 1; // 1-based, mês do link
+  let ano = ctx.anoMesKey || parseInt((ctx.mesKey||'').match(/(\d{4})$/)?.[1]) || new Date().getFullYear();
+  if(mesNum < mesLinkNum && mesLinkNum >= 11) ano += 1;       // semana de dez. que vira janeiro
+  else if(mesNum > mesLinkNum && mesLinkNum <= 2) ano -= 1;   // (simétrico, por segurança)
   const docId = chavePresenca(`${ano}-${mm}-${dd}`, ctx.horario);
   let jaSalvo = {};
   try{ const d = await getDoc(doc(db,'presencas',docId)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
@@ -10403,7 +10444,7 @@ window.buscarReforcoExtra = function(inp, i){
 
 window.adicionarReforcoExtra = async function(ministroId, i){
   const registrante = localStorage.getItem('sogi_registrante_nome');
-  if(!registrante){ toast('Antes de marcar, informe quem está registrando (no topo da tela).','warn'); return; }
+  if(!registrante){ toast('Antes de marcar, informe quem está registrando (no topo da tela).','warn'); _destacarCampoRegistrante(); return; }
   const corpo = document.getElementById('pr-corpo-'+i);
   if(!corpo || !corpo.dataset.docid) return;
   try{
@@ -10429,7 +10470,7 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
   function botao(letra, cor, valor){
     const ativo = status===valor;
     const proximoValor = ativo ? '' : valor; // clicar de novo no botão já marcado DESMARCA
-    return `<button onclick="marcarPresencaResponsavel('${m.id}','${proximoValor}')" title="${ativo?'Toque para desmarcar':''}" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
+    return `<button onclick="marcarPresencaResponsavel('${m.id}','${proximoValor}',${i})" title="${ativo?'Toque para desmarcar':''}" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
   }
   const tagSubstituto = !ehOriginal ? `<span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700;white-space:nowrap">${reg?.substituiuNome ? 'veio no lugar de '+reg.substituiuNome.split(' ')[0] : 'SUBSTITUTO'}</span>` : '';
   const tagReforco = m.ehReforco ? `<span style="font-size:9px;background:#faeeda;color:#5a4500;padding:1px 6px;border-radius:10px;font-weight:800;white-space:nowrap">⭐ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
@@ -10472,45 +10513,43 @@ window.toggleSubstituirInline = function(ministroId, i){
   if(abrir){ const inp=document.getElementById('pr-busca-sub-'+ministroId); if(inp) inp.focus(); }
 };
 
-window.marcarPresencaResponsavel = async function(ministroId, status){
+window.marcarPresencaResponsavel = async function(ministroId, status, i){
   const registrante = localStorage.getItem('sogi_registrante_nome');
-  if(!registrante){ toast('Antes de marcar, informe quem está registrando (no topo da tela).','warn'); return; }
-  const corposAbertos = document.querySelectorAll('[id^="pr-corpo-"]');
-  for(const corpo of corposAbertos){
-    if(corpo.style.display==='block' && corpo.dataset.docid && corpo.innerHTML.includes(`marcarPresencaResponsavel('${ministroId}'`)){
-      // Marcar Substituição exige informar QUEM substituiu — se ainda não tiver ninguém
-      // registrado no lugar dessa pessoa, bloqueia e já abre o campo de busca certo.
-      if(status==='S'){
-        let jaSalvoCheck = {};
-        try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvoCheck = d.exists()?(d.data().registros||{}):{}; }catch(e){}
-        const jaTemSubstituto = Object.values(jaSalvoCheck).some(r=>r?.substituto && r?.substituiuId===ministroId);
-        if(!jaTemSubstituto){
-          toast('⚠️ Antes de marcar Substituição, é obrigatório informar quem substituiu.','warn');
-          const campoInline = document.getElementById('pr-sub-inline-'+ministroId);
-          if(campoInline){
-            campoInline.style.display = 'block';
-            const inputBusca = document.getElementById('pr-busca-sub-'+ministroId);
-            if(inputBusca) inputBusca.focus();
-          }
-          return;
-        }
-      }
-      const ok = await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, status, registrante);
-      const idx = parseInt(corpo.id.replace('pr-corpo-',''));
-      let jaSalvo = {};
-      try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
-      renderCorpoDataPresenca(idx, corpo.dataset.docid, jaSalvo);
-      if(ok){
-        const ctx = _presRespCtx;
-        const ministro = ctx.escaladosObjs.find(m=>m.id===ministroId) || ctx.todosMinistros.find(m=>m.id===ministroId);
-        const nome = ministro?.nome || 'Ministro';
-        const dataLabel = ctx.datas[idx]?.data || '';
-        const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição', J:'Justificado', '':'Desmarcado' };
-        const tipoLabel = ctx.tipo==='dom' ? 'Dominical' : `Semanal (${ctx.semana}ª semana)`;
-        toast(`✓ ${status==='' ? 'Desmarcado' : 'Salvo'}: ${nome} — ${status===''?'':STATUS_LABEL[status]+' — '}Missa ${ctx.horario} ${tipoLabel} — ${dataLabel}`, 'ok');
+  if(!registrante){ toast('Antes de marcar, informe quem está registrando (no topo da tela).','warn'); _destacarCampoRegistrante(); return; }
+  const corpo = document.getElementById('pr-corpo-'+i);
+  if(!corpo || !corpo.dataset.docid){
+    toast('⚠️ Não encontrei esta data pra salvar — feche e abra o card de novo e tente outra vez.','warn');
+    return;
+  }
+  // Marcar Substituição exige informar QUEM substituiu — se ainda não tiver ninguém
+  // registrado no lugar dessa pessoa, bloqueia e já abre o campo de busca certo.
+  if(status==='S'){
+    let jaSalvoCheck = {};
+    try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvoCheck = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+    const jaTemSubstituto = Object.values(jaSalvoCheck).some(r=>r?.substituto && r?.substituiuId===ministroId);
+    if(!jaTemSubstituto){
+      toast('⚠️ Antes de marcar Substituição, é obrigatório informar quem substituiu.','warn');
+      const campoInline = document.getElementById('pr-sub-inline-'+ministroId);
+      if(campoInline){
+        campoInline.style.display = 'block';
+        const inputBusca = document.getElementById('pr-busca-sub-'+ministroId);
+        if(inputBusca) inputBusca.focus();
       }
       return;
     }
+  }
+  const ok = await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, status, registrante);
+  let jaSalvo = {};
+  try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+  renderCorpoDataPresenca(i, corpo.dataset.docid, jaSalvo);
+  if(ok){
+    const ctx = _presRespCtx;
+    const ministro = ctx.escaladosObjs.find(m=>m.id===ministroId) || ctx.todosMinistros.find(m=>m.id===ministroId);
+    const nome = ministro?.nome || 'Ministro';
+    const dataLabel = ctx.datas[i]?.data || '';
+    const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição', J:'Justificado', '':'Desmarcado' };
+    const tipoLabel = ctx.tipo==='dom' ? 'Dominical' : `Semanal (${ctx.semana}ª semana)`;
+    toast(`✓ ${status==='' ? 'Desmarcado' : 'Salvo'}: ${nome} — ${status===''?'':STATUS_LABEL[status]+' — '}Missa ${ctx.horario} ${tipoLabel} — ${dataLabel}`, 'ok');
   }
 };
 
@@ -10533,7 +10572,7 @@ async function _salvarPresencaResponsavel(docId, ministroId, status, registrante
 // status. Disparado quando o responsável sai do campo de texto (onchange), não a cada letra.
 window.atualizarJustificativaResponsavel = async function(ministroId, i, valor){
   const registrante = localStorage.getItem('sogi_registrante_nome');
-  if(!registrante){ toast('Antes de escrever o motivo, informe quem está registrando (no topo da tela).','warn'); return; }
+  if(!registrante){ toast('Antes de escrever o motivo, informe quem está registrando (no topo da tela).','warn'); _destacarCampoRegistrante(); return; }
   const corpo = document.getElementById('pr-corpo-'+i);
   if(!corpo || !corpo.dataset.docid) return;
   const ok = await _salvarPresencaResponsavel(corpo.dataset.docid, ministroId, 'J', registrante, valor);
@@ -10555,7 +10594,7 @@ window.buscarSubstitutoPresenca = function(inp, i, substituiuId, substituiuNome)
 
 window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId, substituiuNome){
   const registrante = localStorage.getItem('sogi_registrante_nome');
-  if(!registrante){ toast('Antes de adicionar, informe quem está registrando (no topo da tela).','warn'); return; }
+  if(!registrante){ toast('Antes de adicionar, informe quem está registrando (no topo da tela).','warn'); _destacarCampoRegistrante(); return; }
   const corpo = document.getElementById('pr-corpo-'+i);
   if(!corpo || !corpo.dataset.docid) return;
   const ctx = _presRespCtx;
