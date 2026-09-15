@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.5.0';
+const APP_VERSAO = '20.8.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -335,6 +335,15 @@ window.addEventListener('load', async()=>{
     const app = initializeApp(FB);
     db = getFirestore(app);
     modoDisponibilidade(dispId);
+    if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
+    return;
+  }
+  // LINK DE DISPONIBILIDADE DO CÍRIO: ministro marca a grade de horários da quinzena + celebrações extras
+  const dispCirioId = params.get('dispcirio');
+  if(dispCirioId){
+    const app = initializeApp(FB);
+    db = getFirestore(app);
+    modoDisponibilidadeCirio(dispCirioId);
     if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
   }
@@ -1158,6 +1167,191 @@ async function modoDisponibilidade(id){
   renderFormularioCadastro(m, false);
 }
 
+// ====================== DISPONIBILIDADE DO CÍRIO ======================
+// Mesmo espírito da disponibilidade normal (dispDom/dispSem), mas pra quinzena do Círio: a
+// grade de horários muda ano a ano e é toda configurável pelo coordenador (tela "🕯️ Círio" em
+// Mais), sem precisar mexer em código. O ministro marca aqui o que já vira dado pronto pra
+// escalar, igual acontece hoje com a disponibilidade das missas normais.
+let _cirioConfig = null;
+function cirioConfigPadrao(){
+  // Valores iniciais lidos do modelo em papel da Quinzena do Círio — 100% editáveis depois na
+  // tela de configuração; isso aqui só evita começar do zero.
+  return {
+    titulo: 'Quinzena do Círio',
+    ano: new Date().getFullYear(),
+    colunas: [
+      {id:'dom_cirio', label:'DOM CÍRIO', data:'11/10', datas:['11/10']},
+      {id:'dom',       label:'DOM',       data:'18/10 e 25/10', datas:['18/10','25/10']},
+      {id:'seg',       label:'SEG',       data:'12/10 e 19/10', datas:['12/10','19/10']},
+      {id:'ter',       label:'TER',       data:'13/10 e 20/10', datas:['13/10','20/10']},
+      {id:'qua',       label:'QUA',       data:'14/10 e 21/10', datas:['14/10','21/10']},
+      {id:'qui',       label:'QUI',       data:'15/10 e 22/10', datas:['15/10','22/10']},
+      {id:'sex',       label:'SEX',       data:'16/10 e 23/10', datas:['16/10','23/10']},
+      {id:'sab',       label:'SAB',       data:'17/10 e 24/10', datas:['17/10','24/10']}
+    ],
+    horarios: ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'],
+    grade: {
+      dom_cirio:{'06:00':true,'16:00':true,'18:00':true},
+      dom:      {'06:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true},
+      seg:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
+      ter:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
+      qua:      {'05:45':true,'07:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
+      qui:      {'05:45':true,'07:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
+      sex:      {'05:45':true,'07:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
+      sab:      {'05:45':true,'06:00':true,'07:00':true,'12:00':true,'18:00':true}
+    },
+    celebracoes: [
+      {id:'trasladacao',     nome:'Missa da Trasladação',       local:'Colégio Gentil',  data:'10/out', hora:'16:30'},
+      {id:'chegada',         nome:'Missa Chegada do Círio',      local:'Praça Santuário', data:'11/out', hora:'12:00'},
+      {id:'romaria_juv',     nome:'Missa Romaria da Juventude',  local:'A definir',       data:'17/out', hora:'19:00'},
+      {id:'romaria_crianca', nome:'Missa Romaria das Crianças',  local:'Praça Santuário', data:'18/out', hora:'07:00'},
+      {id:'procissao_festa', nome:'Missa Procissão da Festa',    local:'A definir',       data:'25/out', hora:'07:00'},
+      {id:'recirio',         nome:'Missa do Recírio',            local:'Praça Santuário', data:'26/out', hora:'06:00'}
+    ]
+  };
+}
+async function carregarCirioConfig(forcar){
+  if(_cirioConfig && !forcar) return _cirioConfig;
+  try{
+    const d = await getDoc(doc(db,'config','cirio'));
+    _cirioConfig = d.exists() ? d.data() : cirioConfigPadrao();
+  }catch(e){ _cirioConfig = cirioConfigPadrao(); }
+  return _cirioConfig;
+}
+
+async function modoDisponibilidadeCirio(id){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
+  let m, cfg;
+  try{
+    const d = await getDoc(doc(db,'ministros',id));
+    if(!d.exists()) throw new Error('não encontrado');
+    m = {id:d.id, ...d.data()};
+    cfg = await carregarCirioConfig();
+  }catch(e){
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com a Coordenação MESCE.</div>';
+    return;
+  }
+
+  window._cirioMinAtual = m;
+  window._cirioCfgAtual = cfg;
+  window._cirioMarcados = JSON.parse(JSON.stringify(m.dispCirio || {}));
+  window._cirioEventosMarcados = new Set(m.dispCirioEventos || []);
+  window._cirioConfirmarVazio = false;
+
+  renderFormularioCirioMinistro();
+}
+
+function renderFormularioCirioMinistro(){
+  const m = window._cirioMinAtual;
+  const cfg = window._cirioCfgAtual;
+  const marcados = window._cirioMarcados;
+  const eventosMarc = window._cirioEventosMarcados;
+
+  const colHtml = (cfg.colunas||[]).map(c=>`<th style="padding:4px 2px;text-align:center;min-width:56px;font-size:10px">
+    <div style="font-weight:800;color:#085041">${c.label}</div>
+    <div style="color:#999;font-size:9px">${c.data}</div>
+  </th>`).join('');
+
+  const linhasHtml = (cfg.horarios||[]).map(h=>{
+    const celulas = (cfg.colunas||[]).map(c=>{
+      const temMissa = !!(cfg.grade[c.id] && cfg.grade[c.id][h]);
+      if(!temMissa) return `<td style="text-align:center;padding:9px 2px;background:#f8d7da;color:#c1121f;font-size:11px">—</td>`;
+      const marcado = (marcados[c.id]||[]).includes(h);
+      return `<td onclick="cirioToggleDisponibilidadeMinistro('${c.id}','${h}')" style="text-align:center;cursor:pointer;padding:9px 2px;background:${marcado?'#1D9E75':'white'};color:${marcado?'white':'#085041'};font-weight:700;font-size:13px;border:1px solid #e1f5ee">${marcado?'✓':''}</td>`;
+    }).join('');
+    return `<tr><td style="padding:6px 4px;font-weight:700;font-size:12px;white-space:nowrap">${h}</td>${celulas}</tr>`;
+  }).join('');
+
+  const celebracoesHtml = (cfg.celebracoes||[]).map(c=>{
+    const marcado = eventosMarc.has(c.id);
+    return `<div onclick="cirioToggleEventoMinistro('${c.id}')" style="display:flex;align-items:center;gap:10px;padding:12px;border:1.5px solid ${marcado?'#1D9E75':'#eee'};background:${marcado?'#f0faf5':'white'};border-radius:10px;margin-bottom:8px;cursor:pointer">
+      <div style="width:24px;height:24px;border-radius:6px;border:2px solid ${marcado?'#1D9E75':'#ccc'};background:${marcado?'#1D9E75':'white'};display:flex;align-items:center;justify-content:center;color:white;font-weight:800;flex-shrink:0">${marcado?'✓':''}</div>
+      <div style="flex:1">
+        <p style="font-size:13px;font-weight:700;margin:0;color:#085041">${c.nome||'(sem nome)'}</p>
+        <p style="font-size:11px;color:#888;margin:2px 0 0">📍 ${c.local||'—'} · 📅 ${c.data||'—'} · 🕐 ${c.hora||'—'}</p>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px 14px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="display:flex;justify-content:center;gap:12px;margin-bottom:8px">
+        <img src="${LOGO_BASILICA}" style="width:52px;height:52px;object-fit:contain">
+        <img src="${LOGO_MESCE}" style="width:52px;height:52px;object-fit:contain">
+      </div>
+      <p style="font-size:14px;color:#085041;font-weight:700;margin:0">🕯️ ${cfg.titulo||'Quinzena do Círio'}</p>
+      <p style="font-size:11px;color:#888;margin:2px 0 0">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+
+    <div style="background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 4px">Olá, ${(m.nome||'').split(' ')[0]}! 🙏</p>
+      <p style="font-size:12.5px;color:#666;margin:0;line-height:1.5">Marque abaixo os horários em que você pode servir durante o Círio. Toque nas células ✓ (com missa) para marcar sua disponibilidade.</p>
+    </div>
+
+    <div style="background:white;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px;overflow-x:auto">
+      <p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 10px">📅 Grade de horários</p>
+      <table style="border-collapse:collapse;width:100%;min-width:520px">
+        <thead><tr><th></th>${colHtml}</tr></thead>
+        <tbody>${linhasHtml}</tbody>
+      </table>
+      <p style="font-size:10.5px;color:#999;margin-top:8px">Células vermelhas (—) não têm missa nesse horário/dia.</p>
+    </div>
+
+    ${cfg.celebracoes && cfg.celebracoes.length ? `
+    <div style="background:white;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px">
+      <p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 10px">⛪ Outras celebrações</p>
+      <p style="font-size:11px;color:#888;margin:0 0 10px">Marque em quais dessas você também gostaria de servir:</p>
+      ${celebracoesHtml}
+    </div>` : ''}
+
+    <button onclick="salvarDispCirioMinistro()" style="width:100%;padding:15px;border:none;border-radius:10px;background:#1D9E75;color:white;font-size:15px;font-weight:700;cursor:pointer">✓ Confirmar disponibilidade</button>
+    <p id="cirio-form-msg" style="font-size:12px;text-align:center;margin-top:10px;color:#888"></p>
+  </div>`;
+}
+
+window.cirioToggleDisponibilidadeMinistro = function(colId, hora){
+  const marcados = window._cirioMarcados;
+  if(!marcados[colId]) marcados[colId]=[];
+  const idx = marcados[colId].indexOf(hora);
+  if(idx>=0) marcados[colId].splice(idx,1);
+  else marcados[colId].push(hora);
+  renderFormularioCirioMinistro();
+};
+window.cirioToggleEventoMinistro = function(celId){
+  const set = window._cirioEventosMarcados;
+  if(set.has(celId)) set.delete(celId); else set.add(celId);
+  renderFormularioCirioMinistro();
+};
+
+window.salvarDispCirioMinistro = async function(){
+  const m = window._cirioMinAtual;
+  const marcados = window._cirioMarcados;
+  const totalMarcado = Object.values(marcados).reduce((a,arr)=>a+arr.length,0);
+  const msg = document.getElementById('cirio-form-msg');
+  if(totalMarcado===0 && window._cirioEventosMarcados.size===0 && !window._cirioConfirmarVazio){
+    window._cirioConfirmarVazio = true;
+    if(msg){ msg.textContent='⚠️ Você não marcou nenhum horário. Toque em "Confirmar" de novo se realmente não vai poder servir neste período.'; msg.style.color='#BA7517'; }
+    return;
+  }
+  try{
+    await updateDoc(doc(db,'ministros',m.id), {
+      dispCirio: marcados,
+      dispCirioEventos: [...window._cirioEventosMarcados],
+      cirioDispPreenchidaEm: Date.now()
+    });
+    document.body.innerHTML = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;background:#f8f8f6">
+      <div style="font-size:56px;margin-bottom:14px">🕯️</div>
+      <p style="font-size:19px;font-weight:700;color:#085041;margin-bottom:6px">Disponibilidade confirmada!</p>
+      <p style="font-size:13px;color:#666;max-width:320px;line-height:1.6">Obrigado, ${m.nome.split(' ')[0]}! Sua disponibilidade para o Círio foi registrada com sucesso.</p>
+      <p style="font-size:12px;color:#085041;margin-top:18px;font-weight:600">Que Nossa Senhora de Nazaré abençoe seu serviço! 🙏</p>
+    </div>`;
+  }catch(e){
+    if(msg){ msg.textContent='Erro ao salvar: '+e.message; msg.style.color='#A32D2D'; }
+  }
+};
+
 // LINK UNIVERSAL: novo ministro se cadastra sozinho (sem precisar de link individual)
 function modoAutoCadastro(){
   // Passo 1: identificação por nome completo
@@ -1939,6 +2133,7 @@ window.nav = function(id, btn){
     'envio-presenca': ()=>renderEnvioLinksPresenca(),
     'envio-cart': ()=>renderEnvioCarteirinhas(),
     'alerta-presenca': ()=>renderAlertaPresenca(),
+    cirio: ()=>renderCirioConfig(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
   if(fns[id]) fns[id]();
@@ -9738,6 +9933,196 @@ window.enviarProximaCarteirinha = async function(){
   await enviarCarteirinhaPara(proximo.id);
 };
 
+// ====================== COORDENAÇÃO — DISPONIBILIDADE DO CÍRIO ======================
+window.renderCirioConfig = async function(){
+  const cont = document.getElementById('cirio-body');
+  if(!cont) return;
+  cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando...</p>';
+  await carregarCirioConfig();
+  window._cirioEdit = JSON.parse(JSON.stringify(_cirioConfig));
+  renderCirioGradeEditor();
+};
+
+function renderCirioGradeEditor(){
+  const cont = document.getElementById('cirio-body');
+  if(!cont) return;
+  const cfg = window._cirioEdit;
+
+  const colHtml = cfg.colunas.map((c,ci)=>`
+    <th style="padding:4px 2px;text-align:center;min-width:64px">
+      <input value="${(c.label||'').replace(/"/g,'&quot;')}" oninput="cirioEditarColuna(${ci},'label',this.value)" style="width:100%;padding:3px;border:1px solid #ddd;border-radius:5px;font-size:10.5px;font-weight:700;text-align:center;margin:0 0 2px;box-sizing:border-box">
+      <input value="${(c.data||'').replace(/"/g,'&quot;')}" oninput="cirioEditarColuna(${ci},'data',this.value)" style="width:100%;padding:3px;border:1px solid #eee;border-radius:5px;font-size:9.5px;text-align:center;margin:0 0 2px;box-sizing:border-box;color:#888" title="Texto exibido pro ministro">
+      <input value="${(c.datas||[]).join(', ')}" oninput="cirioEditarColunaDatas(${ci},this.value)" placeholder="12/10, 19/10" style="width:100%;padding:3px;border:1px solid #cde8d8;border-radius:5px;font-size:9px;text-align:center;margin:0;box-sizing:border-box;color:#0A6E58" title="Datas reais (dd/mm) — usadas pra casar com os Eventos Especiais">
+    </th>`).join('');
+
+  const linhasHtml = cfg.horarios.map((h,hi)=>{
+    const celulas = cfg.colunas.map(c=>{
+      const ativo = !!(cfg.grade[c.id] && cfg.grade[c.id][h]);
+      return `<td onclick="cirioToggleCelula('${c.id}','${h}')" style="text-align:center;cursor:pointer;padding:8px 2px;background:${ativo?'#e1f5ee':'#f8d7da'};border:1px solid white;font-size:11px;font-weight:700;color:${ativo?'#085041':'#842029'}">${ativo?'✓':'—'}</td>`;
+    }).join('');
+    return `<tr><td style="padding:6px 4px;font-weight:700;font-size:12px;white-space:nowrap">${h}
+        <button onclick="cirioRemoverHorario(${hi})" title="Remover horário" style="border:none;background:none;color:#ccc;font-size:11px;cursor:pointer;padding:0 2px">×</button>
+      </td>${celulas}</tr>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div class="card">
+      <p class="ct">🕯️ Configuração — grade de horários</p>
+      <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Título do período</label>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input id="cirio-titulo" value="${(cfg.titulo||'').replace(/"/g,'&quot;')}" oninput="window._cirioEdit.titulo=this.value" style="flex:2;margin:0">
+        <input id="cirio-ano" type="number" value="${cfg.ano||new Date().getFullYear()}" oninput="window._cirioEdit.ano=parseInt(this.value)||new Date().getFullYear()" style="flex:1;margin:0" title="Ano das datas da quinzena">
+      </div>
+      <p style="font-size:11px;color:#666;margin:0 0 10px;line-height:1.5">✓ verde = tem missa (ministro pode marcar) · — vermelho = sem missa neste horário/dia. Toque na célula pra alternar. No cabeçalho: nome do dia, texto exibido ao ministro, e as <strong>datas reais (dd/mm)</strong> — essas datas são o que liga a disponibilidade aos Eventos Especiais que você já criou.</p>
+      <div style="overflow-x:auto;margin-bottom:10px">
+        <table style="border-collapse:collapse;width:100%;min-width:560px">
+          <thead><tr><th></th>${colHtml}</tr></thead>
+          <tbody>${linhasHtml}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <input id="cirio-novo-horario" placeholder="Novo horário (ex: 14:00)" style="flex:1;margin:0">
+        <button onclick="cirioAdicionarHorario()" style="padding:0 16px;border:none;border-radius:8px;background:#085041;color:white;font-weight:700;cursor:pointer">+ Add</button>
+      </div>
+      <button onclick="cirioSalvarConfig()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer">💾 Salvar grade</button>
+    </div>
+
+    <div class="card">
+      <p class="ct">⛪ Outras celebrações (eventos com data e hora fixas)</p>
+      <div id="cirio-celebracoes-lista">${renderCirioCelebracoesHtml()}</div>
+      <button onclick="cirioAdicionarCelebracao()" style="width:100%;padding:11px;border:1.5px dashed #085041;border-radius:9px;background:transparent;color:#085041;font-size:13px;font-weight:700;cursor:pointer;margin:8px 0 12px">+ Nova celebração</button>
+      <button onclick="cirioSalvarConfig()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer">💾 Salvar celebrações</button>
+    </div>
+
+    <div class="card" style="border:1.5px solid #25D366;background:#f6fff9">
+      <p class="ct" style="color:#1ba34d">📤 Enviar aos ministros</p>
+      <div id="cirio-progresso" style="background:white;border-radius:10px;padding:12px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:6px">
+          <span id="cirio-progresso-texto">carregando...</span>
+        </div>
+        <div style="height:10px;background:#eee;border-radius:20px;overflow:hidden">
+          <div id="cirio-progresso-barra" style="height:100%;width:0%;background:linear-gradient(90deg,#1D9E75,#0A6E58);border-radius:20px"></div>
+        </div>
+      </div>
+      <button onclick="enviarProximaDispCirio()" style="width:100%;padding:13px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🚀 Enviar próximo ministro</button>
+      <p style="font-size:11px;color:#888;margin:0 0 8px">Ministros que ainda não preencheram:</p>
+      <div id="cirio-lista-pendentes"></div>
+    </div>`;
+
+  renderCirioProgresso();
+}
+
+function renderCirioCelebracoesHtml(){
+  const cfg = window._cirioEdit;
+  return (cfg.celebracoes||[]).map((c,i)=>`
+    <div style="border:1px solid #eee;border-radius:9px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input value="${(c.nome||'').replace(/"/g,'&quot;')}" oninput="cirioEditarCelebracao(${i},'nome',this.value)" placeholder="Nome da celebração" style="flex:1;margin:0;font-weight:600">
+        <button onclick="cirioRemoverCelebracao(${i})" style="border:none;background:none;color:#c99;font-size:18px;cursor:pointer;padding:0 4px">×</button>
+      </div>
+      <div style="display:flex;gap:6px">
+        <input value="${(c.local||'').replace(/"/g,'&quot;')}" oninput="cirioEditarCelebracao(${i},'local',this.value)" placeholder="Local" style="flex:2;margin:0;font-size:12px">
+        <input value="${(c.data||'').replace(/"/g,'&quot;')}" oninput="cirioEditarCelebracao(${i},'data',this.value)" placeholder="Data" style="flex:1;margin:0;font-size:12px">
+        <input value="${(c.hora||'').replace(/"/g,'&quot;')}" oninput="cirioEditarCelebracao(${i},'hora',this.value)" placeholder="Hora" style="flex:1;margin:0;font-size:12px">
+      </div>
+    </div>`).join('') || '<p style="font-size:12px;color:#aaa">Nenhuma celebração cadastrada.</p>';
+}
+
+window.cirioEditarColuna = function(idx, campo, val){ window._cirioEdit.colunas[idx][campo]=val; };
+window.cirioEditarColunaDatas = function(idx, val){
+  window._cirioEdit.colunas[idx].datas = val.split(',').map(s=>s.trim()).filter(Boolean);
+};
+window.cirioEditarCelebracao = function(idx, campo, val){ window._cirioEdit.celebracoes[idx][campo]=val; };
+window.cirioToggleCelula = function(colId, hora){
+  const cfg = window._cirioEdit;
+  if(!cfg.grade[colId]) cfg.grade[colId]={};
+  cfg.grade[colId][hora] = !cfg.grade[colId][hora];
+  renderCirioGradeEditor();
+};
+window.cirioAdicionarHorario = function(){
+  const inp = document.getElementById('cirio-novo-horario');
+  const v = (inp?.value||'').trim();
+  if(!v){ toast('Digite um horário.','warn'); return; }
+  const cfg = window._cirioEdit;
+  if(cfg.horarios.includes(v)){ toast('Esse horário já existe.','warn'); return; }
+  cfg.horarios.push(v);
+  cfg.horarios.sort();
+  renderCirioGradeEditor();
+};
+window.cirioRemoverHorario = function(idx){
+  window._cirioEdit.horarios.splice(idx,1);
+  renderCirioGradeEditor();
+};
+window.cirioAdicionarCelebracao = function(){
+  const cfg = window._cirioEdit;
+  if(!cfg.celebracoes) cfg.celebracoes=[];
+  cfg.celebracoes.push({id:'cel_'+Date.now(), nome:'', local:'', data:'', hora:''});
+  document.getElementById('cirio-celebracoes-lista').innerHTML = renderCirioCelebracoesHtml();
+};
+window.cirioRemoverCelebracao = function(idx){
+  window._cirioEdit.celebracoes.splice(idx,1);
+  document.getElementById('cirio-celebracoes-lista').innerHTML = renderCirioCelebracoesHtml();
+};
+window.cirioSalvarConfig = async function(){
+  try{
+    await setDoc(doc(db,'config','cirio'), window._cirioEdit);
+    _cirioConfig = JSON.parse(JSON.stringify(window._cirioEdit));
+    toast('✓ Configuração do Círio salva!','ok');
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+function _cirioTelValido(m){
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+  return tel && tel.length >= 10;
+}
+
+async function renderCirioProgresso(){
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  const preencheram = ativos.filter(m=>m.cirioDispPreenchidaEm).length;
+  const el = document.getElementById('cirio-progresso-texto');
+  const barra = document.getElementById('cirio-progresso-barra');
+  if(el) el.textContent = `${preencheram} de ${ativos.length} já preencheram`;
+  if(barra) barra.style.width = (ativos.length ? Math.round(preencheram/ativos.length*100) : 0)+'%';
+
+  const pendentes = ativos.filter(m=>!m.cirioDispPreenchidaEm).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const lista = document.getElementById('cirio-lista-pendentes');
+  if(lista){
+    lista.innerHTML = pendentes.length ? pendentes.slice(0,30).map(m=>{
+      const semTel = !_cirioTelValido(m);
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">
+        <span style="flex:1;font-size:12.5px;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}${m.cirioDispEnviadaEm?' <span style="color:#BA7517;font-size:10.5px">· já enviei</span>':''}</span>
+        <button onclick="enviarDispCirioPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:5px 10px;border:1.5px solid ${semTel?'#ccc':'#1ba34d'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#1ba34d'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600">📲 Enviar</button>
+      </div>`;
+    }).join('') + (pendentes.length>30?`<p style="font-size:11px;color:#999;margin:8px 0 0">+ ${pendentes.length-30} outro(s)...</p>`:'')
+    : '<p style="font-size:12px;color:#1D9E75;padding:6px 0">✓ Todos já preencheram!</p>';
+  }
+}
+
+window.enviarDispCirioPara = async function(id){
+  const m = ministros.find(x=>x.id===id);
+  if(!m || !_cirioTelValido(m)) return;
+  const url = `${APP_URL}/?dispcirio=${id}`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nAqui é da *Coordenação MESCE* — precisamos da sua *disponibilidade para a Quinzena do Círio*.\n\nPor favor, toque no link e marque os horários que você pode servir:\n\n${url}\n\nLeva poucos minutos. Que Nossa Senhora de Nazaré abençoe! 🕯️`;
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`, 'sogi_zap_envio');
+  try{ await updateDoc(doc(db,'ministros',id), {cirioDispEnviadaEm: Date.now()}); m.cirioDispEnviadaEm = Date.now(); }catch(e){}
+  await renderCirioProgresso();
+  setTimeout(()=>{ try{ window.focus(); }catch(e){} }, 900);
+};
+
+window.enviarProximaDispCirio = async function(){
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  const pendentes = [...ativos.filter(m=>!m.cirioDispEnviadaEm)].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const proximo = pendentes.find(m=>_cirioTelValido(m));
+  if(!proximo){
+    const semTel = pendentes.filter(m=>!_cirioTelValido(m));
+    if(semTel.length) toast(`⚠️ Faltam ${semTel.length} ministro(s) com telefone inválido — corrija em "Editar dados".`,'warn');
+    else toast('✓ Link já foi enviado a todos os pendentes!','ok');
+    return;
+  }
+  await enviarDispCirioPara(proximo.id);
+};
+
 // ===== LINK DO RESPONSÁVEL: painel de presença do horário que ele responde =====
 // Código do link: dominical = "dom-<horario_sem_dois_pontos>-<mesKey>" ex: dom-1200h-ago2026
 //                 semanal   = "sem-<numero_semana>-<horario_sem_dois_pontos>-<mesKey>" ex: sem-3-1800h-ago2026
@@ -11315,11 +11700,75 @@ async function carregarEventos(){
   return _eventos;
 }
 
+// ===== LIGAÇÃO: Disponibilidade do Círio × Eventos Especiais =====
+// Um Evento Especial (criado à mão, com data e hora reais) "bate" com a disponibilidade que os
+// ministros marcaram de duas formas possíveis: (1) a data/hora do evento é igual à de uma
+// "celebração nomeada" configurada no Círio (aí conta quem marcou aquela celebração no
+// checklist), ou (2) a data do evento cai numa das colunas da grade recorrente E o horário bate
+// com um horário da grade (aí conta quem marcou aquele dia×hora). Isso evita ter que perguntar
+// duas vezes a mesma coisa pro ministro — ele marca uma vez na disponibilidade do Círio, e todo
+// evento que bater com aquela data/hora já aparece com a lista de quem pode servir.
+function _cirioNormHora(h){ return (h||'').toString().trim().replace(/h$/i,'').trim(); }
+function _cirioCelebracaoDataISO(celData, ano){
+  const m = (celData||'').match(/^(\d{1,2})\/([a-zçã]{3})$/i);
+  if(!m) return null;
+  const dia = m[1].padStart(2,'0');
+  const idx = _MESES_KEY_INIT.indexOf(m[2].toLowerCase());
+  if(idx<0) return null;
+  return `${ano}-${String(idx+1).padStart(2,'0')}-${dia}`;
+}
+function _cirioColunaDatasISO(coluna, ano){
+  return (coluna.datas||[]).map(dm=>{
+    const p = (dm||'').split('/');
+    if(p.length!==2) return null;
+    return `${ano}-${p[1].trim().padStart(2,'0')}-${p[0].trim().padStart(2,'0')}`;
+  }).filter(Boolean);
+}
+function calcularDisponiveisParaEvento(evento){
+  const cfg = _cirioConfig;
+  if(!cfg || !evento || !evento.data) return [];
+  const ano = cfg.ano || new Date().getFullYear();
+  const horaEvento = _cirioNormHora(evento.hora);
+  const dataEvento = evento.data;
+  const disponiveis = new Map(); // nome -> {m, via:Set}
+
+  // 1) Bate com alguma celebração nomeada (Trasladação, Chegada do Círio etc.)
+  (cfg.celebracoes||[]).forEach(cel=>{
+    const celISO = _cirioCelebracaoDataISO(cel.data, ano);
+    if(celISO && celISO===dataEvento && (!horaEvento || _cirioNormHora(cel.hora)===horaEvento)){
+      ministros.forEach(m=>{
+        if((m.dispCirioEventos||[]).includes(cel.id)){
+          if(!disponiveis.has(m.nome)) disponiveis.set(m.nome, {m, via:new Set()});
+          disponiveis.get(m.nome).via.add('celebração');
+        }
+      });
+    }
+  });
+
+  // 2) Bate com um horário recorrente da grade (dia×hora)
+  if(horaEvento && (cfg.horarios||[]).includes(horaEvento)){
+    (cfg.colunas||[]).forEach(col=>{
+      const datasISO = _cirioColunaDatasISO(col, ano);
+      if(!datasISO.includes(dataEvento)) return;
+      ministros.forEach(m=>{
+        const marcados = (m.dispCirio && m.dispCirio[col.id]) || [];
+        if(marcados.includes(horaEvento)){
+          if(!disponiveis.has(m.nome)) disponiveis.set(m.nome, {m, via:new Set()});
+          disponiveis.get(m.nome).via.add('grade');
+        }
+      });
+    });
+  }
+
+  return [...disponiveis.values()].sort((a,b)=>a.m.nome.localeCompare(b.m.nome,'pt-BR'));
+}
+
 // Tela principal: lista de eventos
 window.renderEventos = async function(){
   const cont = document.getElementById('eventos-body');
   if(cont) cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando eventos...</p>';
   await carregarEventos();
+  await carregarCirioConfig();
 
   const hoje = new Date().toISOString().slice(0,10);
   const futuros = _eventos.filter(e=>(e.data||'')>=hoje);
@@ -11328,6 +11777,7 @@ window.renderEventos = async function(){
   const cardEvento = (e)=>{
     const nMin = (e.escala||[]).length;
     const nPres = Object.values(e.presenca||{}).filter(p=>p.status==='P').length;
+    const nDisp = calcularDisponiveisParaEvento(e).length;
     const dataFmt = (e.data||'').split('-').reverse().join('/');
     return `<div onclick="abrirEvento('${e.id}')" style="background:white;border:1px solid #eee;border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer;box-shadow:0 1px 5px rgba(0,0,0,.05)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
@@ -11338,15 +11788,19 @@ window.renderEventos = async function(){
         </div>
         <span style="color:#ccc;font-size:20px">›</span>
       </div>
-      <div style="display:flex;gap:6px;margin-top:10px">
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
         <span style="font-size:11px;padding:2px 9px;background:#e1f5ee;color:#085041;border-radius:20px">👥 ${nMin} escalado(s)</span>
         ${nPres>0?`<span style="font-size:11px;padding:2px 9px;background:#e6f1fb;color:#185FA5;border-radius:20px">✓ ${nPres} presente(s)</span>`:''}
+        ${nDisp>0?`<span style="font-size:11px;padding:2px 9px;background:#fdf6e3;color:#a07d2a;border-radius:20px">✨ ${nDisp} disponível(is)</span>`:''}
       </div>
     </div>`;
   };
 
   cont.innerHTML = `
-    <button onclick="abrirNovoEvento()" style="width:100%;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:16px">+ Criar novo evento</button>
+    <div style="display:flex;gap:6px;margin-bottom:16px">
+      <button onclick="abrirNovoEvento()" style="flex:1;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">+ Criar novo evento</button>
+      <button onclick="nav('cirio')" title="Disponibilidade do Círio" style="flex:1;padding:13px;border:1.5px solid #085041;border-radius:12px;background:white;color:#085041;font-size:14px;font-weight:700;cursor:pointer">🕯️ Disponibilidade</button>
+    </div>
 
     ${futuros.length ? `<p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 8px">📌 Próximos eventos</p>${futuros.map(cardEvento).join('')}` : ''}
 
@@ -11395,6 +11849,7 @@ window.salvarEvento = async function(){
 // Abre o detalhe de um evento (escala + presença)
 window.abrirEvento = async function(id){
   await carregarEventos();
+  await carregarCirioConfig();
   _eventoAtual = _eventos.find(e=>e.id===id);
   if(!_eventoAtual) return;
   nav('evento-detalhe');
@@ -11410,6 +11865,8 @@ function renderEventoDetalhe(){
 
   const escala = e.escala || [];
   const presenca = e.presenca || {};
+  const jaEscalados = new Set(escala);
+  const disponiveis = calcularDisponiveisParaEvento(e).filter(d=>!jaEscalados.has(d.m.nome));
 
   cont.innerHTML = `
     <div style="background:#e1f5ee;border-radius:12px;padding:14px;margin-bottom:14px">
@@ -11418,6 +11875,19 @@ function renderEventoDetalhe(){
       ${e.local?`<p style="font-size:12px;color:#888;margin:2px 0 0">📍 ${e.local}</p>`:''}
       ${e.descricao?`<p style="font-size:12px;color:#888;margin:6px 0 0">${e.descricao}</p>`:''}
       <button onclick="editarEvento()" style="margin-top:10px;padding:5px 12px;border:1px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:11px;font-weight:600;cursor:pointer">✏️ Editar dados</button>
+    </div>
+
+    <!-- DISPONÍVEIS SEGUNDO A DISPONIBILIDADE DO CÍRIO -->
+    <div style="background:#fdf6e3;border:1px solid #E8C66B;border-radius:12px;padding:14px;margin-bottom:14px">
+      <p style="font-size:13px;font-weight:700;color:#a07d2a;margin:0 0 4px">✨ Disponíveis para este evento (${disponiveis.length})</p>
+      <p style="font-size:11px;color:#8a6d0c;margin:0 0 10px;line-height:1.4">Ministros que marcaram disponibilidade pra esta data/horário na Disponibilidade do Círio. Toque em "+ Add" pra escalar direto.</p>
+      ${disponiveis.length ? disponiveis.map(d=>{
+        const viaTxt = [...d.via].join(' + ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3e6c8">
+          <span style="flex:1;font-size:13px">${d.m.nome} <span style="font-size:9.5px;color:#a08040">(${viaTxt})</span></span>
+          <button onclick="addMinEvento('${d.m.nome.replace(/'/g,"\\'")}')" style="font-size:11px;padding:4px 10px;border-radius:16px;border:none;background:#BA7517;color:white;font-weight:700;cursor:pointer">+ Add</button>
+        </div>`;
+      }).join('') : '<p style="font-size:12px;color:#a08040;margin:0">Ninguém marcou disponibilidade pra esta data/horário ainda — confira se o evento bate com a grade ou celebração configurada em "Círio".</p>'}
     </div>
 
     <!-- ESCALA DO EVENTO -->
@@ -13706,6 +14176,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:11px;color:#888;margin:0 0 4px">✓ = você enviou a mensagem · ✓✓ = ele abriu o link e confirmou de verdade</p>
     <div id="ec-lista"></div>
   </div>
+</div>
+
+<div id="s-cirio" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#085041,#0a6e57);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">🕯️ Disponibilidade do Círio</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Configure a grade de horários da quinzena e envie o link para os ministros marcarem disponibilidade — vira dado pronto pra escalar, igual a disponibilidade das missas normais.</p>
+  </div>
+  <div id="cirio-body"></div>
 </div>
 
 <div id="s-mais" class="sec">
