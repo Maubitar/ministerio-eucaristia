@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.8.0';
+const APP_VERSAO = '20.9.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1191,7 +1191,7 @@ function cirioConfigPadrao(){
     ],
     horarios: ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'],
     grade: {
-      dom_cirio:{'06:00':true,'16:00':true,'18:00':true},
+      dom_cirio:{'06:00':true,'16:00':true,'18:00':true,'20:00':true},
       dom:      {'06:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true},
       seg:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
       ter:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
@@ -1203,12 +1203,19 @@ function cirioConfigPadrao(){
     celebracoes: [
       {id:'trasladacao',     nome:'Missa da Trasladação',       local:'Colégio Gentil',  data:'10/out', hora:'16:30'},
       {id:'chegada',         nome:'Missa Chegada do Círio',      local:'Praça Santuário', data:'11/out', hora:'12:00'},
-      {id:'romaria_juv',     nome:'Missa Romaria da Juventude',  local:'A definir',       data:'17/out', hora:'19:00'},
       {id:'romaria_crianca', nome:'Missa Romaria das Crianças',  local:'Praça Santuário', data:'18/out', hora:'07:00'},
       {id:'procissao_festa', nome:'Missa Procissão da Festa',    local:'A definir',       data:'25/out', hora:'07:00'},
       {id:'recirio',         nome:'Missa do Recírio',            local:'Praça Santuário', data:'26/out', hora:'06:00'}
     ]
   };
+}
+// Fonte única de verdade pro texto de datas exibido em cada coluna — sempre a partir do campo
+// "datas" (as datas reais, editáveis numa única caixa). Isso evita o bug de duas caixas de
+// texto desalinhadas (uma dizendo uma data, outra dizendo outra) que já aconteceu quando havia
+// um campo de exibição solto por cima do campo de datas reais.
+function _cirioLabelDatas(coluna){
+  if(coluna && coluna.datas && coluna.datas.length) return coluna.datas.join(' e ');
+  return (coluna && coluna.data) || '';
 }
 async function carregarCirioConfig(forcar){
   if(_cirioConfig && !forcar) return _cirioConfig;
@@ -1249,7 +1256,7 @@ function renderFormularioCirioMinistro(){
 
   const colHtml = (cfg.colunas||[]).map(c=>`<th style="padding:4px 2px;text-align:center;min-width:56px;font-size:10px">
     <div style="font-weight:800;color:#085041">${c.label}</div>
-    <div style="color:#999;font-size:9px">${c.data}</div>
+    <div style="color:#999;font-size:9px">${_cirioLabelDatas(c)}</div>
   </th>`).join('');
 
   const linhasHtml = (cfg.horarios||[]).map(h=>{
@@ -9951,8 +9958,7 @@ function renderCirioGradeEditor(){
   const colHtml = cfg.colunas.map((c,ci)=>`
     <th style="padding:4px 2px;text-align:center;min-width:64px">
       <input value="${(c.label||'').replace(/"/g,'&quot;')}" oninput="cirioEditarColuna(${ci},'label',this.value)" style="width:100%;padding:3px;border:1px solid #ddd;border-radius:5px;font-size:10.5px;font-weight:700;text-align:center;margin:0 0 2px;box-sizing:border-box">
-      <input value="${(c.data||'').replace(/"/g,'&quot;')}" oninput="cirioEditarColuna(${ci},'data',this.value)" style="width:100%;padding:3px;border:1px solid #eee;border-radius:5px;font-size:9.5px;text-align:center;margin:0 0 2px;box-sizing:border-box;color:#888" title="Texto exibido pro ministro">
-      <input value="${(c.datas||[]).join(', ')}" oninput="cirioEditarColunaDatas(${ci},this.value)" placeholder="12/10, 19/10" style="width:100%;padding:3px;border:1px solid #cde8d8;border-radius:5px;font-size:9px;text-align:center;margin:0;box-sizing:border-box;color:#0A6E58" title="Datas reais (dd/mm) — usadas pra casar com os Eventos Especiais">
+      <input value="${(c.datas||[]).join(', ')}" oninput="cirioEditarColunaDatas(${ci},this.value)" placeholder="12/10, 19/10" style="width:100%;padding:3px;border:1px solid #cde8d8;border-radius:5px;font-size:9.5px;text-align:center;margin:0;box-sizing:border-box;color:#0A6E58" title="Datas reais (dd/mm) — é o que o ministro vê e também o que liga com os Eventos Especiais">
     </th>`).join('');
 
   const linhasHtml = cfg.horarios.map((h,hi)=>{
@@ -9973,7 +9979,7 @@ function renderCirioGradeEditor(){
         <input id="cirio-titulo" value="${(cfg.titulo||'').replace(/"/g,'&quot;')}" oninput="window._cirioEdit.titulo=this.value" style="flex:2;margin:0">
         <input id="cirio-ano" type="number" value="${cfg.ano||new Date().getFullYear()}" oninput="window._cirioEdit.ano=parseInt(this.value)||new Date().getFullYear()" style="flex:1;margin:0" title="Ano das datas da quinzena">
       </div>
-      <p style="font-size:11px;color:#666;margin:0 0 10px;line-height:1.5">✓ verde = tem missa (ministro pode marcar) · — vermelho = sem missa neste horário/dia. Toque na célula pra alternar. No cabeçalho: nome do dia, texto exibido ao ministro, e as <strong>datas reais (dd/mm)</strong> — essas datas são o que liga a disponibilidade aos Eventos Especiais que você já criou.</p>
+      <p style="font-size:11px;color:#666;margin:0 0 10px;line-height:1.5">✓ verde = tem missa (ministro pode marcar) · — vermelho = sem missa neste horário/dia. Toque na célula pra alternar. No cabeçalho: nome do dia e as <strong>datas reais (dd/mm)</strong> — é o texto que o ministro vê e também o que liga a disponibilidade aos Eventos Especiais que você já criou.</p>
       <div style="overflow-x:auto;margin-bottom:10px">
         <table style="border-collapse:collapse;width:100%;min-width:560px">
           <thead><tr><th></th>${colHtml}</tr></thead>
@@ -9984,7 +9990,10 @@ function renderCirioGradeEditor(){
         <input id="cirio-novo-horario" placeholder="Novo horário (ex: 14:00)" style="flex:1;margin:0">
         <button onclick="cirioAdicionarHorario()" style="padding:0 16px;border:none;border-radius:8px;background:#085041;color:white;font-weight:700;cursor:pointer">+ Add</button>
       </div>
-      <button onclick="cirioSalvarConfig()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer">💾 Salvar grade</button>
+      <div style="display:flex;gap:6px">
+        <button onclick="cirioSalvarConfig()" style="flex:2;padding:13px;border:none;border-radius:10px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer">💾 Salvar grade</button>
+        <button onclick="cirioRestaurarPadrao()" title="Restaura os valores padrão (não salva sozinho)" style="flex:1;padding:13px;border:1.5px solid #999;border-radius:10px;background:white;color:#666;font-size:12px;font-weight:700;cursor:pointer">🔄 Restaurar</button>
+      </div>
     </div>
 
     <div class="card">
@@ -10006,6 +10015,7 @@ function renderCirioGradeEditor(){
       </div>
       <button onclick="enviarProximaDispCirio()" style="width:100%;padding:13px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🚀 Enviar próximo ministro</button>
       <p style="font-size:11px;color:#888;margin:0 0 8px">Ministros que ainda não preencheram:</p>
+      <input type="text" id="cirio-busca-pendente" placeholder="🔎 Buscar ministro pelo nome..." oninput="renderCirioListaPendentes(this.value)" style="margin-bottom:8px">
       <div id="cirio-lista-pendentes"></div>
     </div>`;
 
@@ -10029,8 +10039,16 @@ function renderCirioCelebracoesHtml(){
 }
 
 window.cirioEditarColuna = function(idx, campo, val){ window._cirioEdit.colunas[idx][campo]=val; };
+window.cirioRestaurarPadrao = function(){
+  if(!confirm('Restaurar a grade e as celebrações para os valores padrão?\n\nIsso não salva sozinho — você ainda revisa e toca em "Salvar" pra confirmar. Nada é perdido até você salvar.')) return;
+  window._cirioEdit = cirioConfigPadrao();
+  renderCirioGradeEditor();
+  toast('Valores padrão carregados — revise e salve.','ok');
+};
 window.cirioEditarColunaDatas = function(idx, val){
-  window._cirioEdit.colunas[idx].datas = val.split(',').map(s=>s.trim()).filter(Boolean);
+  const datas = val.split(',').map(s=>s.trim()).filter(Boolean);
+  window._cirioEdit.colunas[idx].datas = datas;
+  window._cirioEdit.colunas[idx].data = datas.join(' e '); // mantém sincronizado por segurança
 };
 window.cirioEditarCelebracao = function(idx, campo, val){ window._cirioEdit.celebracoes[idx][campo]=val; };
 window.cirioToggleCelula = function(colId, hora){
@@ -10084,19 +10102,24 @@ async function renderCirioProgresso(){
   if(el) el.textContent = `${preencheram} de ${ativos.length} já preencheram`;
   if(barra) barra.style.width = (ativos.length ? Math.round(preencheram/ativos.length*100) : 0)+'%';
 
-  const pendentes = ativos.filter(m=>!m.cirioDispPreenchidaEm).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
-  const lista = document.getElementById('cirio-lista-pendentes');
-  if(lista){
-    lista.innerHTML = pendentes.length ? pendentes.slice(0,30).map(m=>{
-      const semTel = !_cirioTelValido(m);
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">
-        <span style="flex:1;font-size:12.5px;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}${m.cirioDispEnviadaEm?' <span style="color:#BA7517;font-size:10.5px">· já enviei</span>':''}</span>
-        <button onclick="enviarDispCirioPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:5px 10px;border:1.5px solid ${semTel?'#ccc':'#1ba34d'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#1ba34d'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600">📲 Enviar</button>
-      </div>`;
-    }).join('') + (pendentes.length>30?`<p style="font-size:11px;color:#999;margin:8px 0 0">+ ${pendentes.length-30} outro(s)...</p>`:'')
-    : '<p style="font-size:12px;color:#1D9E75;padding:6px 0">✓ Todos já preencheram!</p>';
-  }
+  window._cirioPendentesCache = ativos.filter(m=>!m.cirioDispPreenchidaEm).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const inpBusca = document.getElementById('cirio-busca-pendente');
+  renderCirioListaPendentes(inpBusca ? inpBusca.value : '');
 }
+
+window.renderCirioListaPendentes = function(filtro){
+  const f = normalizarBusca(filtro||'');
+  const pendentes = (window._cirioPendentesCache||[]).filter(m=>normalizarBusca(m.nome).includes(f));
+  const lista = document.getElementById('cirio-lista-pendentes');
+  if(!lista) return;
+  lista.innerHTML = pendentes.length ? pendentes.map(m=>{
+    const semTel = !_cirioTelValido(m);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">
+      <span style="flex:1;font-size:12.5px;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}${m.cirioDispEnviadaEm?' <span style="color:#BA7517;font-size:10.5px">· já enviei</span>':''}</span>
+      <button onclick="enviarDispCirioPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:5px 10px;border:1.5px solid ${semTel?'#ccc':'#1ba34d'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#1ba34d'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600">📲 Enviar</button>
+    </div>`;
+  }).join('') : (filtro ? '<p style="font-size:12px;color:#888;padding:6px 0">Nenhum ministro pendente encontrado com esse nome.</p>' : '<p style="font-size:12px;color:#1D9E75;padding:6px 0">✓ Todos já preencheram!</p>');
+};
 
 window.enviarDispCirioPara = async function(id){
   const m = ministros.find(x=>x.id===id);
