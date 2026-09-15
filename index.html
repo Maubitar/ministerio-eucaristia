@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.11.0';
+const APP_VERSAO = '20.12.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5196,6 +5196,11 @@ window.trocarMesPresenca = function(){
   // Limpa e repopula o seletor de datas
   const sel = document.getElementById('pres-data');
   if(sel) sel.innerHTML = '';
+  // Força buscar de novo no servidor: sem isso, se o coordenador saísse da aba Presença e
+  // voltasse pra mesma data, o app achava que "já tinha carregado" essa data (o cache só olha
+  // se a data mudou, não se o coordenador saiu e voltou) — e continuava mostrando o estado de
+  // ANTES, mesmo que um ministro tivesse acabado de marcar algo pelo link nesse meio-tempo.
+  _presencaChaveCarregada = null;
   popularSeletorDatasPresenca();
 };
 
@@ -14093,8 +14098,9 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <label id="pres-data-label" style="font-size:11px;font-weight:700;color:#085041;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">📅 Data da missa</label>
         <select id="pres-data" onchange="renderPresenca()" style="margin:0;font-weight:600;color:#085041;width:100%"></select>
       </div>
-      <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
-        ✓ Todas as missas do dia aparecem automaticamente a partir da Escala — marque P/F/S
+      <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span>✓ Todas as missas do dia aparecem automaticamente a partir da Escala — marque P/F/S</span>
+        <button onclick="_presencaChaveCarregada=null;renderPresenca()" title="Buscar de novo no servidor (ex: conferir se um ministro acabou de marcar pelo link)" style="flex-shrink:0;font-size:10.5px;color:#085041;background:white;border:1px solid #1D9E75;border-radius:14px;padding:3px 9px;cursor:pointer;font-weight:700;white-space:nowrap">🔄 Atualizar</button>
       </p>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <p id="pres-count" style="font-size:11px;color:#1D9E75;margin:0"></p>
