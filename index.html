@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.10.2';
+const APP_VERSAO = '20.11.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4429,7 +4429,7 @@ window.buscarEscaladosPara = async function(dataDDMM, hora, diaSemana){
   // dia de semana: encontrar em qual SEMANAS_MES essa data (dataDDMM) cai
   let semanaAlvo = null;
   Object.entries(SEMANAS_MES).forEach(([k,v])=>{
-    if(v.dias.some(d=>d.data===dataDDMM && d.dia===diaSemana)) semanaAlvo = k;
+    if((v?.dias||[]).some(d=>d.data===dataDDMM && d.dia===diaSemana)) semanaAlvo = k;
   });
   if(!semanaAlvo) return {ministros:[],responsavel:''};
 
@@ -5046,6 +5046,7 @@ window.popularSeletorDatasPresenca = async function(){
 // Procura, de forma eficiente, a primeira data da lista que tem escala montada
 // e seleciona ela. Cacheia documentos de escala já lidos para não repetir leituras.
 async function autoPosicionarDataComEscala(datas){
+ try{
   const sel = document.getElementById('pres-data');
   const cache = {};
   for(const d of datas){
@@ -5063,7 +5064,7 @@ async function autoPosicionarDataComEscala(datas){
     }
     else {
       let sem=null;
-      Object.entries(SEMANAS_MES).forEach(([k,v])=>{ if(v.dias.some(x=>x.data===d.data && x.dia===d.diaSemana)) sem=k; });
+      Object.entries(SEMANAS_MES).forEach(([k,v])=>{ if((v?.dias||[]).some(x=>x.data===d.data && x.dia===d.diaSemana)) sem=k; });
       if(sem) key = `escala_sem_sem${sem}_${getMesAtual()}`;
     }
     if(!key) continue;
@@ -5078,6 +5079,11 @@ async function autoPosicionarDataComEscala(datas){
       return;
     }
   }
+ }catch(e){
+   // BLINDAGEM: um erro aqui nunca pode travar quem chamou — a tela de Presença simplesmente
+   // fica sem posicionar automaticamente numa data com escala, mas continua funcionando.
+   console.warn('[SOGI] Erro ao auto-posicionar data com escala:', e);
+ }
 }
 
 // Retorna a lista de horários de missa para um dia da semana
@@ -5093,7 +5099,7 @@ function horariosDoDia(diaSemana){
 function periodoDaSemana(dataDDMM, diaSemana){
   let achou = null;
   Object.entries(SEMANAS_MES).forEach(([k,v])=>{
-    if(v.dias.some(d=>d.data===dataDDMM && d.dia===diaSemana)) achou = v;
+    if((v?.dias||[]).some(d=>d.data===dataDDMM && d.dia===diaSemana)) achou = v;
   });
   return achou ? (achou.periodo||'') : '';
 }
@@ -5101,6 +5107,7 @@ function periodoDaSemana(dataDDMM, diaSemana){
 // Busca, em UMA leitura, o documento de escala do dia (dominical ou semanal)
 // e devolve um objeto { hora: {ministros, responsavel} }
 async function buscarEscalaDoDia(info){
+ try{
   const mesAtualKey = getMesAtual();
   let key;
   if(info.diaSemana==='Domingo'){
@@ -5114,7 +5121,7 @@ async function buscarEscalaDoDia(info){
   // ESCALA SEMANAL
   let semanaAlvo = null;
   Object.entries(SEMANAS_MES).forEach(([k,v])=>{
-    if(v.dias.some(d=>d.data===info.data && d.dia===info.diaSemana)) semanaAlvo = k;
+    if((v?.dias||[]).some(d=>d.data===info.data && d.dia===info.diaSemana)) semanaAlvo = k;
   });
   if(!semanaAlvo) return {};
   key = `escala_sem_sem${semanaAlvo}_${mesAtualKey}`;
@@ -5154,6 +5161,13 @@ async function buscarEscalaDoDia(info){
   }
 
   return escalaBase;
+ }catch(e){
+   // BLINDAGEM: nunca deixa a tela de Presença travar em "Carregando..." pra sempre —
+   // qualquer erro inesperado aqui devolve escala vazia, e a tela mostra o aviso normal de
+   // "nenhuma escala montada" em vez de ficar girando sem fim.
+   console.warn('[SOGI] Erro ao buscar escala do dia:', e);
+   return {};
+ }
 }
 
 let presListaAtual = null;
@@ -5188,9 +5202,10 @@ window.trocarMesPresenca = function(){
 window.renderPresenca = async function(){
   const sel = document.getElementById('pres-data');
   if(!sel || !sel.options.length){ await popularSeletorDatasPresenca(); return; }
+  const body = document.getElementById('pres-body');
+ try{
   const info = JSON.parse(sel.value);
   const horas = horariosDoDia(info.diaSemana);
-  const body = document.getElementById('pres-body');
 
   if(!horas.length){
     document.getElementById('pres-count').textContent='';
@@ -5305,6 +5320,17 @@ window.renderPresenca = async function(){
     </div>`;
   });
   body.innerHTML = html;
+ }catch(e){
+   // BLINDAGEM: antes, qualquer erro inesperado aqui deixava a tela travada em "Carregando
+   // escala do dia..." pra sempre, sem nenhum aviso. Agora sempre mostra algo pro coordenador,
+   // com botão pra tentar de novo.
+   console.warn('[SOGI] Erro ao renderizar Presença:', e);
+   if(body) body.innerHTML = `<div style="padding:16px;text-align:center;background:#FBEAEA;border-radius:8px">
+     <p style="font-size:13px;color:#A32D2D;font-weight:600;margin:0">⚠️ Não consegui carregar a escala desta data.</p>
+     <p style="font-size:11px;color:#A32D2D;margin-top:6px">${(e&&e.message)||'Erro desconhecido'}</p>
+     <button onclick="_presencaChaveCarregada=null;renderPresenca()" style="margin-top:10px;padding:8px 16px;border:none;border-radius:8px;background:#A32D2D;color:white;font-size:12px;font-weight:700;cursor:pointer">🔄 Tentar de novo</button>
+   </div>`;
+ }
 };
 
 window.setPres = function(id, val){
