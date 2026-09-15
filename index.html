@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.10.0';
+const APP_VERSAO = '20.10.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5340,9 +5340,23 @@ window.salvarPres = async function(){
       missa.ministros.forEach(nome=>{
         const m = ministros.find(x=>x.nome===nome);
         if(!m) return;
+        // "Tocou aqui" só é verdade se presAtual[id] existe DE VERDADE (foi criado ao
+        // carregar do servidor, ou ao clicar em algum botão P/F/S/J pra essa pessoa nesta
+        // tela) — nunca pelo simples fallback padrão, senão um ministro que só ganhou
+        // registro concorrente (pelo link) DEPOIS que a tela abriu seria tratado como "editado
+        // aqui" e teria essa marcação concorrente apagada.
+        const temEntradaLocal = Object.prototype.hasOwnProperty.call(presAtual, m.id);
         const pr = presAtual[m.id] || {status:'',justificativa:''};
         const original = _presAtualOriginal[m.id];
-        const mudouAqui = !original || original.status!==pr.status || original.justificativa!==pr.justificativa;
+        let mudouAqui;
+        if(!temEntradaLocal){
+          mudouAqui = false; // coordenador nunca tocou nesse ministro nesta tela
+        } else if(!original){
+          // não tinha registro quando a tela abriu, mas o coordenador clicou algo pra ele agora
+          mudouAqui = !!(pr.status || pr.justificativa);
+        } else {
+          mudouAqui = original.status!==pr.status || original.justificativa!==pr.justificativa;
+        }
         if(mudouAqui){
           registros[m.id] = { ...(registrosServidor[m.id]||{}), status: pr.status||'', justificativa: pr.justificativa||'' };
         }
