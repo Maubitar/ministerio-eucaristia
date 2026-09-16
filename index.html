@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.15.0';
+const APP_VERSAO = '20.16.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1191,7 +1191,7 @@ function cirioConfigPadrao(){
     ],
     horarios: ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'],
     grade: {
-      dom_cirio:{'06:00':true,'16:00':true,'18:00':true,'20:00':true},
+      dom_cirio:{'05:45':true,'06:00':true,'16:00':true,'18:00':true,'20:00':true},
       dom:      {'06:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true},
       seg:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
       ter:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
@@ -10347,30 +10347,82 @@ function renderCardHorarioCirio(colId, hora){
   const escalados = dados.ministros || [];
   const idHora = hora.replace(':','');
 
-  const disponiveis = ministros.filter(m => ((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora) && !escalados.includes(m.nome));
+  const disponiveis = ministros.filter(m => ((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora));
 
-  return `<div style="border:1px solid #e0e0e0;border-radius:10px;margin-bottom:12px;overflow:hidden">
-    <div style="background:#085041;color:white;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+  return `<div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:10px">
+    <div style="background:#BA7517;color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
       <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
-      <span style="font-size:11px;opacity:.9">${escalados.length} escalado(s)${disponiveis.length?` · ✨ ${disponiveis.length} disponível(is)`:''}</span>
+      <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.25);padding:2px 9px;border-radius:20px;white-space:nowrap">${escalados.length} 👤</span>
     </div>
-    <div style="padding:10px 12px">
-      ${escalados.length ? escalados.map(nome=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f2f2f2">
-        <span style="flex:1;font-size:13px">${nome}${dados.responsavel===nome?' <span style="font-size:9px;background:#faeeda;color:#a07d2a;padding:1px 6px;border-radius:10px;font-weight:700">★ RESP</span>':''}</span>
-        <button onclick="cirioEscDefinirResp('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Definir como responsável" style="border:none;background:none;color:#BA7517;font-size:14px;cursor:pointer;padding:2px 4px">★</button>
-        <button onclick="cirioEscRemoverMin('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Remover" style="border:none;background:none;color:#c99;font-size:16px;cursor:pointer;padding:2px 4px">×</button>
-      </div>`).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:11px;color:#888">${escalados.length} escalado(s)</span>
+      <button onclick="verDisponiveisCirio('${colId}','${hora}')"
+        style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
+        👥 ${disponiveis.length} disponíveis
+      </button>
+    </div>
+    ${escalados.length ? escalados.map(nome=>{
+      const min = ministros.find(x=>x.nome===nome);
+      const isResp = nome===dados.responsavel;
+      const foto = min?.foto
+        ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
+        : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
+        <button onclick="cirioEscDefinirResp('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Definir como responsável" style="width:28px;height:26px;border:1px solid ${isResp?'#BA7517':'#ddd'};border-radius:6px;background:${isResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
+        ${foto}
+        <span style="flex:1;font-size:12px;font-weight:${isResp?'700':'500'}">${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</span>
+        <button onclick="cirioEscRemoverMin('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Remover" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
+      </div>`;
+    }).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
 
-      <div style="position:relative;margin-top:8px">
-        <input type="text" placeholder="🔍 Buscar ministro pra escalar..." autocomplete="off"
-          oninput="cirioEscBuscar(this,'${colId}','${hora}')"
-          style="width:100%;padding:9px;border:1.5px dashed #999;border-radius:9px;font-size:13px;box-sizing:border-box">
-        <div id="cirio-esc-ac-${colId}-${idHora}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
-      </div>
-      ${disponiveis.length ? `<p style="font-size:10.5px;color:#999;margin-top:6px">✨ Disponíveis: ${disponiveis.slice(0,8).map(m=>primeiroNomes(m.nome)).join(', ')}${disponiveis.length>8?'...':''}</p>` : ''}
+    <div style="position:relative;margin-top:8px">
+      <input type="text" placeholder="🔍 Buscar por nome (mostra quem está disponível primeiro)..." autocomplete="off"
+        oninput="cirioEscBuscar(this,'${colId}','${hora}')"
+        style="width:100%;padding:9px;border:1px solid #ddd;border-radius:6px;font-size:12px;box-sizing:border-box;margin:0">
+      <div id="cirio-esc-ac-${colId}-${idHora}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
     </div>
   </div>`;
 }
+
+// Abre o modal (o mesmo já usado pela escala normal) com a lista COMPLETA de quem marcou
+// disponibilidade pra esse dia/hora do Círio, com botão de adicionar direto.
+window.verDisponiveisCirio = function(colId, hora){
+  const cfg = _cirioConfig;
+  const coluna = cfg.colunas.find(c=>c.id===colId);
+  const disponiveis = ministros.filter(m => ((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const dados = window._cirioEscalaDados[hora] || {ministros:[]};
+  const jaEscalados = new Set(dados.ministros||[]);
+  document.getElementById('vd-titulo').textContent = `${coluna?.label||''} — ${hora}`;
+  document.getElementById('vd-count').textContent = `${disponiveis.length} disponíveis`;
+  document.getElementById('vd-body').innerHTML = disponiveis.length
+    ? disponiveis.map(m=>{
+        const jaEsc = jaEscalados.has(m.nome);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+          <div style="width:28px;height:28px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
+          <div style="flex:1"><p style="font-size:13px;margin:0">${m.nome}</p></div>
+          <button onclick="cirioAddMinDoModal('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}',this)"
+            ${jaEsc?'disabled':''}
+            style="font-size:11px;padding:4px 10px;border-radius:20px;border:none;cursor:${jaEsc?'default':'pointer'};font-weight:600;background:${jaEsc?'#e1f5ee':'#1D9E75'};color:${jaEsc?'#085041':'white'}">
+            ${jaEsc?'✓ Escalado':'+ Adicionar'}
+          </button>
+        </div>`;
+      }).join('')
+    : '<p style="font-size:13px;color:#888;padding:12px 0">Nenhum ministro marcou disponibilidade pra este dia/hora ainda.</p>';
+  document.getElementById('modal-vd').style.display='flex';
+};
+
+window.cirioAddMinDoModal = function(colId, hora, nome, btn){
+  cirioEscAdicionarMin(colId, hora, nome);
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '✓ Escalado';
+    btn.style.background = '#e1f5ee';
+    btn.style.color = '#085041';
+    btn.style.cursor = 'default';
+  }
+  toast(nome.split(' ')[0]+' adicionado à escala!');
+};
 
 window.cirioEscBuscar = function(inp, colId, hora){
   const v = normalizarBusca(inp.value);
