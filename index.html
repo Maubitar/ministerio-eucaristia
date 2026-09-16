@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.16.0';
+const APP_VERSAO = '20.17.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10546,6 +10546,67 @@ window.imprimirEscalaCirio = async function(){
   win.document.close();
 };
 
+// Imprime TODOS os Eventos Especiais lado a lado, uma coluna por evento — mesmo formato da
+// "Escala Eventos Círio" impressa no ano passado: local e data/hora no topo, nomes numerados.
+window.imprimirEventos = async function(){
+  await carregarEventos();
+  if(!_eventos.length){ toast('Nenhum evento cadastrado ainda.','warn'); return; }
+  toast('Preparando impressão...','ok');
+
+  const eventosOrdenados = [..._eventos].sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+
+  const colunasHtml = eventosOrdenados.map(e=>{
+    const dataFmt = (e.data||'').split('-').reverse().join('/');
+    return `<th>
+      ${e.local?`<div class="local">${e.local}</div>`:''}
+      <div class="datahora">${dataFmt}${e.hora?' ---- '+e.hora+'h':''}</div>
+      <div class="nome-evt">${e.nome||''}</div>
+    </th>`;
+  }).join('');
+
+  const maxLinhas = Math.max(0, ...eventosOrdenados.map(e=>(e.escala||[]).length));
+  let linhasHtml = '';
+  for(let i=0;i<maxLinhas;i++){
+    linhasHtml += '<tr>' + eventosOrdenados.map(e=>{
+      const nome = (e.escala||[])[i];
+      return `<td>${nome?`${i+1} ${nome}`:''}</td>`;
+    }).join('') + '</tr>';
+  }
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Escala Eventos Especiais — Impressão</title>
+  <style>
+    @page{ size: A4 landscape; margin: 8mm; }
+    body{ font-family: Arial, sans-serif; margin:0; padding:14px; color:#222; }
+    h1{ text-align:center; font-size:15px; margin:0 0 2px; color:#085041; }
+    h2{ text-align:center; font-size:11px; margin:0 0 12px; color:#666; font-weight:normal; }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ border:1px solid #ccc; padding:4px 6px; font-size:10px; text-align:left; vertical-align:top; }
+    th{ background:#085041; color:white; text-align:center; }
+    th .local{ font-size:10px; font-weight:700; }
+    th .datahora{ font-size:9px; opacity:.9; }
+    th .nome-evt{ font-size:10.5px; font-weight:800; margin-top:2px; }
+    td:nth-child(odd){ background:#fafafa; }
+    @media print{ .no-print{ display:none; } }
+  </style></head>
+  <body>
+    <div class="no-print" style="text-align:center;margin-bottom:12px">
+      <button onclick="window.print()" style="padding:10px 24px;font-size:14px;font-weight:700;background:#085041;color:white;border:none;border-radius:8px;cursor:pointer">🖨️ Imprimir</button>
+    </div>
+    <h1>ESCALA EVENTOS ESPECIAIS</h1>
+    <h2>Ministério Extraordinário da Sagrada Comunhão Eucarística — Basílica Santuário de Nossa Senhora de Nazaré</h2>
+    <table>
+      <thead><tr>${colunasHtml}</tr></thead>
+      <tbody>${linhasHtml}</tbody>
+    </table>
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  if(!win){ toast('Seu navegador bloqueou a janela. Permita pop-ups pra este site e tente de novo.','warn'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+};
+
 // ===== LINK DO RESPONSÁVEL: painel de presença do horário que ele responde =====
 // Código do link: dominical = "dom-<horario_sem_dois_pontos>-<mesKey>" ex: dom-1200h-ago2026
 //                 semanal   = "sem-<numero_semana>-<horario_sem_dois_pontos>-<mesKey>" ex: sem-3-1800h-ago2026
@@ -12275,10 +12336,11 @@ window.renderEventos = async function(){
 
   cont.innerHTML = `
     <button onclick="abrirNovoEvento()" style="width:100%;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:6px">+ Criar novo evento</button>
-    <div style="display:flex;gap:6px;margin-bottom:16px">
+    <div style="display:flex;gap:6px;margin-bottom:8px">
       <button onclick="nav('cirio')" title="Disponibilidade do Círio" style="flex:1;padding:11px;border:1.5px solid #085041;border-radius:12px;background:white;color:#085041;font-size:13px;font-weight:700;cursor:pointer">🕯️ Disponibilidade</button>
       <button onclick="nav('escala-cirio')" title="Escalar as missas da quinzena do Círio" style="flex:1;padding:11px;border:1.5px solid #BA7517;border-radius:12px;background:white;color:#BA7517;font-size:13px;font-weight:700;cursor:pointer">📋 Escalar Círio</button>
     </div>
+    ${_eventos.length ? `<button onclick="imprimirEventos()" style="width:100%;padding:10px;border:1.5px solid #185FA5;border-radius:12px;background:white;color:#185FA5;font-size:12.5px;font-weight:700;cursor:pointer;margin-bottom:16px">🖨️ Imprimir escala dos eventos (${_eventos.length})</button>` : '<div style="margin-bottom:16px"></div>'}
 
     ${futuros.length ? `<p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 8px">📌 Próximos eventos</p>${futuros.map(cardEvento).join('')}` : ''}
 
