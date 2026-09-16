@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.13.0';
+const APP_VERSAO = '20.15.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1294,6 +1294,7 @@ function renderFormularioCirioMinistro(){
     <div style="background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px">
       <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 4px">Olá, ${(m.nome||'').split(' ')[0]}! 🙏</p>
       <p style="font-size:12.5px;color:#666;margin:0;line-height:1.5">Marque abaixo os horários em que você pode servir durante o Círio. Toque nas células ✓ (com missa) para marcar sua disponibilidade.</p>
+      ${m.cirioDispPreenchidaEm ? `<p style="font-size:11.5px;color:#185FA5;background:#eef5fb;border-radius:8px;padding:8px 10px;margin:10px 0 0">🔁 Você já respondeu antes — está tudo marcado como você deixou. Pode alterar à vontade e confirmar de novo, isso atualiza sua resposta.</p>` : ''}
     </div>
 
     <div style="background:white;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px;overflow-x:auto">
@@ -2141,6 +2142,7 @@ window.nav = function(id, btn){
     'envio-cart': ()=>renderEnvioCarteirinhas(),
     'alerta-presenca': ()=>renderAlertaPresenca(),
     cirio: ()=>renderCirioConfig(),
+    'escala-cirio': ()=>renderEscalaCirio(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
   if(fns[id]) fns[id]();
@@ -10101,6 +10103,13 @@ function renderCirioGradeEditor(){
       <p style="font-size:11px;color:#888;margin:0 0 8px">Ministros que ainda não preencheram:</p>
       <input type="text" id="cirio-busca-pendente" placeholder="🔎 Buscar ministro pelo nome..." oninput="renderCirioListaPendentes(this.value)" style="margin-bottom:8px">
       <div id="cirio-lista-pendentes"></div>
+    </div>
+
+    <div class="card" style="border:1.5px solid #185FA5;background:#eef5fb">
+      <p class="ct" style="color:#185FA5">🔁 Já respondeu e precisa mudar?</p>
+      <p style="font-size:11px;color:#666;margin:0 0 10px;line-height:1.5">Busque o ministro (já tenha ele preenchido ou não) e reenvie o mesmo link — ao abrir, ele vê o que já marcou e pode alterar à vontade. Não cria duplicado, só atualiza.</p>
+      <input type="text" id="cirio-busca-qualquer" placeholder="🔎 Buscar qualquer ministro..." oninput="cirioBuscarQualquerMinistro(this.value)" style="margin-bottom:8px">
+      <div id="cirio-resultado-busca-qualquer"></div>
     </div>`;
 
   renderCirioProgresso();
@@ -10193,16 +10202,54 @@ async function renderCirioProgresso(){
 
 window.renderCirioListaPendentes = function(filtro){
   const f = normalizarBusca(filtro||'');
-  const pendentes = (window._cirioPendentesCache||[]).filter(m=>normalizarBusca(m.nome).includes(f));
+  const todos = (window._cirioPendentesCache||[]).filter(m=>normalizarBusca(m.nome).includes(f));
   const lista = document.getElementById('cirio-lista-pendentes');
   if(!lista) return;
-  lista.innerHTML = pendentes.length ? pendentes.map(m=>{
+
+  if(!todos.length){
+    lista.innerHTML = filtro ? '<p style="font-size:12px;color:#888;padding:6px 0">Nenhum ministro pendente encontrado com esse nome.</p>' : '<p style="font-size:12px;color:#1D9E75;padding:6px 0">✓ Todos já preencheram!</p>';
+    return;
+  }
+
+  // Separa por urgência: quem já recebeu o link e não respondeu é o mais urgente de cobrar —
+  // quem ainda nem recebeu, precisa é receber primeiro.
+  const aguardando = todos.filter(m=>m.cirioDispEnviadaEm).sort((a,b)=>(a.cirioDispEnviadaEm||0)-(b.cirioDispEnviadaEm||0));
+  const naoEnviados = todos.filter(m=>!m.cirioDispEnviadaEm);
+
+  const linha = (m, urgente) => {
     const semTel = !_cirioTelValido(m);
+    const cor = urgente ? '#BA7517' : '#1ba34d';
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eee">
-      <span style="flex:1;font-size:12.5px;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}${m.cirioDispEnviadaEm?' <span style="color:#BA7517;font-size:10.5px">· já enviei</span>':''}</span>
-      <button onclick="enviarDispCirioPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:5px 10px;border:1.5px solid ${semTel?'#ccc':'#1ba34d'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#1ba34d'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600">📲 Enviar</button>
+      <span style="flex:1;font-size:12.5px;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}</span>
+      <button onclick="enviarDispCirioPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:5px 10px;border:1.5px solid ${semTel?'#ccc':cor};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':cor};cursor:${semTel?'not-allowed':'pointer'};font-weight:600;white-space:nowrap">${urgente?'🔔 Cobrar':'📲 Enviar'}</button>
     </div>`;
-  }).join('') : (filtro ? '<p style="font-size:12px;color:#888;padding:6px 0">Nenhum ministro pendente encontrado com esse nome.</p>' : '<p style="font-size:12px;color:#1D9E75;padding:6px 0">✓ Todos já preencheram!</p>');
+  };
+
+  lista.innerHTML = `
+    ${aguardando.length ? `<p style="font-size:11px;font-weight:700;color:#BA7517;margin:6px 0 4px">🔔 Já enviei, aguardando resposta (${aguardando.length}) — mais urgente</p>${aguardando.map(m=>linha(m,true)).join('')}` : ''}
+    ${naoEnviados.length ? `<p style="font-size:11px;font-weight:700;color:#666;margin:${aguardando.length?'14':'6'}px 0 4px">📵 Ainda não enviei (${naoEnviados.length})</p>${naoEnviados.map(m=>linha(m,false)).join('')}` : ''}`;
+};
+
+// Busca QUALQUER ministro (já respondeu ou não) pra reenviar o link — usado quando alguém
+// pede pra mudar a disponibilidade que já tinha marcado.
+window.cirioBuscarQualquerMinistro = function(valor){
+  const cont = document.getElementById('cirio-resultado-busca-qualquer');
+  if(!cont) return;
+  const v = normalizarBusca(valor||'');
+  if(v.length<2){ cont.innerHTML=''; return; }
+  const achados = ministros.filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(v)).slice(0,10);
+  if(!achados.length){ cont.innerHTML = '<p style="font-size:12px;color:#888;padding:6px 0">Nenhum ministro encontrado.</p>'; return; }
+  cont.innerHTML = achados.map(m=>{
+    const semTel = !_cirioTelValido(m);
+    const status = m.cirioDispPreenchidaEm ? '<span style="color:#1D9E75;font-size:10.5px">✓ já respondeu</span>' : (m.cirioDispEnviadaEm ? '<span style="color:#BA7517;font-size:10.5px">⏳ aguardando resposta</span>' : '<span style="color:#999;font-size:10.5px">não enviado ainda</span>');
+    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+      <div style="flex:1">
+        <p style="font-size:12.5px;margin:0;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ sem telefone':''}</p>
+        <p style="margin:1px 0 0">${status}</p>
+      </div>
+      <button onclick="enviarDispCirioPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:5px 10px;border:1.5px solid ${semTel?'#ccc':'#185FA5'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#185FA5'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600;white-space:nowrap">📲 Reenviar</button>
+    </div>`;
+  }).join('');
 };
 
 window.enviarDispCirioPara = async function(id){
@@ -10228,6 +10275,223 @@ window.enviarProximaDispCirio = async function(){
     return;
   }
   await enviarDispCirioPara(proximo.id);
+};
+
+// ====================== ESCALAÇÃO DA GRADE DO CÍRIO ======================
+// Mesma lógica de "Escala Semanal" normal (busca com autocomplete, prioriza quem está
+// disponível), só que trabalhando em cima da grade configurada em "🕯️ Disponibilidade" —
+// uma escala por coluna (dia da semana da quinzena), guardada em escalas/escala_cirio_<colId>.
+function _cirioEscalaKey(colunaId){ return `escala_cirio_${colunaId}`; }
+
+window.renderEscalaCirio = async function(){
+  const cont = document.getElementById('escala-cirio-body');
+  if(!cont) return;
+  cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando...</p>';
+  await carregarCirioConfig();
+  const cfg = _cirioConfig;
+  if(!cfg.colunas || !cfg.colunas.length){
+    cont.innerHTML = '<p style="font-size:12px;color:#888">Configure a grade em "🕯️ Disponibilidade" primeiro.</p>';
+    return;
+  }
+  if(!window._cirioEscalaColunaAtual) window._cirioEscalaColunaAtual = cfg.colunas[0].id;
+
+  const chips = cfg.colunas.map(c=>{
+    const ativo = c.id===window._cirioEscalaColunaAtual;
+    return `<button onclick="selecionarColunaCirioEscala('${c.id}')" style="padding:7px 13px;border-radius:20px;border:1.5px solid ${ativo?'#BA7517':'#ddd'};background:${ativo?'#BA7517':'white'};color:${ativo?'white':'#333'};font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">${c.label}</button>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px">${chips}</div>
+    <div id="escala-cirio-horarios"></div>`;
+
+  await renderEscalaCirioHorarios();
+};
+
+window.selecionarColunaCirioEscala = function(colId){
+  window._cirioEscalaColunaAtual = colId;
+  renderEscalaCirio();
+};
+
+async function renderEscalaCirioHorarios(){
+  const cont = document.getElementById('escala-cirio-horarios');
+  if(!cont) return;
+  cont.innerHTML = '<p style="font-size:12px;color:#888">Carregando horários...</p>';
+  const cfg = _cirioConfig;
+  const colId = window._cirioEscalaColunaAtual;
+  const coluna = cfg.colunas.find(c=>c.id===colId);
+  if(!coluna){ cont.innerHTML=''; return; }
+
+  let dados = {};
+  try{
+    const d = await getDoc(doc(db,'escalas',_cirioEscalaKey(colId)));
+    dados = d.exists() ? d.data() : {};
+  }catch(e){ dados = {}; }
+  window._cirioEscalaDados = dados;
+
+  const horariosAtivos = (cfg.horarios||[]).filter(h => cfg.grade[colId] && cfg.grade[colId][h]);
+
+  if(!horariosAtivos.length){
+    cont.innerHTML = '<p style="font-size:12px;color:#888">Nenhum horário com missa configurado pra este dia — confira em "🕯️ Disponibilidade".</p>';
+    return;
+  }
+
+  cont.innerHTML = `
+    <p style="font-size:12px;color:#888;margin-bottom:10px">📅 ${coluna.label} — ${_cirioLabelDatas(coluna)}</p>
+    ${horariosAtivos.map(h => renderCardHorarioCirio(colId, h)).join('')}
+    <button onclick="salvarEscalaCirio()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px">💾 Salvar escala deste dia</button>
+    <button onclick="imprimirEscalaCirio()" style="width:100%;padding:11px;border:1.5px solid #085041;border-radius:10px;background:white;color:#085041;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px">🖨️ Imprimir escala completa (todos os dias)</button>`;
+}
+
+function renderCardHorarioCirio(colId, hora){
+  const dados = window._cirioEscalaDados[hora] || {ministros:[], responsavel:''};
+  const escalados = dados.ministros || [];
+  const idHora = hora.replace(':','');
+
+  const disponiveis = ministros.filter(m => ((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora) && !escalados.includes(m.nome));
+
+  return `<div style="border:1px solid #e0e0e0;border-radius:10px;margin-bottom:12px;overflow:hidden">
+    <div style="background:#085041;color:white;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
+      <span style="font-size:11px;opacity:.9">${escalados.length} escalado(s)${disponiveis.length?` · ✨ ${disponiveis.length} disponível(is)`:''}</span>
+    </div>
+    <div style="padding:10px 12px">
+      ${escalados.length ? escalados.map(nome=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f2f2f2">
+        <span style="flex:1;font-size:13px">${nome}${dados.responsavel===nome?' <span style="font-size:9px;background:#faeeda;color:#a07d2a;padding:1px 6px;border-radius:10px;font-weight:700">★ RESP</span>':''}</span>
+        <button onclick="cirioEscDefinirResp('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Definir como responsável" style="border:none;background:none;color:#BA7517;font-size:14px;cursor:pointer;padding:2px 4px">★</button>
+        <button onclick="cirioEscRemoverMin('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Remover" style="border:none;background:none;color:#c99;font-size:16px;cursor:pointer;padding:2px 4px">×</button>
+      </div>`).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
+
+      <div style="position:relative;margin-top:8px">
+        <input type="text" placeholder="🔍 Buscar ministro pra escalar..." autocomplete="off"
+          oninput="cirioEscBuscar(this,'${colId}','${hora}')"
+          style="width:100%;padding:9px;border:1.5px dashed #999;border-radius:9px;font-size:13px;box-sizing:border-box">
+        <div id="cirio-esc-ac-${colId}-${idHora}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+      </div>
+      ${disponiveis.length ? `<p style="font-size:10.5px;color:#999;margin-top:6px">✨ Disponíveis: ${disponiveis.slice(0,8).map(m=>primeiroNomes(m.nome)).join(', ')}${disponiveis.length>8?'...':''}</p>` : ''}
+    </div>
+  </div>`;
+}
+
+window.cirioEscBuscar = function(inp, colId, hora){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById(`cirio-esc-ac-${colId}-${hora.replace(':','')}`);
+  if(!ac) return;
+  if(v.length<2){ ac.style.display='none'; return; }
+  const dados = window._cirioEscalaDados[hora] || {ministros:[]};
+  const jaEscalados = new Set(dados.ministros||[]);
+  const disponiveisSet = new Set(ministros.filter(m=>((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora)).map(m=>m.nome));
+  const ms = ministros.filter(m=>m.ativo!==false && !jaEscalados.has(m.nome) && normalizarBusca(m.nome).includes(v))
+    .sort((a,b)=>{
+      const da = disponiveisSet.has(a.nome), db = disponiveisSet.has(b.nome);
+      if(da!==db) return da?-1:1;
+      return a.nome.localeCompare(b.nome,'pt-BR');
+    })
+    .slice(0,15);
+  if(!ms.length){ ac.style.display='none'; return; }
+  ac.style.display='block';
+  ac.innerHTML = ms.map(m=>`<div onclick="cirioEscAdicionarMin('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}')" style="padding:11px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
+    <span>${m.nome}</span>${disponiveisSet.has(m.nome)?'<span style="font-size:10px;color:#1D9E75;font-weight:700;white-space:nowrap;margin-left:6px">✨ disponível</span>':''}
+  </div>`).join('');
+};
+
+window.cirioEscAdicionarMin = function(colId, hora, nome){
+  if(!window._cirioEscalaDados[hora]) window._cirioEscalaDados[hora] = {ministros:[], responsavel:''};
+  if(!window._cirioEscalaDados[hora].ministros.includes(nome)) window._cirioEscalaDados[hora].ministros.push(nome);
+  renderEscalaCirioHorarios();
+};
+
+window.cirioEscRemoverMin = function(colId, hora, nome){
+  const d = window._cirioEscalaDados[hora];
+  if(!d) return;
+  d.ministros = (d.ministros||[]).filter(n=>n!==nome);
+  if(d.responsavel===nome) d.responsavel = '';
+  renderEscalaCirioHorarios();
+};
+
+window.cirioEscDefinirResp = function(colId, hora, nome){
+  if(!window._cirioEscalaDados[hora]) return;
+  window._cirioEscalaDados[hora].responsavel = nome;
+  renderEscalaCirioHorarios();
+};
+
+window.salvarEscalaCirio = async function(){
+  const colId = window._cirioEscalaColunaAtual;
+  try{
+    await setDoc(doc(db,'escalas',_cirioEscalaKey(colId)), window._cirioEscalaDados);
+    toast('✓ Escala do Círio salva!','ok');
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
+};
+
+// Imprime a grade INTEIRA do Círio (todas as colunas de uma vez), no mesmo espírito da escala
+// impressa do ano passado: horários nas linhas, dias da quinzena nas colunas, nomes numerados
+// dentro de cada célula. Usa impressão nativa do navegador — simples e confiável.
+window.imprimirEscalaCirio = async function(){
+  await carregarCirioConfig();
+  const cfg = _cirioConfig;
+  if(!cfg || !cfg.colunas || !cfg.colunas.length){ toast('Configure a grade do Círio primeiro.','warn'); return; }
+  toast('Preparando impressão...','ok');
+
+  const dadosPorColuna = {};
+  for(const c of cfg.colunas){
+    try{
+      const d = await getDoc(doc(db,'escalas',_cirioEscalaKey(c.id)));
+      dadosPorColuna[c.id] = d.exists() ? d.data() : {};
+    }catch(e){ dadosPorColuna[c.id] = {}; }
+  }
+
+  const horariosComMissa = (cfg.horarios||[]).filter(h => cfg.colunas.some(c => cfg.grade[c.id] && cfg.grade[c.id][h]));
+
+  const linhasHtml = horariosComMissa.map(h=>{
+    const celulas = cfg.colunas.map(c=>{
+      const temMissa = cfg.grade[c.id] && cfg.grade[c.id][h];
+      if(!temMissa) return `<td class="sem-missa"></td>`;
+      const dadosHora = (dadosPorColuna[c.id]||{})[h] || {ministros:[], responsavel:''};
+      const nomes = dadosHora.ministros || [];
+      const resp = dadosHora.responsavel || '';
+      const listaHtml = nomes.length
+        ? nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?' ★':''}</div>`).join('')
+        : '<div class="vazio">—</div>';
+      return `<td>${listaHtml}</td>`;
+    }).join('');
+    return `<tr><td class="hora-col">${h}</td>${celulas}</tr>`;
+  }).join('');
+
+  const colunasHtml = cfg.colunas.map(c=>`<th>${c.label}<br><span class="datas">${_cirioLabelDatas(c)}</span></th>`).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Escala Círio — Impressão</title>
+  <style>
+    @page{ size: A4 landscape; margin: 10mm; }
+    body{ font-family: Arial, sans-serif; margin:0; padding:16px; color:#222; }
+    h1{ text-align:center; font-size:16px; margin:0 0 2px; color:#085041; }
+    h2{ text-align:center; font-size:12px; margin:0 0 14px; color:#666; font-weight:normal; }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ border:1px solid #ccc; vertical-align:top; padding:4px 6px; font-size:10.5px; }
+    th{ background:#085041; color:white; font-size:11px; text-align:center; }
+    .datas{ font-weight:normal; font-size:9px; opacity:.85; }
+    .hora-col{ background:#f0faf5; font-weight:700; text-align:center; white-space:nowrap; color:#085041; }
+    .nome{ padding:1px 0; }
+    .nome.resp{ font-weight:700; color:#a07d2a; }
+    .vazio{ color:#ccc; text-align:center; }
+    .sem-missa{ background:#f8d7da; }
+    @media print{ .no-print{ display:none; } }
+  </style></head>
+  <body>
+    <div class="no-print" style="text-align:center;margin-bottom:14px">
+      <button onclick="window.print()" style="padding:10px 24px;font-size:14px;font-weight:700;background:#085041;color:white;border:none;border-radius:8px;cursor:pointer">🖨️ Imprimir</button>
+    </div>
+    <h1>ESCALA QUINZENA DO CÍRIO${cfg.ano?' '+cfg.ano:''}</h1>
+    <h2>Ministério Extraordinário da Sagrada Comunhão Eucarística — Basílica Santuário de Nossa Senhora de Nazaré</h2>
+    <table>
+      <thead><tr><th></th>${colunasHtml}</tr></thead>
+      <tbody>${linhasHtml}</tbody>
+    </table>
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  if(!win){ toast('Seu navegador bloqueou a janela. Permita pop-ups pra este site e tente de novo.','warn'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 };
 
 // ===== LINK DO RESPONSÁVEL: painel de presença do horário que ele responde =====
@@ -11958,9 +12222,10 @@ window.renderEventos = async function(){
   };
 
   cont.innerHTML = `
+    <button onclick="abrirNovoEvento()" style="width:100%;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:6px">+ Criar novo evento</button>
     <div style="display:flex;gap:6px;margin-bottom:16px">
-      <button onclick="abrirNovoEvento()" style="flex:1;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:14px;font-weight:700;cursor:pointer">+ Criar novo evento</button>
-      <button onclick="nav('cirio')" title="Disponibilidade do Círio" style="flex:1;padding:13px;border:1.5px solid #085041;border-radius:12px;background:white;color:#085041;font-size:14px;font-weight:700;cursor:pointer">🕯️ Disponibilidade</button>
+      <button onclick="nav('cirio')" title="Disponibilidade do Círio" style="flex:1;padding:11px;border:1.5px solid #085041;border-radius:12px;background:white;color:#085041;font-size:13px;font-weight:700;cursor:pointer">🕯️ Disponibilidade</button>
+      <button onclick="nav('escala-cirio')" title="Escalar as missas da quinzena do Círio" style="flex:1;padding:11px;border:1.5px solid #BA7517;border-radius:12px;background:white;color:#BA7517;font-size:13px;font-weight:700;cursor:pointer">📋 Escalar Círio</button>
     </div>
 
     ${futuros.length ? `<p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 8px">📌 Próximos eventos</p>${futuros.map(cardEvento).join('')}` : ''}
@@ -14347,6 +14612,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Configure a grade de horários da quinzena e envie o link para os ministros marcarem disponibilidade — vira dado pronto pra escalar, igual a disponibilidade das missas normais.</p>
   </div>
   <div id="cirio-body"></div>
+</div>
+
+<div id="s-escala-cirio" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#BA7517,#8a5a10);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">📋 Escalar a Quinzena do Círio</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Escolha o dia da semana, escale cada horário. Quem marcou disponibilidade naquele dia/hora aparece com ✨ na busca.</p>
+  </div>
+  <div id="escala-cirio-body"></div>
 </div>
 
 <div id="s-mais" class="sec">
