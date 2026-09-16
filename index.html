@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.17.0';
+const APP_VERSAO = '20.18.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -12406,7 +12406,6 @@ function renderEventoDetalhe(){
   const escala = e.escala || [];
   const presenca = e.presenca || {};
   const jaEscalados = new Set(escala);
-  const disponiveis = calcularDisponiveisParaEvento(e).filter(d=>!jaEscalados.has(d.m.nome));
 
   cont.innerHTML = `
     <div style="background:#e1f5ee;border-radius:12px;padding:14px;margin-bottom:14px">
@@ -12417,35 +12416,35 @@ function renderEventoDetalhe(){
       <button onclick="editarEvento()" style="margin-top:10px;padding:5px 12px;border:1px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:11px;font-weight:600;cursor:pointer">✏️ Editar dados</button>
     </div>
 
-    <!-- DISPONÍVEIS SEGUNDO A DISPONIBILIDADE DO CÍRIO -->
-    <div style="background:#fdf6e3;border:1px solid #E8C66B;border-radius:12px;padding:14px;margin-bottom:14px">
-      <p style="font-size:13px;font-weight:700;color:#a07d2a;margin:0 0 4px">✨ Disponíveis para este evento (${disponiveis.length})</p>
-      <p style="font-size:11px;color:#8a6d0c;margin:0 0 10px;line-height:1.4">Ministros que marcaram disponibilidade pra esta data/horário na Disponibilidade do Círio. Toque em "+ Add" pra escalar direto.</p>
-      ${disponiveis.length ? disponiveis.map(d=>{
-        const viaTxt = [...d.via].join(' + ');
-        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3e6c8">
-          <span style="flex:1;font-size:13px">${d.m.nome} <span style="font-size:9.5px;color:#a08040">(${viaTxt})</span></span>
-          <button onclick="addMinEvento('${d.m.nome.replace(/'/g,"\\'")}')" style="font-size:11px;padding:4px 10px;border-radius:16px;border:none;background:#BA7517;color:white;font-weight:700;cursor:pointer">+ Add</button>
-        </div>`;
-      }).join('') : '<p style="font-size:12px;color:#a08040;margin:0">Ninguém marcou disponibilidade pra esta data/horário ainda — confira se o evento bate com a grade ou celebração configurada em "Círio".</p>'}
-    </div>
-
     <!-- ESCALA DO EVENTO -->
-    <div style="background:white;border:1px solid #eee;border-radius:12px;padding:14px;margin-bottom:14px">
-      <p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 10px">👥 Escala do evento (${escala.length})</p>
-      <div style="position:relative;margin-bottom:10px">
-        <input type="text" id="evt-busca-min" oninput="acEventoMin(this)" placeholder="Digite o nome do ministro e escale..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:13px;box-sizing:border-box">
-        <div id="evt-ac" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:0 0 9px 9px;max-height:200px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+    <div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="background:#085041;color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;font-size:14px">👥 Escala do evento</span>
+        <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.25);padding:2px 9px;border-radius:20px;white-space:nowrap">${escala.length} 👤</span>
       </div>
-      <div id="evt-escala-lista">
-        ${escala.length ? escala.map(nome=>{
-          const ehResp = e.responsavel===nome;
-          return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0f0f0">
-            <button onclick="setRespEvento('${nome.replace(/'/g,"\\'")}')" title="Responsável" style="width:26px;height:26px;border:1px solid ${ehResp?'#BA7517':'#ddd'};border-radius:6px;background:${ehResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
-            <span style="flex:1;font-size:13px;${ehResp?'font-weight:700;color:#085041':''}">${nome}${ehResp?' <span style="font-size:10px;color:#BA7517">(responsável)</span>':''}</span>
-            <button onclick="removerMinEvento('${nome.replace(/'/g,"\\'")}')" style="border:none;background:none;color:#A32D2D;font-size:16px;cursor:pointer;padding:0 4px">×</button>
-          </div>`;
-        }).join('') : '<p style="font-size:12px;color:#aaa;padding:6px 0">Nenhum ministro escalado ainda.</p>'}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:#888">${escala.length} escalado(s)</span>
+        <button onclick="verDisponiveisEvento()"
+          style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
+          👥 ${calcularDisponiveisParaEvento(e).length} disponíveis
+        </button>
+      </div>
+      ${escala.length ? escala.map(nome=>{
+        const ehResp = e.responsavel===nome;
+        const min = ministros.find(x=>x.nome===nome);
+        const foto = min?.foto
+          ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
+          : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
+          <button onclick="setRespEvento('${nome.replace(/'/g,"\\'")}')" title="Responsável" style="width:28px;height:26px;border:1px solid ${ehResp?'#BA7517':'#ddd'};border-radius:6px;background:${ehResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
+          ${foto}
+          <span style="flex:1;font-size:12px;font-weight:${ehResp?'700':'500'}">${nome}${ehResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</span>
+          <button onclick="removerMinEvento('${nome.replace(/'/g,"\\'")}')" style="border:none;background:none;color:#ccc;font-size:18px;cursor:pointer;line-height:1">×</button>
+        </div>`;
+      }).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
+      <div style="position:relative;margin-top:8px">
+        <input type="text" id="evt-busca-min" oninput="acEventoMin(this)" placeholder="🔍 Buscar por nome (mostra quem está disponível primeiro)..." style="width:100%;padding:9px;border:1px solid #ddd;border-radius:6px;font-size:12px;box-sizing:border-box;margin:0">
+        <div id="evt-ac" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
       </div>
     </div>
 
@@ -12490,10 +12489,60 @@ window.acEventoMin = function(inp){
   const ac = document.getElementById('evt-ac');
   if(!v){ ac.style.display='none'; return; }
   const jaEsc = new Set(_eventoAtual.escala||[]);
-  const matches = ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaEsc.has(m.nome)).slice(0,8);
+  const disponiveisSet = new Set(calcularDisponiveisParaEvento(_eventoAtual).map(d=>d.m.nome));
+  const matches = ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaEsc.has(m.nome))
+    .sort((a,b)=>{
+      const da = disponiveisSet.has(a.nome), db = disponiveisSet.has(b.nome);
+      if(da!==db) return da?-1:1;
+      return a.nome.localeCompare(b.nome,'pt-BR');
+    })
+    .slice(0,8);
   if(!matches.length){ ac.style.display='none'; return; }
   ac.style.display='block';
-  ac.innerHTML = matches.map((m,i)=>`<div onmousedown="addMinEvento('${m.nome.replace(/'/g,"\\'")}')" style="padding:9px 12px;cursor:pointer;font-size:13px;${i===0?'background:#eef7f2;':''}" onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${i===0?'#eef7f2':'white'}'">${m.nome}</div>`).join('');
+  ac.innerHTML = matches.map((m,i)=>`<div onmousedown="addMinEvento('${m.nome.replace(/'/g,"\\'")}')" style="padding:9px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;${i===0?'background:#eef7f2;':''}" onmouseover="this.style.background='#f5f5f3'" onmouseout="this.style.background='${i===0?'#eef7f2':'white'}'"><span>${m.nome}</span>${disponiveisSet.has(m.nome)?'<span style="font-size:10px;color:#1D9E75;font-weight:700;white-space:nowrap;margin-left:6px">✨ disponível</span>':''}</div>`).join('');
+};
+
+// Abre o modal (o mesmo já usado pela escala normal e pela escala do Círio) com a lista
+// completa de quem está disponível pra esse evento específico.
+window.verDisponiveisEvento = function(){
+  const e = _eventoAtual;
+  if(!e) return;
+  const escala = e.escala || [];
+  const jaEscalados = new Set(escala);
+  const disponiveis = calcularDisponiveisParaEvento(e);
+  const dataFmt = (e.data||'').split('-').reverse().join('/');
+  document.getElementById('vd-titulo').textContent = `${e.nome} — ${dataFmt}`;
+  document.getElementById('vd-count').textContent = `${disponiveis.length} disponíveis`;
+  document.getElementById('vd-body').innerHTML = disponiveis.length
+    ? disponiveis.map(d=>{
+        const jaEsc = jaEscalados.has(d.m.nome);
+        const viaTxt = [...d.via].join(' + ');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
+          <div style="width:28px;height:28px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(d.m.nome)}</div>
+          <div style="flex:1">
+            <p style="font-size:13px;margin:0">${d.m.nome}</p>
+            <p style="font-size:10px;color:#888;margin:0">${viaTxt}</p>
+          </div>
+          <button onclick="addMinEventoDoModal('${d.m.nome.replace(/'/g,"\\'")}',this)"
+            ${jaEsc?'disabled':''}
+            style="font-size:11px;padding:4px 10px;border-radius:20px;border:none;cursor:${jaEsc?'default':'pointer'};font-weight:600;background:${jaEsc?'#e1f5ee':'#1D9E75'};color:${jaEsc?'#085041':'white'}">
+            ${jaEsc?'✓ Escalado':'+ Adicionar'}
+          </button>
+        </div>`;
+      }).join('')
+    : '<p style="font-size:13px;color:#888;padding:12px 0">Ninguém marcou disponibilidade pra esta data/horário ainda — confira se o evento bate com a grade ou celebração configurada em "Círio".</p>';
+  document.getElementById('modal-vd').style.display='flex';
+};
+
+window.addMinEventoDoModal = function(nome, btn){
+  addMinEvento(nome);
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '✓ Escalado';
+    btn.style.background = '#e1f5ee';
+    btn.style.color = '#085041';
+    btn.style.cursor = 'default';
+  }
 };
 
 window.addMinEvento = async function(nome){
