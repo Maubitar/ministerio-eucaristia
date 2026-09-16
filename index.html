@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.20.1';
+const APP_VERSAO = '20.20.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1191,7 +1191,7 @@ function cirioConfigPadrao(){
     ],
     horarios: ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'],
     grade: {
-      dom_cirio:{'05:45':true,'06:00':true,'16:00':true,'18:00':true,'20:00':true},
+      dom_cirio:{'05:45':true,'06:00':true,'07:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true},
       dom:      {'06:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true},
       seg:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
       ter:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
@@ -1224,10 +1224,9 @@ function _cirioLabelDatas(coluna){
 function _cirioAplicarCorrecoes(cfg){
   let mudou = false;
   if(cfg.grade){
-    // Domingo do Círio: 05:45 (Terço da Alvorada), 06:00, 16:00, 18:00 e 20:00 — todos os
-    // horários já confirmados nesta configuração, de uma vez, pra não faltar nenhum de novo.
+    // Domingo do Círio: TODOS os 10 horários da quinzena ficam disponíveis neste dia.
     if(cfg.grade.dom_cirio){
-      ['05:45','06:00','16:00','18:00','20:00'].forEach(h=>{
+      ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'].forEach(h=>{
         if(!cfg.grade.dom_cirio[h]){ cfg.grade.dom_cirio[h] = true; mudou = true; }
       });
     }
