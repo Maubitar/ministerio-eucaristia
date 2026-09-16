@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.19.0';
+const APP_VERSAO = '20.20.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1217,12 +1217,35 @@ function _cirioLabelDatas(coluna){
   if(coluna && coluna.datas && coluna.datas.length) return coluna.datas.join(' e ');
   return (coluna && coluna.data) || '';
 }
+// AUTOCORREÇÃO: aplica de vez os ajustes já combinados, direto no dado que está salvo no
+// banco — sem isso, uma correção no código (o padrão de fábrica) nunca alcança uma
+// configuração que o coordenador já salvou antes, e o mesmo erro parece "voltar" toda hora.
+// Roda sozinha sempre que o config é carregado, tanto pelo coordenador quanto pelo ministro.
+function _cirioAplicarCorrecoes(cfg){
+  let mudou = false;
+  if(cfg.grade){
+    if(cfg.grade.dom_cirio && !cfg.grade.dom_cirio['05:45']){ cfg.grade.dom_cirio['05:45'] = true; mudou = true; }
+    if(cfg.grade.dom && !cfg.grade.dom['20:00']){ cfg.grade.dom['20:00'] = true; mudou = true; }
+  }
+  if(cfg.celebracoes && cfg.celebracoes.some(c=>c.id==='romaria_juv')){
+    cfg.celebracoes = cfg.celebracoes.filter(c=>c.id!=='romaria_juv');
+    mudou = true;
+  }
+  return mudou;
+}
+
 async function carregarCirioConfig(forcar){
   if(_cirioConfig && !forcar) return _cirioConfig;
   try{
     const d = await getDoc(doc(db,'config','cirio'));
     _cirioConfig = d.exists() ? d.data() : cirioConfigPadrao();
   }catch(e){ _cirioConfig = cirioConfigPadrao(); }
+
+  if(_cirioAplicarCorrecoes(_cirioConfig)){
+    try{ await setDoc(doc(db,'config','cirio'), _cirioConfig); }
+    catch(e){ /* sem permissão ou offline — a correção ainda vale nesta sessão, só não fica salva */ }
+  }
+
   return _cirioConfig;
 }
 
