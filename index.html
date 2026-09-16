@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.20.2';
+const APP_VERSAO = '20.21.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -352,7 +352,13 @@ window.addEventListener('load', async()=>{
   if(presRespCodigo){
     const app = initializeApp(FB);
     db = getFirestore(app);
-    modoPresencaResponsavel(presRespCodigo);
+    // Código "evt-<id>" é presença de um Evento Especial (Círio etc.) — painel próprio,
+    // mais simples, sem navegação de datas (o evento já é uma data fixa).
+    if(presRespCodigo.startsWith('evt-')){
+      modoPresencaEvento(presRespCodigo.slice(4));
+    } else {
+      modoPresencaResponsavel(presRespCodigo);
+    }
     // BLINDAGEM: sem isso, quem já tinha o link salvo no celular podia ficar preso numa versão
     // antiga em cache do navegador, sem nenhum aviso — a mesma checagem automática da tela
     // principal também roda aqui, detectando e recarregando sozinho quando sai versão nova.
@@ -10310,6 +10316,219 @@ window.enviarProximaDispCirio = async function(){
   await enviarDispCirioPara(proximo.id);
 };
 
+// ====================== LINK DE PRESENÇA — EVENTOS ESPECIAIS ======================
+// Mesmo espírito do link de presença das missas, só que pra um Evento Especial (Trasladação,
+// Chegada do Círio etc.) — mais simples, porque o evento já é uma data/hora fixa, sem precisar
+// navegar entre várias datas da semana. Presença fica salva em eventos/<id>.presenca.
+async function modoPresencaEvento(eventoId){
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
+  let evento, todosMinistros = [];
+  try{
+    const d = await getDoc(doc(db,'eventos',eventoId));
+    if(!d.exists()) throw new Error('não encontrado');
+    evento = {id:d.id, ...d.data()};
+    const snap = await getDocs(collection(db,'ministros'));
+    todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()}));
+  }catch(e){
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com a Coordenação MESCE.</div>';
+    return;
+  }
+  window._presEventoAtual = evento;
+  window._presEventoTodosMinistros = todosMinistros;
+  renderPainelPresencaEvento();
+}
+
+function renderPainelPresencaEvento(){
+  const e = window._presEventoAtual;
+  const escala = e.escala || [];
+  const presenca = e.presenca || {};
+  const porNome = {}; window._presEventoTodosMinistros.forEach(m=>{ porNome[m.nome]=m; });
+  const registranteSalvo = localStorage.getItem('sogi_registrante_nome');
+  const dataFmt = (e.data||'').split('-').reverse().join('/');
+
+  const idsEscalados = new Set(escala.map(n=>porNome[n]?.id).filter(Boolean));
+  const linhas = escala.map(nome=>{
+    const m = porNome[nome];
+    return m ? linhaPresencaEvento(m, presenca[m.id], true) : '';
+  }).join('');
+  const substitutosSalvos = Object.keys(presenca).filter(id=>!idsEscalados.has(id) && presenca[id]?.substituto);
+  const linhasSubstitutos = substitutosSalvos.map(id=>{
+    const m = window._presEventoTodosMinistros.find(x=>x.id===id);
+    return m ? linhaPresencaEvento(m, presenca[id], false) : '';
+  }).join('');
+
+  document.body.innerHTML = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px 14px 40px;background:#f8f8f6;min-height:100vh">
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="display:flex;justify-content:center;gap:12px;margin-bottom:8px">
+        <img src="${LOGO_BASILICA}" style="width:52px;height:52px;object-fit:contain">
+        <img src="${LOGO_MESCE}" style="width:52px;height:52px;object-fit:contain">
+      </div>
+      <p style="font-size:14px;color:#085041;font-weight:700;margin:0">📋 Lista de Presença</p>
+      <p style="font-size:11px;color:#888;margin:2px 0 0">Basílica Santuário de Nossa Senhora de Nazaré</p>
+    </div>
+
+    <div style="background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px">
+      <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 4px">${e.nome||'Evento'}</p>
+      <p style="font-size:12.5px;color:#666;margin:0">📅 ${dataFmt}${e.hora?` · 🕐 ${e.hora}`:''}${e.local?` · 📍 ${e.local}`:''}</p>
+    </div>
+
+    <div id="pr-quem-registra" style="background:${registranteSalvo?'#f0faf5':'#fff3cd'};border:1.5px solid ${registranteSalvo?'#1D9E75':'#F0DE9A'};border-radius:12px;padding:14px;margin-bottom:14px">
+      ${registranteSalvo ? `
+        <p style="font-size:12.5px;color:#085041;margin:0">✓ Registrando como <strong>${registranteSalvo}</strong> — <a href="#" onclick="trocarRegistranteEvento();return false" style="color:#185FA5">trocar</a></p>
+      ` : `
+        <p style="font-size:12.5px;font-weight:700;color:#856404;margin:0 0 8px">Antes de marcar, quem está registrando a presença?</p>
+        <input type="text" id="pr-nome-registrante" placeholder="Seu nome" style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:9px;font-size:13px;box-sizing:border-box;margin-bottom:8px">
+        <button onclick="salvarRegistranteEvento()" style="width:100%;padding:10px;border:none;border-radius:9px;background:#1D9E75;color:white;font-weight:700;cursor:pointer">Confirmar</button>
+      `}
+    </div>
+
+    <div style="background:white;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+      <p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 10px">👥 Ministros escalados (${escala.length})</p>
+      ${linhas || '<p style="font-size:12px;color:#999">Nenhum ministro escalado ainda.</p>'}
+      ${linhasSubstitutos}
+    </div>
+  </div>`;
+}
+
+function linhaPresencaEvento(m, reg, ehOriginal){
+  const status = reg?.status || '';
+  const fotoHtml = m.foto
+    ? `<img src="${m.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+    : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${(m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}</div>`;
+  function botao(letra, cor, valor){
+    const ativo = status===valor;
+    const proximoValor = ativo ? '' : valor;
+    return `<button onclick="marcarPresencaEvento('${m.id}','${proximoValor}')" style="width:32px;height:32px;border-radius:8px;border:1.5px solid ${cor};background:${ativo?cor:'white'};color:${ativo?'white':cor};font-weight:700;font-size:12px;cursor:pointer">${letra}</button>`;
+  }
+  const tagSubstituto = !ehOriginal ? `<span style="font-size:9px;background:#e6f1fb;color:#185FA5;padding:1px 6px;border-radius:10px;font-weight:700;white-space:nowrap">${reg?.substituiuNome ? 'veio no lugar de '+reg.substituiuNome.split(' ')[0] : 'SUBSTITUTO'}</span>` : '';
+  return `<div>
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:${ehOriginal?'none':'1px solid #eee'}">
+      ${fotoHtml}
+      <span style="flex:1;font-size:13px;font-weight:500;min-width:0">${m.nome}${tagSubstituto?' '+tagSubstituto:''}</span>
+      <div style="display:flex;gap:5px;flex-shrink:0">
+        ${botao('P','#1D9E75','P')}
+        ${botao('F','#A32D2D','F')}
+        ${botao('S','#BA7517','S')}
+        ${botao('J','#6B4FA0','J')}
+      </div>
+    </div>
+    ${status==='J' ? `
+    <div style="padding:0 0 8px 44px">
+      <input type="text" placeholder="Motivo da justificativa (opcional)..." value="${(reg?.justificativa||'').replace(/"/g,'&quot;')}"
+        onchange="atualizarJustificativaEvento('${m.id}',this.value)"
+        style="width:100%;padding:8px 10px;border:1px dashed #6B4FA0;border-radius:8px;font-size:12px;color:#4a3570;box-sizing:border-box">
+    </div>` : ''}
+    ${ehOriginal ? `
+    <div style="padding:0 0 8px 44px">
+      <a href="#" onclick="toggleSubstituirEvento('${m.id}');return false" style="font-size:11px;color:#185FA5;text-decoration:none">🔁 Alguém substituiu ${m.nome.split(' ')[0]}?</a>
+      <div id="pr-sub-evt-${m.id}" style="display:none;position:relative;margin-top:6px">
+        <input type="text" id="pr-busca-sub-evt-${m.id}" placeholder="🔍 Buscar quem substituiu ${m.nome.split(' ')[0]}..." autocomplete="off"
+          oninput="buscarSubstitutoEvento(this,'${m.id}','${m.nome.replace(/'/g,"")}')"
+          style="width:100%;padding:10px;border:1.5px dashed #999;border-radius:9px;font-size:13px;box-sizing:border-box">
+        <div id="pr-ac-sub-evt-${m.id}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+      </div>
+    </div>` : ''}
+  </div>`;
+}
+
+window.salvarRegistranteEvento = function(){
+  const inp = document.getElementById('pr-nome-registrante');
+  const nome = (inp?.value||'').trim();
+  if(!nome){ toast('Digite seu nome.','warn'); return; }
+  localStorage.setItem('sogi_registrante_nome', nome);
+  renderPainelPresencaEvento();
+};
+window.trocarRegistranteEvento = function(){
+  localStorage.removeItem('sogi_registrante_nome');
+  renderPainelPresencaEvento();
+};
+
+// Salva um único registro de presença, sem apagar os outros já salvos — mesmo cuidado do
+// merge que já corrigimos na presença das missas: nunca sobrescrever o mapa inteiro.
+async function _salvarPresencaEvento(ministroId, dados){
+  const e = window._presEventoAtual;
+  try{
+    await updateDoc(doc(db,'eventos',e.id), { [`presenca.${ministroId}`]: dados });
+    return true;
+  }catch(err){
+    try{
+      await setDoc(doc(db,'eventos',e.id), { presenca: { [ministroId]: dados } }, {merge:true});
+      return true;
+    }catch(err2){ toast('Erro ao salvar: '+err2.message,'warn'); return false; }
+  }
+}
+
+window.marcarPresencaEvento = async function(ministroId, status){
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de marcar, informe quem está registrando (no topo da tela).','warn'); return; }
+  if(status==='S'){
+    const presencaAtual = window._presEventoAtual.presenca || {};
+    const jaTemSubstituto = Object.values(presencaAtual).some(r=>r?.substituto && r?.substituiuId===ministroId);
+    if(!jaTemSubstituto){
+      toast('⚠️ Antes de marcar Substituição, é obrigatório informar quem substituiu.','warn');
+      const campo = document.getElementById('pr-sub-evt-'+ministroId);
+      if(campo){ campo.style.display='block'; document.getElementById('pr-busca-sub-evt-'+ministroId)?.focus(); }
+      return;
+    }
+  }
+  const dados = { status, justificativa:'', registradoPor:registrante, registradoEm: Date.now() };
+  const ok = await _salvarPresencaEvento(ministroId, dados);
+  if(ok){
+    if(!window._presEventoAtual.presenca) window._presEventoAtual.presenca = {};
+    window._presEventoAtual.presenca[ministroId] = dados;
+    const m = window._presEventoTodosMinistros.find(x=>x.id===ministroId);
+    const STATUS_LABEL = { P:'Presente', F:'Faltou', S:'Substituição', J:'Justificado', '':'Desmarcado' };
+    renderPainelPresencaEvento();
+    toast(`✓ ${status===''?'Desmarcado':'Salvo'}: ${m?.nome||'Ministro'}${status?' — '+STATUS_LABEL[status]:''}`, 'ok');
+  }
+};
+
+window.atualizarJustificativaEvento = async function(ministroId, valor){
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de escrever o motivo, informe quem está registrando (no topo da tela).','warn'); return; }
+  const dados = { status:'J', justificativa:valor, registradoPor:registrante, registradoEm: Date.now() };
+  const ok = await _salvarPresencaEvento(ministroId, dados);
+  if(ok){
+    if(!window._presEventoAtual.presenca) window._presEventoAtual.presenca = {};
+    window._presEventoAtual.presenca[ministroId] = dados;
+    toast('✓ Motivo da justificativa salvo.','ok');
+  }
+};
+
+window.toggleSubstituirEvento = function(ministroId){
+  const campo = document.getElementById('pr-sub-evt-'+ministroId);
+  if(campo) campo.style.display = campo.style.display==='none' ? 'block' : 'none';
+};
+
+window.buscarSubstitutoEvento = function(inp, substituiuId, substituiuNome){
+  const v = normalizarBusca(inp.value);
+  const ac = document.getElementById('pr-ac-sub-evt-'+substituiuId);
+  if(!ac) return;
+  if(v.length<2){ ac.style.display='none'; return; }
+  const escaladosNomes = new Set(window._presEventoAtual.escala||[]);
+  const ms = window._presEventoTodosMinistros.filter(m=>m.ativo!==false && !escaladosNomes.has(m.nome) && normalizarBusca(m.nome).includes(v)).slice(0,10);
+  if(!ms.length){ ac.style.display='none'; return; }
+  ac.style.display='block';
+  ac.innerHTML = ms.map(m=>`<div onclick="adicionarSubstitutoEvento('${m.id}','${m.nome.replace(/'/g,"\\'")}','${substituiuId}','${substituiuNome.replace(/'/g,"\\'")}')" style="padding:12px;cursor:pointer;font-size:14px;border-bottom:1px solid #f0f0f0">${m.nome}</div>`).join('');
+};
+
+window.adicionarSubstitutoEvento = async function(ministroId, nome, substituiuId, substituiuNome){
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de adicionar, informe quem está registrando (no topo da tela).','warn'); return; }
+  const dadosSubstituto = { status:'P', justificativa:'', registradoPor:registrante, registradoEm: Date.now(), substituto:true, substituiuId, substituiuNome };
+  const dadosTitular = { status:'S', justificativa:'', registradoPor:registrante, registradoEm: Date.now() };
+  const ok1 = await _salvarPresencaEvento(ministroId, dadosSubstituto);
+  const ok2 = await _salvarPresencaEvento(substituiuId, dadosTitular);
+  if(ok1 && ok2){
+    if(!window._presEventoAtual.presenca) window._presEventoAtual.presenca = {};
+    window._presEventoAtual.presenca[ministroId] = dadosSubstituto;
+    window._presEventoAtual.presenca[substituiuId] = dadosTitular;
+    toast(`✓ ${nome.split(' ')[0]} adicionado(a) no lugar de ${substituiuNome.split(' ')[0]}!`,'ok');
+    renderPainelPresencaEvento();
+  }
+};
+
 // ====================== ESCALAÇÃO DA GRADE DO CÍRIO ======================
 // Mesma lógica de "Escala Semanal" normal (busca com autocomplete, prioriza quem está
 // disponível), só que trabalhando em cima da grade configurada em "🕯️ Disponibilidade" —
@@ -12451,7 +12670,10 @@ function renderEventoDetalhe(){
       <p style="font-size:13px;color:#666;margin:4px 0 0">📅 ${dataFmt}${e.hora?` · 🕐 ${e.hora}`:''}</p>
       ${e.local?`<p style="font-size:12px;color:#888;margin:2px 0 0">📍 ${e.local}</p>`:''}
       ${e.descricao?`<p style="font-size:12px;color:#888;margin:6px 0 0">${e.descricao}</p>`:''}
-      <button onclick="editarEvento()" style="margin-top:10px;padding:5px 12px;border:1px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:11px;font-weight:600;cursor:pointer">✏️ Editar dados</button>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button onclick="editarEvento()" style="padding:5px 12px;border:1px solid #1D9E75;border-radius:20px;background:white;color:#1D9E75;font-size:11px;font-weight:600;cursor:pointer">✏️ Editar dados</button>
+        <button onclick="enviarLinkPresencaEvento()" style="padding:5px 12px;border:1px solid #25D366;border-radius:20px;background:white;color:#1ba34d;font-size:11px;font-weight:600;cursor:pointer">📲 Enviar link de presença</button>
+      </div>
     </div>
 
     <!-- ESCALA DO EVENTO -->
@@ -12509,6 +12731,26 @@ function renderEventoDetalhe(){
     <button onclick="excluirEvento()" style="width:100%;padding:9px;border:1px solid #f0d0d0;border-radius:8px;background:white;color:#A32D2D;font-size:12px;font-weight:600;cursor:pointer">🗑️ Excluir este evento</button>
   `;
 }
+
+// Manda o link de presença deste evento (?presresp=evt-<id>) pro responsável definido. Se
+// ninguém foi marcado como responsável ainda, pede pra definir primeiro (botão ★ na lista).
+window.enviarLinkPresencaEvento = function(){
+  const e = _eventoAtual;
+  if(!e) return;
+  if(!e.responsavel){
+    toast('⚠️ Defina um responsável primeiro (toque na ★ ao lado do nome dele na escala).','warn');
+    return;
+  }
+  const m = ministros.find(x=>x.nome===e.responsavel);
+  if(!m){ toast('Responsável não encontrado no cadastro.','warn'); return; }
+  const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+  if(!tel || tel.length<10){ toast(`⚠️ ${m.nome.split(' ')[0]} está sem telefone válido no cadastro.`,'warn'); return; }
+  const dataFmt = (e.data||'').split('-').reverse().join('/');
+  const url = `${APP_URL}/?presresp=evt-${e.id}`;
+  const txt = `Olá, ${m.nome.split(' ')[0]}! 🙏\n\nVocê é o(a) responsável pela presença de *${e.nome}* (${dataFmt}${e.hora?', '+e.hora+'h':''}).\n\nPor favor, marque quem esteve presente por este link:\n\n${url}\n\nObrigado(a) pelo serviço! 🕯️`;
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`, 'sogi_zap_envio');
+  toast(`✓ Link enviado pra ${m.nome.split(' ')[0]}.`,'ok');
+};
 
 window.editarEvento = function(){
   const e=_eventoAtual; if(!e) return;
