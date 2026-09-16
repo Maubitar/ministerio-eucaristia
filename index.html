@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.12.0';
+const APP_VERSAO = '20.13.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10565,7 +10565,10 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
           style="width:100%;padding:10px;border:1.5px dashed #999;border-radius:9px;font-size:13px;box-sizing:border-box">
         <div id="pr-ac-sub-${m.id}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
       </div>
-    </div>` : ''}
+    </div>` : `
+    <div style="padding:0 0 8px 44px">
+      <a href="#" onclick="removerAdicionadoPresenca('${m.id}',${i},'${(m.nome||'').replace(/'/g,"")}');return false" style="font-size:11px;color:#A32D2D;text-decoration:none">🗑️ Remover ${m.nome.split(' ')[0]} desta missa</a>
+    </div>`}
   </div>`;
 }
 
@@ -10664,6 +10667,20 @@ window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId,
   const ctx = _presRespCtx;
   const m = ctx.todosMinistros.find(x=>x.id===ministroId);
   if(!m) return;
+
+  // REGRA: só 1 substituto por titular. Se aparecer mais gente além do titular, é reforço —
+  // adicionar como "substituto" duas vezes confundiria o relatório (parece que duas pessoas
+  // cobriram o MESMO lugar, quando na verdade uma delas veio de reforço extra).
+  try{
+    const dAtual = await getDoc(doc(db,'presencas',corpo.dataset.docid));
+    const registrosAtuais = dAtual.exists() ? (dAtual.data().registros||{}) : {};
+    const jaTemSubstituto = Object.entries(registrosAtuais).some(([id,r])=>r?.substituto && r?.substituiuId===substituiuId && id!==ministroId);
+    if(jaTemSubstituto){
+      toast(`⚠️ ${(substituiuNome||'').split(' ')[0]} já tem um substituto registrado. Se precisar de mais alguém além dele(a), adicione como "➕ reforço extra" — não como substituto.`,'warn');
+      return;
+    }
+  }catch(e){}
+
   try{
     const partesData = corpo.dataset.docid.split('_')[0];
     await setDoc(doc(db,'presencas',corpo.dataset.docid), {
@@ -10678,6 +10695,24 @@ window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId,
     }, {merge:true});
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); return; }
   toast(`✓ ${m.nome.split(' ')[0]} adicionado(a) no lugar de ${(substituiuNome||'').split(' ')[0]}!`,'ok');
+  let jaSalvo = {};
+  try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+  renderCorpoDataPresenca(i, corpo.dataset.docid, jaSalvo);
+};
+
+// Remove por completo um substituto ou reforço extra desta missa específica — não afeta o
+// titular original nem outras datas. Usa deleteField() pra apagar só essa entrada do mapa
+// de registros, sem tocar em mais nada do documento.
+window.removerAdicionadoPresenca = async function(ministroId, i, nome){
+  if(!confirm(`Remover ${nome} desta missa?\n\nIsso apaga a marcação dele(a) só aqui, nesta data/horário. Não afeta outras datas.`)) return;
+  const registrante = localStorage.getItem('sogi_registrante_nome');
+  if(!registrante){ toast('Antes de remover, informe quem está registrando (no topo da tela).','warn'); _destacarCampoRegistrante(); return; }
+  const corpo = document.getElementById('pr-corpo-'+i);
+  if(!corpo || !corpo.dataset.docid) return;
+  try{
+    await updateDoc(doc(db,'presencas',corpo.dataset.docid), { [`registros.${ministroId}`]: deleteField() });
+    toast(`✓ ${nome.split(' ')[0]} removido(a) desta missa.`,'ok');
+  }catch(e){ toast('Erro ao remover: '+e.message,'warn'); return; }
   let jaSalvo = {};
   try{ const d = await getDoc(doc(db,'presencas',corpo.dataset.docid)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
   renderCorpoDataPresenca(i, corpo.dataset.docid, jaSalvo);
