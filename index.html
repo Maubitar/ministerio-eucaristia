@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.18.0';
+const APP_VERSAO = '20.19.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10031,6 +10031,10 @@ window.renderCirioConfig = async function(){
   const cont = document.getElementById('cirio-body');
   if(!cont) return;
   cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando...</p>';
+  // Busca ministros de novo no servidor: se alguém respondeu o link enquanto você já estava
+  // com o app aberto, essa é a hora de trazer isso pra tela — sem isso, o progresso ficaria
+  // desatualizado até você recarregar a página inteira.
+  await carregarMinistros();
   await carregarCirioConfig();
   window._cirioEdit = JSON.parse(JSON.stringify(_cirioConfig));
   renderCirioGradeEditor();
@@ -10287,6 +10291,8 @@ window.renderEscalaCirio = async function(){
   const cont = document.getElementById('escala-cirio-body');
   if(!cont) return;
   cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando...</p>';
+  // Mesma lógica: busca ministros de novo, pra "disponíveis" nunca mostrar dado velho.
+  await carregarMinistros();
   await carregarCirioConfig();
   const cfg = _cirioConfig;
   if(!cfg.colunas || !cfg.colunas.length){
@@ -12307,6 +12313,8 @@ window.renderEventos = async function(){
   if(cont) cont.innerHTML = '<p style="font-size:12px;color:#888;padding:10px 0">Carregando eventos...</p>';
   await carregarEventos();
   await carregarCirioConfig();
+  // Ministros de novo aqui também — os badges de "disponíveis" de cada evento dependem disso.
+  await carregarMinistros();
 
   const hoje = new Date().toISOString().slice(0,10);
   const futuros = _eventos.filter(e=>(e.data||'')>=hoje);
@@ -12390,6 +12398,7 @@ window.salvarEvento = async function(){
 window.abrirEvento = async function(id){
   await carregarEventos();
   await carregarCirioConfig();
+  await carregarMinistros();
   _eventoAtual = _eventos.find(e=>e.id===id);
   if(!_eventoAtual) return;
   nav('evento-detalhe');
