@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.21.0';
+const APP_VERSAO = '20.22.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10357,6 +10357,16 @@ function renderPainelPresencaEvento(){
     return m ? linhaPresencaEvento(m, presenca[id], false) : '';
   }).join('');
 
+  // Assim que todo mundo escalado (mais os substitutos já adicionados) tiver status marcado,
+  // mostra o agradecimento — mesmo texto usado no link de presença das missas.
+  const todosIds = [...idsEscalados, ...substitutosSalvos];
+  const todosMarcados = todosIds.length>0 && todosIds.every(id=>!!(presenca[id]?.status));
+  const agradecimento = todosMarcados ? `
+    <div style="background:#e1f5ee;border:1.5px solid #1D9E75;border-radius:10px;padding:12px 14px;margin-top:14px;text-align:center">
+      <p style="font-size:13px;color:#085041;font-weight:700;margin:0">✓ Muito obrigado por sua atenção, a presença desta escala foi registrada com sucesso.</p>
+      <p style="font-size:11px;color:#1D9E75;margin:4px 0 0;font-weight:600;letter-spacing:.3px">COORDENAÇÃO MESCE 2026</p>
+    </div>` : '';
+
   document.body.innerHTML = `
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px 14px 40px;background:#f8f8f6;min-height:100vh">
     <div style="text-align:center;margin-bottom:16px">
@@ -10388,6 +10398,7 @@ function renderPainelPresencaEvento(){
       ${linhas || '<p style="font-size:12px;color:#999">Nenhum ministro escalado ainda.</p>'}
       ${linhasSubstitutos}
     </div>
+    ${agradecimento}
   </div>`;
 }
 
@@ -11104,7 +11115,17 @@ function renderCorpoDataPresenca(i, docId, registrosSalvos){
     ...reforcosExtraSalvos.map(id=>{ const m=ctx.todosMinistros.find(x=>x.id===id); return m ? {m:{...m, ehReforcoExtra:true}, original:false} : null; }).filter(Boolean)
   ];
 
+  // Assim que TODA a lista desta missa já tiver algum status marcado (P/F/S/J), mostra um
+  // agradecimento — sinal claro pro responsável de que terminou e está tudo registrado.
+  const todosMarcados = listaCompleta.length>0 && listaCompleta.every(({m})=>!!(registrosSalvos[m.id]?.status));
+  const agradecimento = todosMarcados ? `
+    <div style="background:#e1f5ee;border:1.5px solid #1D9E75;border-radius:10px;padding:12px 14px;margin-top:10px;text-align:center">
+      <p style="font-size:13px;color:#085041;font-weight:700;margin:0">✓ Muito obrigado por sua atenção, a presença desta escala foi registrada com sucesso.</p>
+      <p style="font-size:11px;color:#1D9E75;margin:4px 0 0;font-weight:600;letter-spacing:.3px">COORDENAÇÃO MESCE 2026</p>
+    </div>` : '';
+
   corpo.innerHTML = `<div id="pr-lista-${i}">${listaCompleta.map(({m,original})=>linhaPresencaResponsavel(m, registrosSalvos[m.id], i, original)).join('')}</div>
+    ${agradecimento}
     <div style="padding:10px 0 4px 4px;position:relative">
       <a href="#" onclick="toggleReforcoExtraInline(${i});return false" style="font-size:12px;color:#BA7517;font-weight:700;text-decoration:none">➕ Adicionar reforço extra (chegou de última hora)</a>
       <div id="pr-reforco-extra-${i}" style="display:none;margin-top:6px">
