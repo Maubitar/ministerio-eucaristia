@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.22.0';
+const APP_VERSAO = '20.24.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10559,6 +10559,10 @@ window.renderEscalaCirio = async function(){
     return;
   }
   if(!window._cirioEscalaColunaAtual) window._cirioEscalaColunaAtual = cfg.colunas[0].id;
+  // Conta quantas vezes cada ministro já está escalado em QUALQUER dia/horário da quinzena —
+  // é o que permite ver, na hora de escalar, quem já está servindo bastante e quem ainda não
+  // serviu nenhuma vez, pra distribuir melhor entre os dias.
+  await _cirioCalcularContagemEscalas();
 
   const chips = cfg.colunas.map(c=>{
     const ativo = c.id===window._cirioEscalaColunaAtual;
@@ -10629,13 +10633,14 @@ function renderCardHorarioCirio(colId, hora){
     ${escalados.length ? escalados.map(nome=>{
       const min = ministros.find(x=>x.nome===nome);
       const isResp = nome===dados.responsavel;
+      const n = (window._cirioContagemEscalas||{})[nome]||0;
       const foto = min?.foto
         ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
         : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
         <button onclick="cirioEscDefinirResp('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Definir como responsável" style="width:28px;height:26px;border:1px solid ${isResp?'#BA7517':'#ddd'};border-radius:6px;background:${isResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
         ${foto}
-        <span style="flex:1;font-size:12px;font-weight:${isResp?'700':'500'}">${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</span>
+        <span style="flex:1;font-size:12px;font-weight:${isResp?'700':'500'}">${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}${n>1?` <span style="font-size:9px;color:${n>=3?'#A32D2D':'#888'};font-weight:700">(${n}x na quinzena)</span>`:''}</span>
         <button onclick="cirioEscRemoverMin('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Remover" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
       </div>`;
     }).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
@@ -10654,8 +10659,13 @@ function renderCardHorarioCirio(colId, hora){
 window.verDisponiveisCirio = function(colId, hora){
   const cfg = _cirioConfig;
   const coluna = cfg.colunas.find(c=>c.id===colId);
+  const contagem = window._cirioContagemEscalas || {};
   const disponiveis = ministros.filter(m => ((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora))
-    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+    .sort((a,b)=>{
+      const ca = contagem[a.nome]||0, cb = contagem[b.nome]||0;
+      if(ca!==cb) return ca-cb; // quem tem menos escalações na quinzena aparece primeiro
+      return a.nome.localeCompare(b.nome,'pt-BR');
+    });
   const dados = window._cirioEscalaDados[hora] || {ministros:[]};
   const jaEscalados = new Set(dados.ministros||[]);
   document.getElementById('vd-titulo').textContent = `${coluna?.label||''} — ${hora}`;
@@ -10663,9 +10673,14 @@ window.verDisponiveisCirio = function(colId, hora){
   document.getElementById('vd-body').innerHTML = disponiveis.length
     ? disponiveis.map(m=>{
         const jaEsc = jaEscalados.has(m.nome);
+        const n = contagem[m.nome]||0;
+        const tagContagem = n>0 ? `<span style="font-size:9.5px;color:${n>=3?'#A32D2D':'#BA7517'};font-weight:700;white-space:nowrap">já escalado ${n}x na quinzena</span>` : `<span style="font-size:9.5px;color:#1D9E75;font-weight:700;white-space:nowrap">ainda não serviu</span>`;
         return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
           <div style="width:28px;height:28px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
-          <div style="flex:1"><p style="font-size:13px;margin:0">${m.nome}</p></div>
+          <div style="flex:1">
+            <p style="font-size:13px;margin:0">${m.nome}</p>
+            <p style="margin:1px 0 0">${tagContagem}</p>
+          </div>
           <button onclick="cirioAddMinDoModal('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}',this)"
             ${jaEsc?'disabled':''}
             style="font-size:11px;padding:4px 10px;border-radius:20px;border:none;cursor:${jaEsc?'default':'pointer'};font-weight:600;background:${jaEsc?'#e1f5ee':'#1D9E75'};color:${jaEsc?'#085041':'white'}">
@@ -10697,39 +10712,78 @@ window.cirioEscBuscar = function(inp, colId, hora){
   const dados = window._cirioEscalaDados[hora] || {ministros:[]};
   const jaEscalados = new Set(dados.ministros||[]);
   const disponiveisSet = new Set(ministros.filter(m=>((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora)).map(m=>m.nome));
+  const contagem = window._cirioContagemEscalas || {};
   const ms = ministros.filter(m=>m.ativo!==false && !jaEscalados.has(m.nome) && normalizarBusca(m.nome).includes(v))
     .sort((a,b)=>{
       const da = disponiveisSet.has(a.nome), db = disponiveisSet.has(b.nome);
       if(da!==db) return da?-1:1;
+      const ca = contagem[a.nome]||0, cb = contagem[b.nome]||0;
+      if(ca!==cb) return ca-cb;
       return a.nome.localeCompare(b.nome,'pt-BR');
     })
     .slice(0,15);
   if(!ms.length){ ac.style.display='none'; return; }
   ac.style.display='block';
-  ac.innerHTML = ms.map(m=>`<div onclick="cirioEscAdicionarMin('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}')" style="padding:11px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
-    <span>${m.nome}</span>${disponiveisSet.has(m.nome)?'<span style="font-size:10px;color:#1D9E75;font-weight:700;white-space:nowrap;margin-left:6px">✨ disponível</span>':''}
-  </div>`).join('');
+  ac.innerHTML = ms.map(m=>{
+    const n = contagem[m.nome]||0;
+    const tagContagem = n>0 ? `<span style="font-size:9.5px;color:${n>=3?'#A32D2D':'#BA7517'};font-weight:700;white-space:nowrap;margin-left:6px">${n}x na quinzena</span>` : '';
+    return `<div onclick="cirioEscAdicionarMin('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}')" style="padding:11px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
+    <span>${m.nome}</span>
+    <span style="display:flex;align-items:center">${disponiveisSet.has(m.nome)?'<span style="font-size:10px;color:#1D9E75;font-weight:700;white-space:nowrap">✨ disponível</span>':''}${tagContagem}</span>
+  </div>`;
+  }).join('');
 };
 
-window.cirioEscAdicionarMin = function(colId, hora, nome){
+window.cirioEscAdicionarMin = async function(colId, hora, nome){
   if(!window._cirioEscalaDados[hora]) window._cirioEscalaDados[hora] = {ministros:[], responsavel:''};
   if(!window._cirioEscalaDados[hora].ministros.includes(nome)) window._cirioEscalaDados[hora].ministros.push(nome);
   renderEscalaCirioHorarios();
+  await _cirioSalvarColunaAtual();
 };
 
-window.cirioEscRemoverMin = function(colId, hora, nome){
+window.cirioEscRemoverMin = async function(colId, hora, nome){
   const d = window._cirioEscalaDados[hora];
   if(!d) return;
   d.ministros = (d.ministros||[]).filter(n=>n!==nome);
   if(d.responsavel===nome) d.responsavel = '';
   renderEscalaCirioHorarios();
+  await _cirioSalvarColunaAtual();
 };
 
-window.cirioEscDefinirResp = function(colId, hora, nome){
+window.cirioEscDefinirResp = async function(colId, hora, nome){
   if(!window._cirioEscalaDados[hora]) return;
   window._cirioEscalaDados[hora].responsavel = nome;
   renderEscalaCirioHorarios();
+  await _cirioSalvarColunaAtual();
 };
+
+// Salva a coluna do dia atual sem toast (silencioso) — chamado a cada ação, pra nunca mais
+// depender do coordenador lembrar de clicar em "Salvar" antes de trocar de dia ou sair da tela.
+// Conta, em TODAS as colunas (dias) da quinzena do Círio, quantas vezes cada ministro aparece
+// escalado — usado pra mostrar "já escalado Nx" na busca e na lista de disponíveis, ajudando
+// a distribuir o serviço entre dias diferentes em vez de repetir sempre as mesmas pessoas.
+async function _cirioCalcularContagemEscalas(){
+  const cfg = _cirioConfig;
+  const contagem = {};
+  for(const c of (cfg.colunas||[])){
+    try{
+      const d = await getDoc(doc(db,'escalas',_cirioEscalaKey(c.id)));
+      if(d.exists()){
+        Object.values(d.data()||{}).forEach(horaObj=>{
+          (horaObj?.ministros||[]).forEach(nome=>{ contagem[nome] = (contagem[nome]||0) + 1; });
+        });
+      }
+    }catch(e){}
+  }
+  window._cirioContagemEscalas = contagem;
+}
+
+async function _cirioSalvarColunaAtual(){
+  const colId = window._cirioEscalaColunaAtual;
+  try{ await setDoc(doc(db,'escalas',_cirioEscalaKey(colId)), window._cirioEscalaDados); }
+  catch(e){ toast('⚠️ Não consegui salvar automaticamente: '+e.message,'err'); return; }
+  await _cirioCalcularContagemEscalas();
+}
 
 window.salvarEscalaCirio = async function(){
   const colId = window._cirioEscalaColunaAtual;
@@ -11001,6 +11055,8 @@ function renderPainelPresencaResponsavel(ctx){
   _presRespCtx = ctx;
   const registranteSalvo = localStorage.getItem('sogi_registrante_nome') || '';
   const tituloHorario = `${ctx.horario}${ctx.tipo==='sem' ? ' — '+ctx.semana+'ª semana' : ' — Dominical'}`;
+  const avisoSabado18 = (ctx.tipo==='sem' && ctx.horario==='18:00h')
+    ? `<p style="font-size:11px;color:#BA7517;font-weight:600;margin:4px 0 0">⚠️ No Sábado, esta missa é celebrada às 17h (não 18h).</p>` : '';
 
   document.body.innerHTML = `
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;padding:20px 14px 40px;background:#f8f8f6;min-height:100vh">
@@ -11011,6 +11067,7 @@ function renderPainelPresencaResponsavel(ctx){
     <div style="background:white;border-radius:14px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px">
       <p style="font-size:17px;font-weight:800;color:#085041;margin:0">📋 Presença — ${tituloHorario}</p>
       <p style="font-size:12px;color:#888;margin:4px 0 0">Responsável: ${ctx.responsavel||'—'}</p>
+      ${avisoSabado18}
     </div>
     <div id="pr-quem-registra" style="background:#FFF3CD;border:1.5px solid #F0C000;border-radius:12px;padding:14px;margin-bottom:14px;${registranteSalvo?'display:none':''}">
       <p style="font-size:13px;font-weight:700;color:#5a3c00;margin:0 0 8px">Antes de começar: quem está registrando?</p>
@@ -11059,14 +11116,20 @@ function renderDatasPresencaResponsavel(){
   const ctx = _presRespCtx;
   const cont = document.getElementById('pr-datas');
   if(!cont) return;
-  cont.innerHTML = ctx.datas.map((dt,i)=>`
-    <div class="card" style="margin-bottom:10px">
+  // O horário "18:00h" é a chave interna da escala (mesma equipe atende de segunda a sábado),
+  // mas no Sábado a missa é celebrada de verdade às 17h — sem isso, o responsável marcava
+  // presença achando que a missa era 18h, quando na real ela já tinha acontecido às 17h.
+  cont.innerHTML = ctx.datas.map((dt,i)=>{
+    const horaReal = (ctx.horario==='18:00h' && (dt.label||'').startsWith('Sábado'))
+      ? ' <span style="font-size:11px;color:#BA7517;font-weight:700">(missa é às 17h, não 18h)</span>' : '';
+    return `<div class="card" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleDataPresenca(${i})">
-        <p style="font-size:14px;font-weight:700;color:#085041;margin:0">${dt.label}</p>
+        <p style="font-size:14px;font-weight:700;color:#085041;margin:0">${dt.label}${horaReal}</p>
         <span id="pr-seta-${i}" style="font-size:12px;color:#888">▾</span>
       </div>
       <div id="pr-corpo-${i}" style="display:none;margin-top:10px"></div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 window.toggleDataPresenca = async function(i){
