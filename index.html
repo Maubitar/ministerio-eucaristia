@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.24.0';
+const APP_VERSAO = '20.25.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10149,6 +10149,14 @@ function renderCirioGradeEditor(){
       <p style="font-size:11px;color:#666;margin:0 0 10px;line-height:1.5">Busque o ministro (já tenha ele preenchido ou não) e reenvie o mesmo link — ao abrir, ele vê o que já marcou e pode alterar à vontade. Não cria duplicado, só atualiza.</p>
       <input type="text" id="cirio-busca-qualquer" placeholder="🔎 Buscar qualquer ministro..." oninput="cirioBuscarQualquerMinistro(this.value)" style="margin-bottom:8px">
       <div id="cirio-resultado-busca-qualquer"></div>
+    </div>
+
+    <div class="card" style="border:1.5px solid #BA7517;background:#fdf6e3">
+      <p class="ct" style="color:#a07d2a">📞 Ministro ligou pedindo mudança?</p>
+      <p style="font-size:11px;color:#8a6d0c;margin:0 0 10px;line-height:1.5">Edite a disponibilidade dele(a) direto por aqui, sem precisar do link — útil pra quando alguém liga ou pede pessoalmente pra ajustar.</p>
+      <input type="text" id="cirio-busca-editar-disp" placeholder="🔎 Buscar ministro pelo nome..." oninput="cirioBuscarParaEditarDisp(this.value)" style="margin-bottom:8px">
+      <div id="cirio-resultado-editar-disp"></div>
+      <div id="cirio-editar-disp-body" style="margin-top:10px"></div>
     </div>`;
 
   renderCirioProgresso();
@@ -10289,6 +10297,125 @@ window.cirioBuscarQualquerMinistro = function(valor){
       <button onclick="enviarDispCirioPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:5px 10px;border:1.5px solid ${semTel?'#ccc':'#185FA5'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#185FA5'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600;white-space:nowrap">📲 Reenviar</button>
     </div>`;
   }).join('');
+};
+
+// ===== EDIÇÃO DIRETA DA DISPONIBILIDADE (sem precisar do link) =====
+// Pra quando um ministro liga ou pede pessoalmente pra mudar algo — o coordenador ajusta
+// direto aqui, na mesma grade que o ministro vê no link, e salva no cadastro dele.
+window.cirioBuscarParaEditarDisp = function(valor){
+  const cont = document.getElementById('cirio-resultado-editar-disp');
+  if(!cont) return;
+  const v = normalizarBusca(valor||'');
+  if(v.length<2){ cont.innerHTML=''; return; }
+  const achados = ministros.filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(v)).slice(0,10);
+  cont.innerHTML = achados.length ? achados.map(m=>
+    `<div onclick="cirioAbrirEdicaoDisp('${m.id}')" style="padding:10px;border-bottom:1px solid #eee;cursor:pointer;font-size:13px">${m.nome}${m.cirioDispPreenchidaEm?' <span style="font-size:10px;color:#1D9E75;font-weight:700">✓ já respondeu</span>':' <span style="font-size:10px;color:#999">não respondeu ainda</span>'}</div>`
+  ).join('') : '<p style="font-size:12px;color:#888;padding:6px 0">Nenhum ministro encontrado.</p>';
+};
+
+window.cirioAbrirEdicaoDisp = function(ministroId){
+  const m = ministros.find(x=>x.id===ministroId);
+  if(!m) return;
+  window._cirioEdicaoMinistro = m;
+  window._cirioEdicaoMarcados = JSON.parse(JSON.stringify(m.dispCirio || {}));
+  window._cirioEdicaoEventos = new Set(m.dispCirioEventos || []);
+  const inp = document.getElementById('cirio-busca-editar-disp');
+  if(inp) inp.value = '';
+  const res = document.getElementById('cirio-resultado-editar-disp');
+  if(res) res.innerHTML = '';
+  renderEdicaoDispCirio();
+};
+
+function renderEdicaoDispCirio(){
+  const cont = document.getElementById('cirio-editar-disp-body');
+  if(!cont) return;
+  const m = window._cirioEdicaoMinistro;
+  if(!m){ cont.innerHTML=''; return; }
+  const cfg = _cirioConfig;
+  const marcados = window._cirioEdicaoMarcados;
+  const eventosMarc = window._cirioEdicaoEventos;
+
+  const colHtml = cfg.colunas.map(c=>`<th style="padding:3px 2px;text-align:center;min-width:48px;font-size:9px">
+    <div style="font-weight:800;color:#085041">${c.label}</div>
+    <div style="color:#999;font-size:8px">${_cirioLabelDatas(c)}</div>
+  </th>`).join('');
+
+  const linhasHtml = cfg.horarios.map(h=>{
+    const celulas = cfg.colunas.map(c=>{
+      const temMissa = cfg.grade[c.id] && cfg.grade[c.id][h];
+      if(!temMissa) return `<td style="text-align:center;padding:5px 2px;background:#f8d7da;color:#c1121f;font-size:9px">—</td>`;
+      const marcado = (marcados[c.id]||[]).includes(h);
+      return `<td onclick="cirioToggleEdicaoDisp('${c.id}','${h}')" style="text-align:center;cursor:pointer;padding:7px 2px;background:${marcado?'#1D9E75':'white'};color:${marcado?'white':'#085041'};font-weight:700;font-size:10.5px;border:1px solid #e1f5ee">${marcado?'✓':''}</td>`;
+    }).join('');
+    return `<tr><td style="padding:4px 3px;font-weight:700;font-size:10px;white-space:nowrap">${h}</td>${celulas}</tr>`;
+  }).join('');
+
+  const celebracoesHtml = (cfg.celebracoes||[]).map(c=>{
+    const marcado = eventosMarc.has(c.id);
+    return `<div onclick="cirioToggleEdicaoEvento('${c.id}')" style="display:flex;align-items:center;gap:8px;padding:9px;border:1.5px solid ${marcado?'#1D9E75':'#eee'};background:${marcado?'#f0faf5':'white'};border-radius:9px;margin-bottom:6px;cursor:pointer">
+      <div style="width:20px;height:20px;border-radius:5px;border:2px solid ${marcado?'#1D9E75':'#ccc'};background:${marcado?'#1D9E75':'white'};display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:11px;flex-shrink:0">${marcado?'✓':''}</div>
+      <span style="font-size:12.5px">${c.nome}</span>
+    </div>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div style="background:white;border-radius:10px;padding:12px;border:1px solid #e8d090">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <p style="font-size:13px;font-weight:700;color:#085041;margin:0">✏️ Editando: ${m.nome}</p>
+        <button onclick="cirioFecharEdicaoDisp()" style="border:none;background:none;color:#999;font-size:20px;cursor:pointer;line-height:1;padding:0 4px">×</button>
+      </div>
+      <div style="overflow-x:auto;margin-bottom:12px">
+        <table style="border-collapse:collapse;width:100%;min-width:440px">
+          <thead><tr><th></th>${colHtml}</tr></thead>
+          <tbody>${linhasHtml}</tbody>
+        </table>
+      </div>
+      <p style="font-size:11px;font-weight:700;color:#085041;margin:0 0 8px">⛪ Outras celebrações</p>
+      ${celebracoesHtml}
+      <button onclick="cirioSalvarEdicaoDisp()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-top:6px">💾 Salvar disponibilidade de ${m.nome.split(' ')[0]}</button>
+    </div>`;
+}
+
+window.cirioToggleEdicaoDisp = function(colId, hora){
+  const marcados = window._cirioEdicaoMarcados;
+  if(!marcados[colId]) marcados[colId]=[];
+  const idx = marcados[colId].indexOf(hora);
+  if(idx>=0) marcados[colId].splice(idx,1); else marcados[colId].push(hora);
+  renderEdicaoDispCirio();
+};
+
+window.cirioToggleEdicaoEvento = function(celId){
+  const set = window._cirioEdicaoEventos;
+  if(set.has(celId)) set.delete(celId); else set.add(celId);
+  renderEdicaoDispCirio();
+};
+
+window.cirioFecharEdicaoDisp = function(){
+  window._cirioEdicaoMinistro = null;
+  const cont = document.getElementById('cirio-editar-disp-body');
+  if(cont) cont.innerHTML = '';
+};
+
+window.cirioSalvarEdicaoDisp = async function(){
+  const m = window._cirioEdicaoMinistro;
+  if(!m) return;
+  const marcados = window._cirioEdicaoMarcados;
+  const eventos = [...window._cirioEdicaoEventos];
+  try{
+    await updateDoc(doc(db,'ministros',m.id), {
+      dispCirio: marcados,
+      dispCirioEventos: eventos,
+      cirioDispPreenchidaEm: Date.now()
+    });
+    m.dispCirio = marcados;
+    m.dispCirioEventos = eventos;
+    m.cirioDispPreenchidaEm = Date.now();
+    toast(`✓ Disponibilidade de ${m.nome.split(' ')[0]} atualizada!`,'ok');
+    window._cirioEdicaoMinistro = null;
+    const cont = document.getElementById('cirio-editar-disp-body');
+    if(cont) cont.innerHTML = '';
+    renderCirioProgresso();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'err'); }
 };
 
 window.enviarDispCirioPara = async function(id){
@@ -10634,13 +10761,17 @@ function renderCardHorarioCirio(colId, hora){
       const min = ministros.find(x=>x.nome===nome);
       const isResp = nome===dados.responsavel;
       const n = (window._cirioContagemEscalas||{})[nome]||0;
+      const detalheOutros = n>1 ? _cirioDetalheTexto(nome) : '';
       const foto = min?.foto
         ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
         : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
         <button onclick="cirioEscDefinirResp('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Definir como responsável" style="width:28px;height:26px;border:1px solid ${isResp?'#BA7517':'#ddd'};border-radius:6px;background:${isResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
         ${foto}
-        <span style="flex:1;font-size:12px;font-weight:${isResp?'700':'500'}">${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}${n>1?` <span style="font-size:9px;color:${n>=3?'#A32D2D':'#888'};font-weight:700">(${n}x na quinzena)</span>`:''}</span>
+        <span style="flex:1;font-size:12px;font-weight:${isResp?'700':'500'};min-width:0">
+          <div>${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</div>
+          ${detalheOutros?`<div style="font-size:9px;color:${n>=3?'#A32D2D':'#888'};font-weight:600">também em: ${detalheOutros}</div>`:''}
+        </span>
         <button onclick="cirioEscRemoverMin('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Remover" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
       </div>`;
     }).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
@@ -10674,7 +10805,10 @@ window.verDisponiveisCirio = function(colId, hora){
     ? disponiveis.map(m=>{
         const jaEsc = jaEscalados.has(m.nome);
         const n = contagem[m.nome]||0;
-        const tagContagem = n>0 ? `<span style="font-size:9.5px;color:${n>=3?'#A32D2D':'#BA7517'};font-weight:700;white-space:nowrap">já escalado ${n}x na quinzena</span>` : `<span style="font-size:9.5px;color:#1D9E75;font-weight:700;white-space:nowrap">ainda não serviu</span>`;
+        const detalhe = _cirioDetalheTexto(m.nome);
+        const tagContagem = n>0
+          ? `<span style="font-size:9.5px;color:${n>=3?'#A32D2D':'#BA7517'};font-weight:700">já escalado em: ${detalhe}</span>`
+          : `<span style="font-size:9.5px;color:#1D9E75;font-weight:700;white-space:nowrap">ainda não serviu</span>`;
         return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
           <div style="width:28px;height:28px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
           <div style="flex:1">
@@ -10726,10 +10860,14 @@ window.cirioEscBuscar = function(inp, colId, hora){
   ac.style.display='block';
   ac.innerHTML = ms.map(m=>{
     const n = contagem[m.nome]||0;
-    const tagContagem = n>0 ? `<span style="font-size:9.5px;color:${n>=3?'#A32D2D':'#BA7517'};font-weight:700;white-space:nowrap;margin-left:6px">${n}x na quinzena</span>` : '';
-    return `<div onclick="cirioEscAdicionarMin('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}')" style="padding:11px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
-    <span>${m.nome}</span>
-    <span style="display:flex;align-items:center">${disponiveisSet.has(m.nome)?'<span style="font-size:10px;color:#1D9E75;font-weight:700;white-space:nowrap">✨ disponível</span>':''}${tagContagem}</span>
+    const detalhe = _cirioDetalheTexto(m.nome);
+    const tagContagem = n>0 ? `<div style="font-size:9px;color:${n>=3?'#A32D2D':'#BA7517'};font-weight:700;margin-top:2px">já em: ${detalhe}</div>` : '';
+    return `<div onclick="cirioEscAdicionarMin('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}')" style="padding:11px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span>${m.nome}</span>
+      ${disponiveisSet.has(m.nome)?'<span style="font-size:10px;color:#1D9E75;font-weight:700;white-space:nowrap">✨ disponível</span>':''}
+    </div>
+    ${tagContagem}
   </div>`;
   }).join('');
 };
@@ -10765,17 +10903,31 @@ window.cirioEscDefinirResp = async function(colId, hora, nome){
 async function _cirioCalcularContagemEscalas(){
   const cfg = _cirioConfig;
   const contagem = {};
+  const detalhes = {}; // nome -> [{coluna: 'TER', hora:'07:00h'}]
   for(const c of (cfg.colunas||[])){
     try{
       const d = await getDoc(doc(db,'escalas',_cirioEscalaKey(c.id)));
       if(d.exists()){
-        Object.values(d.data()||{}).forEach(horaObj=>{
-          (horaObj?.ministros||[]).forEach(nome=>{ contagem[nome] = (contagem[nome]||0) + 1; });
+        Object.entries(d.data()||{}).forEach(([hora,horaObj])=>{
+          (horaObj?.ministros||[]).forEach(nome=>{
+            contagem[nome] = (contagem[nome]||0) + 1;
+            if(!detalhes[nome]) detalhes[nome] = [];
+            detalhes[nome].push({coluna:c.label, hora});
+          });
         });
       }
     }catch(e){}
   }
   window._cirioContagemEscalas = contagem;
+  window._cirioDetalhesEscalas = detalhes;
+}
+
+// Formata os dias/horários em que um ministro já está escalado na quinzena, pra mostrar ao
+// lado do nome (ex: "Terça, 07:00h") em vez de só um número.
+function _cirioDetalheTexto(nome){
+  const arr = (window._cirioDetalhesEscalas||{})[nome] || [];
+  if(!arr.length) return '';
+  return arr.map(d=>`${d.coluna}, ${d.hora}`).join(' · ');
 }
 
 async function _cirioSalvarColunaAtual(){
