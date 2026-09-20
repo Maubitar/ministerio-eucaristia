@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.25.0';
+const APP_VERSAO = '20.25.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1197,8 +1197,8 @@ function cirioConfigPadrao(){
     ],
     horarios: ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'],
     grade: {
-      dom_cirio:{'05:45':true,'06:00':true,'07:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true},
-      dom:      {'06:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true},
+      dom_cirio:{'06:00':true,'16:00':true,'18:00':true,'20:00':true},
+      dom:      {'06:00':true,'08:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true},
       seg:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
       ter:      {'05:45':true,'07:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
       qua:      {'05:45':true,'07:00':true,'08:00':true,'09:00':true,'10:00':true,'12:00':true,'18:00':true},
@@ -1230,14 +1230,21 @@ function _cirioLabelDatas(coluna){
 function _cirioAplicarCorrecoes(cfg){
   let mudou = false;
   if(cfg.grade){
-    // Domingo do Círio: TODOS os 10 horários da quinzena ficam disponíveis neste dia.
-    if(cfg.grade.dom_cirio){
-      ['05:45','06:00','07:00','08:00','09:00','10:00','12:00','16:00','18:00','20:00'].forEach(h=>{
-        if(!cfg.grade.dom_cirio[h]){ cfg.grade.dom_cirio[h] = true; mudou = true; }
-      });
+    // Domingo do Círio (11/10): só tem missa às 06:00, 16:00, 18:00 e 20:00 — os outros
+    // horários da lista (05:45, 07 a 12h) existem como linha da tabela, mas não têm missa
+    // neste dia específico. Define o estado exato (corrige tanto o que falta quanto o que
+    // tinha sido marcado a mais por engano).
+    const domCirioCerto = {'06:00':true,'16:00':true,'18:00':true,'20:00':true};
+    if(cfg.grade.dom_cirio && JSON.stringify(cfg.grade.dom_cirio)!==JSON.stringify(domCirioCerto)){
+      cfg.grade.dom_cirio = {...domCirioCerto};
+      mudou = true;
     }
-    // Domingo comum (18 e 25/10): 20:00 também precisa estar livre.
-    if(cfg.grade.dom && !cfg.grade.dom['20:00']){ cfg.grade.dom['20:00'] = true; mudou = true; }
+    // Domingo comum (18 e 25/10): missa às 06,08,10,12,16,18,20h — sem 05:45, 07:00 e 09:00.
+    const domCerto = {'06:00':true,'08:00':true,'10:00':true,'12:00':true,'16:00':true,'18:00':true,'20:00':true};
+    if(cfg.grade.dom && JSON.stringify(cfg.grade.dom)!==JSON.stringify(domCerto)){
+      cfg.grade.dom = {...domCerto};
+      mudou = true;
+    }
   }
   if(cfg.celebracoes && cfg.celebracoes.some(c=>c.id==='romaria_juv')){
     cfg.celebracoes = cfg.celebracoes.filter(c=>c.id!=='romaria_juv');
