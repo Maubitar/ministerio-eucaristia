@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.25.1';
+const APP_VERSAO = '20.26.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10979,7 +10979,7 @@ window.imprimirEscalaCirio = async function(){
       const nomes = dadosHora.ministros || [];
       const resp = dadosHora.responsavel || '';
       const listaHtml = nomes.length
-        ? nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?' ★':''}</div>`).join('')
+        ? nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★':''}</div>`).join('')
         : '<div class="vazio">—</div>';
       return `<td>${listaHtml}</td>`;
     }).join('');
@@ -10995,11 +10995,11 @@ window.imprimirEscalaCirio = async function(){
     h1{ text-align:center; font-size:16px; margin:0 0 2px; color:#085041; }
     h2{ text-align:center; font-size:12px; margin:0 0 14px; color:#666; font-weight:normal; }
     table{ width:100%; border-collapse:collapse; }
-    th, td{ border:1px solid #ccc; vertical-align:top; padding:4px 6px; font-size:10.5px; }
+    th, td{ border:1px solid #ccc; vertical-align:top; padding:6px 8px; font-size:11px; line-height:1.45; }
     th{ background:#085041; color:white; font-size:11px; text-align:center; }
     .datas{ font-weight:normal; font-size:9px; opacity:.85; }
     .hora-col{ background:#f0faf5; font-weight:700; text-align:center; white-space:nowrap; color:#085041; }
-    .nome{ padding:1px 0; }
+    .nome{ padding:2.5px 0; }
     .nome.resp{ font-weight:700; color:#a07d2a; }
     .vazio{ color:#ccc; text-align:center; }
     .sem-missa{ background:#f8d7da; }
