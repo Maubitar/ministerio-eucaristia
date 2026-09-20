@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.26.0';
+const APP_VERSAO = '20.26.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11473,8 +11473,11 @@ window.marcarPresencaResponsavel = async function(ministroId, status, i){
       const campoInline = document.getElementById('pr-sub-inline-'+ministroId);
       if(campoInline){
         campoInline.style.display = 'block';
+        campoInline.scrollIntoView({behavior:'smooth', block:'center'});
         const inputBusca = document.getElementById('pr-busca-sub-'+ministroId);
-        if(inputBusca) inputBusca.focus();
+        if(inputBusca) setTimeout(()=>inputBusca.focus(), 300);
+      } else {
+        toast('⚠️ Esse ministro é reforço/substituto e não tem campo de substituição própria. Marque F (faltou) se ele não veio.','warn');
       }
       return;
     }
@@ -11526,11 +11529,14 @@ window.buscarSubstitutoPresenca = function(inp, i, substituiuId, substituiuNome)
   if(!ac) return;
   if(v.length<2){ ac.style.display='none'; return; }
   const ctx = _presRespCtx;
-  const jaNaLista = new Set(ctx.escaladosObjs.map(m=>m.nome));
-  const ms = ctx.todosMinistros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaNaLista.has(m.nome)).slice(0,8);
-  if(!ms.length){ ac.style.display='none'; return; }
-  ac.style.display='block';
-  ac.innerHTML = ms.map(m=>`<div onclick="adicionarSubstitutoPresenca('${m.id}',${i},'${substituiuId}','${(substituiuNome||'').replace(/'/g,"")}')" style="padding:12px;cursor:pointer;font-size:14px;border-bottom:1px solid #f0f0f0">${m.nome}</div>`).join('');
+  // Busca em TODOS os ministros ativos — antes excluía quem já estava na escala deste horário,
+  // o que podia fazer a busca "não achar ninguém" e a caixa sumir sem explicação nenhuma,
+  // parecendo que o recurso não funcionava.
+  const ms = (ctx.todosMinistros||[]).filter(m=>m.ativo!==false && normalizarBusca(m.nome).includes(v)).slice(0,8);
+  ac.style.display = 'block';
+  ac.innerHTML = ms.length
+    ? ms.map(m=>`<div onclick="adicionarSubstitutoPresenca('${m.id}',${i},'${substituiuId}','${(substituiuNome||'').replace(/'/g,"")}')" style="padding:12px;cursor:pointer;font-size:14px;border-bottom:1px solid #f0f0f0">${m.nome}</div>`).join('')
+    : `<div style="padding:12px;font-size:13px;color:#888">Nenhum ministro encontrado com esse nome. Confira a digitação.</div>`;
 };
 
 window.adicionarSubstitutoPresenca = async function(ministroId, i, substituiuId, substituiuNome){
