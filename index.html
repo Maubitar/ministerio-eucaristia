@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.26.1';
+const APP_VERSAO = '20.27.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11047,7 +11047,9 @@ window.imprimirEventos = async function(){
   for(let i=0;i<maxLinhas;i++){
     linhasHtml += '<tr>' + eventosOrdenados.map(e=>{
       const nome = (e.escala||[])[i];
-      return `<td>${nome?`${i+1} ${nome}`:''}</td>`;
+      if(!nome) return '<td></td>';
+      const ehResp = e.responsavel===nome;
+      return `<td class="${ehResp?'resp':''}">${i+1} ${nome}${ehResp?'&nbsp;★':''}</td>`;
     }).join('') + '</tr>';
   }
 
@@ -11063,6 +11065,7 @@ window.imprimirEventos = async function(){
     th .local{ font-size:10px; font-weight:700; }
     th .datahora{ font-size:9px; opacity:.9; }
     th .nome-evt{ font-size:10.5px; font-weight:800; margin-top:2px; }
+    td.resp{ font-weight:700; color:#a07d2a; }
     td:nth-child(odd){ background:#fafafa; }
     @media print{ .no-print{ display:none; } }
   </style></head>
