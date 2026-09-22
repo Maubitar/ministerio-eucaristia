@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.28.0';
+const APP_VERSAO = '20.29.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -12361,7 +12361,7 @@ window.verDisponiveisReforco = function(){
 };
 
 // ====================== MODO QUIOSQUE (TOTEM) ======================
-let _qStream=null, _qInterval=null, _qLidos=new Set(), _qPausado=false, _qFocoInterval=null;
+let _qStream=null, _qInterval=null, _qLidos=new Set(), _qPausado=false, _qFocoInterval=null, _qContadorInterval=null;
 let _qConfig=null; // {tipo, data, horario, senha, registros:{}}
 
 window.abrirQuiosqueCfg = function(){
@@ -12444,6 +12444,10 @@ function iniciarCameraQuiosque(facing){
       // última pessoa lida. Reaplicar o modo contínuo de tempos em tempos força o aparelho a
       // reavaliar o foco pra quem chegou agora — é o que evita "um lê rápido, outro não lê".
       _qFocoInterval = setInterval(reforcarFoco, 1800);
+      // Contador combinado: busca no servidor a cada poucos segundos, pra mostrar o total real
+      // de presenças (soma de todos os aparelhos), não só o que este celular leu.
+      if(_qContadorInterval) clearInterval(_qContadorInterval);
+      _qContadorInterval = setInterval(_qAtualizarContadorReal, 4000);
       // Mostra o botão de lanterna só se o aparelho realmente suportar
       _qTorchLigada = false;
       const btnTorch = document.getElementById('q-btn-torch');
@@ -12737,12 +12741,37 @@ function sairQuiosque(){
   if(_qStream) _qStream.getTracks().forEach(t=>t.stop());
   if(_qInterval) clearInterval(_qInterval);
   if(_qFocoInterval) clearInterval(_qFocoInterval);
-  _qStream=null; _qInterval=null; _qFocoInterval=null;
+  if(_qContadorInterval) clearInterval(_qContadorInterval);
+  _qStream=null; _qInterval=null; _qFocoInterval=null; _qContadorInterval=null;
   const total = _qLidos.size;
   _qLidos=new Set(); _qPausado=false;
   document.getElementById('quiosque-tela').style.display='none';
   _qConfig=null;
-  if(total>0) toast(`✓ Quiosque encerrado. ${total} presença(s) registrada(s).`);
+  if(total>0) toast(`✓ Quiosque encerrado. ${total} presença(s) registrada(s) por este aparelho.`);
+}
+
+// Busca o total REAL de presenças já registradas neste evento — soma de TODOS os aparelhos
+// rodando o quiosque ao mesmo tempo (não só o que este celular leu). Essencial pra funcionar
+// bem com 2+ celulares coletando presença juntos, pra evitar fila grande.
+async function _qAtualizarContadorReal(){
+  if(!_qConfig || !db) return;
+  try{
+    let docId, colecao;
+    if(_qConfig.tipo==='reuniao' || _qConfig.tipo==='adoracao'){
+      colecao = _qConfig.tipo==='reuniao' ? 'reunioes' : 'adoracoes';
+      docId = _qConfig.data;
+    } else {
+      colecao = 'presencas';
+      docId = chavePresenca(_qConfig.data, _qConfig.horario);
+    }
+    const d = await getDoc(doc(db, colecao, docId));
+    const totalServidor = d.exists() ? Object.keys(d.data().registros||{}).length : 0;
+    // Nunca mostra menos do que este aparelho já leu — evita o contador "andar pra trás"
+    // enquanto a última gravação ainda não chegou no servidor.
+    const totalReal = Math.max(totalServidor, _qLidos.size);
+    const el = document.getElementById('q-contador-tela');
+    if(el) el.textContent = `${totalReal} presença(s) registrada(s)`;
+  }catch(e){}
 }
 
 // ====================== MÓDULO DE EVENTOS ESPECIAIS (Círio e outros) ======================
