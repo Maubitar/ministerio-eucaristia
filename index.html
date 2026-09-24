@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.29.0';
+const APP_VERSAO = '20.31.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4241,6 +4241,8 @@ window.addMin = function(key, hora, nome, acId){
   // Mantém ordem alfabética sempre
   escalas[key][hora].ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
   marcarEscalaNaoSalva();
+  const tipoLabelReg = key.includes('_dom_') ? 'Missa Dominical' : 'Missa Semanal';
+  _registrarUltimaEscalacao(nome, `${tipoLabelReg} ${hora}`);
   if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
   const inpId = acId ? acId.replace('ac-','inp-') : null;
   if(inpId){
@@ -8117,11 +8119,35 @@ window.imprimirRelatorioConsolidado = function(){
   w.document.close();
 };
 
-// ===== DISPONIBILIDADE x ESCALA — por horário, com cruzamento entre todos os horários =====
-// Pra cada horário de missa (dominical e semanal), calcula quantos foram escalados e quais
-// ministros disponíveis NAQUELE horário não entraram nele. No final, cruza com TODOS os
-// horários que cada ministro marcou disponibilidade — só vira alerta de verdade se a pessoa
-// não apareceu escalada em NENHUM horário disponível dela, nem dominical nem semanal.
+// ===== DISPONIBILIDADE x ESCALA — radar de quem não foi escalado em NADA do mês =====
+// Cobre TODOS os processos: missa dominical, missa semanal, quinzena do Círio e eventos
+// especiais. Só vira alerta de verdade se a pessoa tem alguma disponibilidade declarada E
+// não apareceu escalada em NENHUM desses processos — busca pelo nome em tudo (não só no que
+// ela declarou disponível), porque o app permite escalar alguém fora do que marcou.
+let _dispEscalaCache = null;
+
+// Registra automaticamente, no cadastro do ministro, a última vez que ele foi escalado em
+// QUALQUER processo (missa, Círio, evento) — sem isso, não tem como saber "há quanto tempo
+// não escalo fulano" sem varrer meses inteiros de escalas toda vez. É a partir de agora que
+// esse histórico começa a existir; escalações feitas antes desta versão não ficam registradas.
+async function _registrarUltimaEscalacao(nome, descricao){
+  const m = ministros.find(x=>x.nome===nome);
+  if(!m) return;
+  const agora = Date.now();
+  try{
+    await updateDoc(doc(db,'ministros',m.id), { ultimaEscalacaoEm: agora, ultimaEscalacaoDescricao: descricao||'' });
+    m.ultimaEscalacaoEm = agora;
+    m.ultimaEscalacaoDescricao = descricao||'';
+  }catch(e){}
+}
+
+// Quantos dias inteiros se passaram desde a última escalação registrada — null se ainda não
+// tem nenhum registro (ministro nunca escalado desde que essa engenharia foi criada).
+function _diasSemEscalar(m){
+  if(!m.ultimaEscalacaoEm) return null;
+  return Math.floor((Date.now() - m.ultimaEscalacaoEm) / (1000*60*60*24));
+}
+
 async function calcularDisponibilidadeEscala(){
   const mesKey = getMesAtual();
   const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
@@ -8129,24 +8155,62 @@ async function calcularDisponibilidadeEscala(){
   const docsSem = {};
   for(const s of semanasKeys){ docsSem[s] = await _lerEscalaDocRaw(`escala_sem_sem${s}_${mesKey}`); }
 
-  const ativos = ministros.filter(m=>m.ativo!==false);
+  // Círio: só entra na varredura se já houver grade configurada.
+  let cirioCfg = null, docsColunas = {};
+  try{
+    cirioCfg = await carregarCirioConfig();
+    if(cirioCfg?.colunas?.length){
+      for(const c of cirioCfg.colunas){ docsColunas[c.id] = await _lerEscalaDocRaw(`escala_cirio_${c.id}`); }
+    }
+  }catch(e){}
 
-  // Só o cruzamento final importa: alguém só é um problema de verdade se o NOME dele não
-  // aparece em NENHUM horário escalado — dominical ou semanal, qualquer um. Busca pelo nome
-  // em TODOS os horários (não só nos que a pessoa declarou disponibilidade), porque o app
-  // permite exceção: escalar alguém num horário diferente do que ela marcou.
+  // Eventos Especiais: usa o que já estiver criado (Trasladação, Chegada do Círio etc.)
+  let eventosCarregados = [];
+  try{ await carregarEventos(); eventosCarregados = _eventos||[]; }catch(e){}
+
+  _dispEscalaCache = { mesKey, docDom, semanasKeys, docsSem, cirioCfg, docsColunas, eventosCarregados };
+
+  const ativos = ministros.filter(m=>m.ativo!==false);
   const alertaFinal = [];
   ativos.forEach(m=>{
-    const temDisp = (m.dispDom||[]).length || (m.dispSem||[]).length;
-    if(!temDisp) return;
-    const achouDom = MISSAS_DOM.some(hora => (docDom?.[hora]?.ministros||[]).includes(m.nome));
-    const achouSem = MISSAS_SEM.some(hora => semanasKeys.some(s => (docsSem[s]?.[hora]?.ministros||[]).includes(m.nome)));
-    if(!achouDom && !achouSem){
-      alertaFinal.push({ nome:m.nome, dispDom:m.dispDom||[], dispSem:m.dispSem||[] });
+    const s = _statusMinistroNoMes(m);
+    if(s.temDisponibilidade && !s.escaladoEmAlgo){
+      alertaFinal.push({ nome:m.nome, partesDisp:s.partesDisp });
     }
   });
 
   return { mesKey, alertaFinal };
+}
+
+// Calcula o status completo de UM ministro no mês (onde foi escalado, onde tem disponibilidade
+// mas não foi usado) — reaproveitado pelo radar geral e pela busca individual.
+function _statusMinistroNoMes(m){
+  const c = _dispEscalaCache;
+  const escaladoDom = [], escaladoSem = [], escaladoCirio = [], escaladoEventos = [];
+  if(c){
+    MISSAS_DOM.forEach(hora=>{ if((c.docDom?.[hora]?.ministros||[]).includes(m.nome)) escaladoDom.push(hora); });
+    MISSAS_SEM.forEach(hora=>{
+      c.semanasKeys.forEach(s=>{ if((c.docsSem[s]?.[hora]?.ministros||[]).includes(m.nome)) escaladoSem.push(`${hora} (${s}ª semana)`); });
+    });
+    if(c.cirioCfg?.colunas){
+      c.cirioCfg.colunas.forEach(col=>{
+        (c.cirioCfg.horarios||[]).forEach(h=>{
+          if((c.docsColunas[col.id]?.[h]?.ministros||[]).includes(m.nome)) escaladoCirio.push(`${col.label} ${h}`);
+        });
+      });
+    }
+    (c.eventosCarregados||[]).forEach(e=>{ if((e.escala||[]).includes(m.nome)) escaladoEventos.push(e.nome); });
+  }
+  const escaladoEmAlgo = !!(escaladoDom.length || escaladoSem.length || escaladoCirio.length || escaladoEventos.length);
+
+  const partesDisp = [];
+  if((m.dispDom||[]).length) partesDisp.push(`Dominical: ${m.dispDom.join(', ')}`);
+  if((m.dispSem||[]).length) partesDisp.push(`Semanal: ${m.dispSem.join(', ')}`);
+  const temCirio = !!(m.dispCirio && Object.values(m.dispCirio).some(arr=>(arr||[]).length));
+  if(temCirio) partesDisp.push('Quinzena do Círio');
+  if((m.dispCirioEventos||[]).length) partesDisp.push('Eventos especiais');
+
+  return { escaladoDom, escaladoSem, escaladoCirio, escaladoEventos, escaladoEmAlgo, temDisponibilidade: partesDisp.length>0, partesDisp };
 }
 
 // Monta o HTML do relatório — reaproveitado tanto na aba de Relatórios quanto no modal da Escala
@@ -8156,19 +8220,16 @@ function montarHtmlDisponibilidadeEscala(dados){
 
   if(!alertaFinal.length){
     return `<div style="background:#eef7f2;border:1.5px solid #cde8d8;border-radius:9px;padding:14px">
-      <p style="margin:0;font-size:13px;font-weight:700;color:#1D9E75">✓ Nenhum ministro disponível ficou sem escalar em ${mesLegivel}.</p>
+      <p style="margin:0;font-size:13px;font-weight:700;color:#1D9E75">✓ Nenhum ministro disponível ficou sem escalar em ${mesLegivel} — missas, Círio ou eventos.</p>
     </div>`;
   }
 
-  const linhas = alertaFinal.map(a=>{
-    const partes = [];
-    if(a.dispDom.length) partes.push(`Dominical ${a.dispDom.join(', ')}`);
-    if(a.dispSem.length) partes.push(`Semanal ${a.dispSem.join(', ')}`);
-    return `<p style="margin:6px 0;font-size:12.5px;color:#A32D2D"><strong>${a.nome}</strong> — disponível: ${partes.join(' · ')}</p>`;
-  }).join('');
+  const linhas = alertaFinal.map(a=>
+    `<p style="margin:6px 0;font-size:12.5px;color:#A32D2D"><strong>${a.nome}</strong> — disponível: ${a.partesDisp.join(' · ')}</p>`
+  ).join('');
 
   return `<div style="background:#FBEAEA;border:1.5px solid #E9A8A8;border-radius:9px;padding:14px">
-    <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#A32D2D">⚠️ ${alertaFinal.length} ministro(s) disponível(is) mas NÃO escalado(s) em nenhuma missa de ${mesLegivel} (nem dominical, nem semanal):</p>
+    <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#A32D2D">⚠️ ${alertaFinal.length} ministro(s) disponível(is) mas NÃO escalado(s) em nada de ${mesLegivel} (missa, Círio ou evento):</p>
     ${linhas}
   </div>`;
 }
@@ -8191,20 +8252,118 @@ window.abrirModalNaoEscalados = async function(){
   modal.className = 'modal-bg';
   modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
   modal.innerHTML = `<div class="modal-box">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <p style="font-size:16px;font-weight:700">📋 Disponibilidade x Escala</p>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <p style="font-size:16px;font-weight:700">📋 Radar de Escalação</p>
       <button onclick="document.getElementById('modal-nao-escalados').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
-    <div id="conteudo-nao-escalados"><p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando...</p></div>
+    <div id="painel-radar-auto"><p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando o painel...</p></div>
+    <div style="margin-top:16px;border-top:1px solid #eee;padding-top:12px">
+      <p style="font-size:11px;color:#999;margin:0 0 6px">Ou, se preferir, busque um ministro específico:</p>
+      <input type="text" id="busca-status-min" placeholder="🔍 Buscar pelo nome (opcional)..." oninput="buscarStatusMinistroEscala(this.value)" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:12.5px;box-sizing:border-box">
+      <div id="resultado-busca-status-min"></div>
+    </div>
   </div>`;
   document.body.appendChild(modal);
   modal.style.display = 'flex';
   try{
     const dados = await calcularDisponibilidadeEscala();
-    document.getElementById('conteudo-nao-escalados').innerHTML = montarHtmlDisponibilidadeEscala(dados);
+    document.getElementById('painel-radar-auto').innerHTML = montarPainelRadarCompleto(dados);
   }catch(e){
-    document.getElementById('conteudo-nao-escalados').innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
+    document.getElementById('painel-radar-auto').innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
   }
+};
+
+// Painel automático completo — aparece sozinho, sem precisar buscar nada. Mostra o placar
+// geral (quantos escalados x não escalados) e a lista de quem falta, JÁ ordenada por urgência
+// (quem está há mais tempo sem ser escalado aparece primeiro), com a disponibilidade de cada um.
+function montarPainelRadarCompleto(dados){
+  const { mesKey } = dados;
+  const mesLegivel = finMesKeyLegivel(mesKey);
+  const ativos = ministros.filter(m=>m.ativo!==false);
+
+  const naoEscalados = [];
+  let escaladosEsteMes = 0;
+  ativos.forEach(m=>{
+    const s = _statusMinistroNoMes(m);
+    if(s.escaladoEmAlgo) escaladosEsteMes++;
+    else naoEscalados.push({ m, s });
+  });
+
+  // Prioridade automática: quem está há MAIS tempo sem ser escalado aparece primeiro —
+  // é exatamente quem mais precisa de atenção agora.
+  naoEscalados.sort((a,b)=>{
+    const da = _diasSemEscalar(a.m), db = _diasSemEscalar(b.m);
+    if(da===null && db===null) return a.m.nome.localeCompare(b.m.nome,'pt-BR');
+    if(da===null) return 1;
+    if(db===null) return -1;
+    return db - da;
+  });
+
+  const linhas = naoEscalados.map(({m,s})=>{
+    const dias = _diasSemEscalar(m);
+    let tagTempo;
+    if(dias===null) tagTempo = `<span style="color:#999;font-weight:600">sem registro de escalação (ainda não rastreado)</span>`;
+    else if(dias>=60) tagTempo = `<span style="color:#A32D2D;font-weight:700">🔴 ${dias} dias sem ser escalado(a) — mais de 2 meses!</span>`;
+    else if(dias>=30) tagTempo = `<span style="color:#BA7517;font-weight:700">🟡 ${dias} dias sem ser escalado(a)</span>`;
+    else tagTempo = `<span style="color:#888">${dias} dia(s) sem ser escalado(a)</span>`;
+    const dispTxt = s.partesDisp.length ? s.partesDisp.join(' · ') : '<span style="color:#c99">nenhuma disponibilidade declarada</span>';
+    return `<div style="padding:9px 0;border-bottom:1px solid #eee">
+      <p style="font-size:13px;font-weight:700;color:#222;margin:0">${m.nome}</p>
+      <p style="font-size:11px;margin:2px 0">${tagTempo}</p>
+      <p style="font-size:11px;color:#888;margin:2px 0 0">Disponibilidade: ${dispTxt}</p>
+    </div>`;
+  }).join('');
+
+  return `
+    <div style="display:flex;gap:7px;margin-bottom:14px">
+      <div style="flex:1;background:#e1f5ee;border-radius:10px;padding:11px;text-align:center">
+        <p style="font-size:21px;font-weight:800;color:#085041;margin:0">${escaladosEsteMes}</p>
+        <p style="font-size:10px;color:#085041;margin:2px 0 0;line-height:1.3">escalados<br>em algo</p>
+      </div>
+      <div style="flex:1;background:#FBEAEA;border-radius:10px;padding:11px;text-align:center">
+        <p style="font-size:21px;font-weight:800;color:#A32D2D;margin:0">${naoEscalados.length}</p>
+        <p style="font-size:10px;color:#A32D2D;margin:2px 0 0;line-height:1.3">NÃO<br>escalados</p>
+      </div>
+      <div style="flex:1;background:#f0f0ee;border-radius:10px;padding:11px;text-align:center">
+        <p style="font-size:21px;font-weight:800;color:#555;margin:0">${ativos.length}</p>
+        <p style="font-size:10px;color:#555;margin:2px 0 0;line-height:1.3">total de<br>ministros</p>
+      </div>
+    </div>
+    <p style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.4px;margin:0 0 8px">Quem falta escalar em ${mesLegivel} — mais urgente primeiro</p>
+    ${linhas || '<p style="font-size:13px;color:#1D9E75;font-weight:600;padding:10px 0">✓ Todos os ministros ativos já foram escalados em algo este mês!</p>'}
+  `;
+}
+
+// Busca UM ministro pelo nome e mostra o status completo dele no mês: onde foi escalado
+// (missa, Círio, evento) e, se não foi escalado em nada, o que ele tinha declarado como
+// disponível — no formato "fulano foi escalado em X" / "fulano não foi escalado e a
+// disponibilidade dele é Y".
+window.buscarStatusMinistroEscala = function(valor){
+  const cont = document.getElementById('resultado-busca-status-min');
+  if(!cont) return;
+  const v = normalizarBusca(valor||'');
+  if(v.length<2){ cont.innerHTML=''; return; }
+  const m = ministros.find(x=>x.ativo!==false && normalizarBusca(x.nome).includes(v));
+  if(!m){ cont.innerHTML = '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro encontrado.</p>'; return; }
+
+  const s = _statusMinistroNoMes(m);
+  const mesLegivel = finMesKeyLegivel(_dispEscalaCache?.mesKey || getMesAtual());
+  const listaEscalado = [];
+  if(s.escaladoDom.length) listaEscalado.push(`⛪ Missa Dominical: ${s.escaladoDom.join(', ')}`);
+  if(s.escaladoSem.length) listaEscalado.push(`⛪ Missa Semanal: ${s.escaladoSem.join(', ')}`);
+  if(s.escaladoCirio.length) listaEscalado.push(`🕯️ Quinzena do Círio: ${s.escaladoCirio.join(', ')}`);
+  if(s.escaladoEventos.length) listaEscalado.push(`🎉 Eventos: ${s.escaladoEventos.join(', ')}`);
+
+  cont.innerHTML = `
+    <div style="background:white;border:1px solid #eee;border-radius:10px;padding:12px;margin-top:8px">
+      <p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 8px">${m.nome} — ${mesLegivel}</p>
+      ${listaEscalado.length
+        ? `<p style="font-size:11px;color:#888;margin:0 0 4px">✓ Foi escalado(a) em:</p>${listaEscalado.map(l=>`<p style="font-size:12px;color:#1D9E75;margin:2px 0">${l}</p>`).join('')}`
+        : `<p style="font-size:12.5px;color:#A32D2D;font-weight:600;margin:4px 0">⚠️ Não foi escalado(a) em nada este mês.</p>`}
+      ${s.partesDisp.length
+        ? `<p style="font-size:11px;color:#888;margin:10px 0 2px">Disponibilidade declarada: <strong style="color:#666">${s.partesDisp.join(' · ')}</strong></p>`
+        : `<p style="font-size:11px;color:#999;margin:10px 0 2px">Nenhuma disponibilidade declarada.</p>`}
+    </div>`;
 };
 
 // ===== RELATÓRIO DE SUBSTITUIÇÕES =====
@@ -10884,6 +11043,9 @@ window.cirioEscAdicionarMin = async function(colId, hora, nome){
   if(!window._cirioEscalaDados[hora].ministros.includes(nome)) window._cirioEscalaDados[hora].ministros.push(nome);
   renderEscalaCirioHorarios();
   await _cirioSalvarColunaAtual();
+  const cfg = _cirioConfig;
+  const coluna = cfg?.colunas?.find(c=>c.id===colId);
+  _registrarUltimaEscalacao(nome, `Círio — ${coluna?.label||colId} ${hora}`);
 };
 
 window.cirioEscRemoverMin = async function(colId, hora, nome){
@@ -13128,6 +13290,7 @@ window.addMinEvento = async function(nome){
   document.getElementById('evt-busca-min').value='';
   document.getElementById('evt-ac').style.display='none';
   try{ await updateDoc(doc(db,'eventos',_eventoAtual.id), {escala:_eventoAtual.escala}); }catch(e){}
+  _registrarUltimaEscalacao(nome, `Evento — ${_eventoAtual.nome||''}`);
   renderEventoDetalhe();
 };
 
@@ -15049,7 +15212,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       👁 Visualizar todas as escalas do mês
     </button>
     <button onclick="abrirModalNaoEscalados()" style="width:100%;padding:10px;border:1.5px solid #BA7517;border-radius:8px;background:#fff9ec;color:#856404;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
-      📋 Ver quem não foi escalado
+      📋 Radar de Escalação (quem falta, automático)
     </button>
     <div id="indicador-nao-salvo" style="display:none;align-items:center;gap:6px;background:#fff4e0;border:1.5px solid #BA7517;border-radius:8px;padding:8px 12px;margin-bottom:10px">
       <span style="font-size:14px">⚠️</span>
