@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.31.0';
+const APP_VERSAO = '20.32.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2596,6 +2596,22 @@ function normalizarBusca(txt){
 }
 window.normalizarBusca = normalizarBusca;
 
+// Busca um ministro pelo nome de forma BLINDADA: o app guarda nomes como texto solto em
+// vários lugares (escalas, responsável, substitutos) — se algum desses textos foi digitado ou
+// salvo com maiúscula/acento/espaço levemente diferente do nome oficial no cadastro, uma busca
+// exata (===) falha silenciosamente e o app "esquece" o telefone, a foto ou a disponibilidade
+// daquela pessoa, mesmo com o dado intacto no cadastro. Por isso: tenta exato primeiro (mais
+// rápido, cobre o caso comum), e só cai pro comparativo normalizado se o exato não achar nada.
+function buscarMinistroPorNome(nome){
+  if(!nome) return null;
+  let m = ministros.find(x=>x.nome===nome);
+  if(m) return m;
+  const alvo = normalizarBusca(nome);
+  if(!alvo) return null;
+  return ministros.find(x=>normalizarBusca(x.nome)===alvo) || null;
+}
+window.buscarMinistroPorNome = buscarMinistroPorNome;
+
 // ===== ESCALAÇÃO POR VOZ (grátis — usa o reconhecimento de voz do próprio navegador) =====
 // Compara o que foi falado com os nomes cadastrados. NUNCA escala sozinho:
 // sempre mostra os nomes reconhecidos e espera confirmação antes de gravar.
@@ -3835,9 +3851,9 @@ window.renderEscala = async function(){
       </div>
       ${g.ministros.map((m,mi)=>{
         const _isResp = m===g.responsavel;
-        const _respM = _isResp ? ministros.find(x=>x.nome===m) : null;
+        const _respM = _isResp ? buscarMinistroPorNome(m) : null;
         const _respTel = _respM?.tel ? (typeof formatarTelBR==='function' ? formatarTelBR(_respM.tel) : _respM.tel) : '';
-        const min = ministros.find(x=>x.nome===m);
+        const min = buscarMinistroPorNome(m);
         const fotoEsc = min?.foto
           ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
           : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
@@ -3886,7 +3902,7 @@ function renderReforcoNoQuadrante(hora, refArray){
     if(lista.length) temAlgum = true;
 
     const linhas = lista.map((m,ri)=>{
-      const min = ministros.find(x=>x.nome===m);
+      const min = buscarMinistroPorNome(m);
       const foto = min?.foto
         ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #f5d97a">`
         : `<div style="width:34px;height:34px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
@@ -3982,7 +3998,7 @@ function renderBlocosReforcoNaEscala(){
       </div>
       ${resp?`<div style="font-size:11px;background:#e0f2f1;color:#0A5F5E;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${resp}</div>`:''}
       ${ord.length ? ord.map((m,mi)=>{
-        const min = ministros.find(x=>x.nome===m);
+        const min = buscarMinistroPorNome(m);
         const foto = min?.foto
           ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e0f2f1">`
           : `<div style="width:34px;height:34px;border-radius:50%;background:#e0f2f1;color:#0A5F5E;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
@@ -4819,7 +4835,7 @@ window.gerarImagemEscala = async function(){
     if(!g.ministros.length) return '';
     const corH = CORES_HORARIO[h] || {escuro:'#085041',claro:'#eef5f2'};
     const responsavel=g.responsavel;
-    const respObj=ministros.find(x=>x.nome===responsavel);
+    const respObj=buscarMinistroPorNome(responsavel);
     const ord=[...g.ministros].sort((a,b)=>{ if(a===responsavel)return -1; if(b===responsavel)return 1; return a.localeCompare(b,'pt-BR'); });
     let datasLabel='';
     if(tipo==='dom'){ datasLabel=DOMINGOS_MES.join(' · '); }
@@ -4832,7 +4848,7 @@ window.gerarImagemEscala = async function(){
     }
     const linhas=ord.map((m,i)=>{
       const isResp=m===responsavel;
-      const minObj = ministros.find(x=>x.nome===m);
+      const minObj = buscarMinistroPorNome(m);
       const fotoHtml = minObj?.foto
         ? `<img src="${minObj.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
         : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m)}</div>`;
@@ -4971,7 +4987,7 @@ window.enviarEscalaIndividual = async function(){
   }
 
   window._envioLista = nomes.map((nome,idx)=>{
-    const m = ministros.find(x=>x.nome===nome);
+    const m = buscarMinistroPorNome(nome);
     const tel = (m?.tel||'').replace(/\D/g,'');
     const horasMin = porMinistro[nome];
     const modelos = montarMensagem(nome, horasMin);
@@ -5318,7 +5334,7 @@ window.renderPresenca = async function(){
   const btnPFS = (id,letra,cor,corBg,s)=>`<button onclick="setPres('${id}','${letra}')" style="width:30px;height:28px;border:1px solid ${s===letra?cor:'#ddd'};border-radius:6px;background:${s===letra?corBg:'white'};cursor:pointer;font-size:11px;font-weight:700;color:${s===letra?cor:'#888'}">${letra}</button>`;
 
   const linha = (nome, isResp, ehReforco)=>{
-    const m = ministros.find(x=>x.nome===nome);
+    const m = buscarMinistroPorNome(nome);
     const id = m?.id || '';
     const s = id ? (presAtual[id]?.status||'') : '';
     const j = id ? (presAtual[id]?.justificativa||'') : '';
@@ -5434,7 +5450,7 @@ window.salvarPres = async function(){
 
       const registros = { ...registrosServidor };
       missa.ministros.forEach(nome=>{
-        const m = ministros.find(x=>x.nome===nome);
+        const m = buscarMinistroPorNome(nome);
         if(!m) return;
         // "Tocou aqui" só é verdade se presAtual[id] existe DE VERDADE (foi criado ao
         // carregar do servidor, ou ao clicar em algum botão P/F/S/J pra essa pessoa nesta
@@ -5501,7 +5517,7 @@ async function imprimirPresencaTodasSemanas(){
     const horarios = horasComMin.map(hora=>{
       const g = esc[hora] || {ministros:[],responsavel:''};
       const responsavel = g.responsavel||'';
-      const respObj = ministros.find(x=>x.nome===responsavel);
+      const respObj = buscarMinistroPorNome(responsavel);
       const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
       const ordenados = [...(g.ministros||[])].sort((a,b)=>{
         if(a===responsavel) return -1;
@@ -5516,7 +5532,7 @@ async function imprimirPresencaTodasSemanas(){
         hora, responsavel, respTel,
         dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
         ministros: ordenados.map((nome,i)=>{
-          const minObj = ministros.find(x=>x.nome===nome);
+          const minObj = buscarMinistroPorNome(nome);
           return { num:i+1, nome, isResp: nome===responsavel, foto: (minObj?.foto || null) };
         })
       };
@@ -5598,7 +5614,7 @@ async function calcularAlertaPresenca(){
     try{ const d = await getDoc(doc(db,'presencas', chavePresenca(dataISO, hora))); registros = d.exists()?(d.data().registros||{}):{}; }catch(e){}
     const totalMarcados = Object.values(registros).filter(r=>r?.status).length;
     if(totalMarcados >= totalEscalados) return; // completo, sem alerta
-    const respObj = ministros.find(x=>x.nome===grupo.responsavel);
+    const respObj = buscarMinistroPorNome(grupo.responsavel);
     resultados.push({
       tipo, hora, ddmm, dataISO, semanaLabel,
       responsavel: grupo.responsavel || '(sem responsável definido)',
@@ -5708,7 +5724,7 @@ window.finalizarEscalaDominical = async function(){
     if(!missasComMin.length){ toast('Nenhuma escala dominical para finalizar.','warn'); return; }
     const horarios = missasComMin.map(({hora,g})=>{
       const responsavel = g.responsavel||'';
-      const respObj = ministros.find(x=>x.nome===responsavel);
+      const respObj = buscarMinistroPorNome(responsavel);
       const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
       const ordenados = [...g.ministros].sort((a,b)=>a.localeCompare(b,'pt-BR'));
       return {
@@ -5784,7 +5800,7 @@ window.finalizarEscalaSemanal = async function(){
       const horarios = horasComMin.map(hora=>{
         const g = esc[hora]||{ministros:[],responsavel:''};
         const responsavel = g.responsavel||'';
-        const respObj = ministros.find(x=>x.nome===responsavel);
+        const respObj = buscarMinistroPorNome(responsavel);
         const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
         const mapaReforco = mapaReforcoPorHora[hora] || new Map();
         const ordenados = [...(g.ministros||[])].sort((a,b)=>{
@@ -5834,7 +5850,7 @@ async function montarDadosEscalaFinalizada(docId){
     horarios: (sem.horarios||[]).map(h=>({
       ...h,
       ministros: (h.ministros||[]).map(m=>{
-        const minObj = ministros.find(x=>x.nome===m.nome);
+        const minObj = buscarMinistroPorNome(m.nome);
         return { ...m, foto:(minObj?.foto||null) };
       })
     }))
@@ -6790,7 +6806,7 @@ window.imprimirPresenca = async function(){
 
   const horarios = missasComMin.map(missa=>{
     const responsavel = missa.responsavel;
-    const respObj = ministros.find(x=>x.nome===responsavel);
+    const respObj = buscarMinistroPorNome(responsavel);
     const respTel = respObj?.tel ? ` — ${respObj.tel}` : '';
     const ordenados = [...missa.ministros].sort((a,b)=>{
       if(a===responsavel) return -1;
@@ -6802,7 +6818,7 @@ window.imprimirPresenca = async function(){
       responsavel, respTel,
       dias: DOMINGOS_MES.map(d=>`dom ${d}`),
       ministros: ordenados.map((nome,i)=>{
-        const minObj = ministros.find(x=>x.nome===nome);
+        const minObj = buscarMinistroPorNome(nome);
         return { num:i+1, nome, isResp: nome===responsavel, foto:(minObj?.foto||null) };
       })
     };
@@ -7212,7 +7228,7 @@ window.renderReforco = async function(){
 
     const linhasMin = ord.length ? ord.map((m,i)=>{
       const isResp = m===h.responsavel;
-      const mo = ministros.find(x=>x.nome===m);
+      const mo = buscarMinistroPorNome(m);
       const foto = mo?.foto
         ? `<img src="${mo.foto}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #ccc">`
         : `<div style="width:36px;height:36px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
@@ -8131,7 +8147,7 @@ let _dispEscalaCache = null;
 // não escalo fulano" sem varrer meses inteiros de escalas toda vez. É a partir de agora que
 // esse histórico começa a existir; escalações feitas antes desta versão não ficam registradas.
 async function _registrarUltimaEscalacao(nome, descricao){
-  const m = ministros.find(x=>x.nome===nome);
+  const m = buscarMinistroPorNome(nome);
   if(!m) return;
   const agora = Date.now();
   try{
@@ -9204,7 +9220,7 @@ window.renderReforcoNova = async function(){
 
   const linhasMin = ord.length ? ord.map((m,i)=>{
     const isResp = m === resp;
-    const mo = ministros.find(x=>x.nome===m);
+    const mo = buscarMinistroPorNome(m);
     const foto = mo?.foto
       ? `<img src="${mo.foto}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #b2dfdb">`
       : `<div style="width:42px;height:42px;border-radius:50%;background:#e0f2f1;color:#0A5F5E;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
@@ -9325,7 +9341,7 @@ window.imprimirReforco = async function(){
   const dataFmt = `${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
   const linhas = ord.map((m,i)=>{
     const isResp = m===resp;
-    const mo = ministros.find(x=>x.nome===m);
+    const mo = buscarMinistroPorNome(m);
     const fotoTag = mo?.foto ? `<img src="${mo.foto}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #b2dfdb">` : `<div style="width:40px;height:40px;border-radius:50%;background:#e0f2f1;color:#0A5F5E;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
     return `<tr style="background:${i%2===0?'white':'#f0faf9'}">
       <td style="padding:8px;text-align:center;color:#888;border:1px solid #b2dfdb;font-size:12px">${i+1}</td>
@@ -9448,7 +9464,7 @@ window.renderResponsaveis = async function(){
   }
 
   cont.innerHTML = nomes.map(nome=>{
-    const m = ministros.find(x=>x.nome===nome);
+    const m = buscarMinistroPorNome(nome);
     const tel = m ? (typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'')) : '';
     const horarios = resp[nome];
     const horariosTexto = horarios.map(h=>`${h.tipo} ${h.hora}`).join(' · ');
@@ -9555,7 +9571,7 @@ window.removerFotoResp = function(){
 window.enviarMensagemResp = function(nome, tel){
   const msg = (document.getElementById('resp-mensagem')?.value || '').trim();
   if(!msg){ toast('Escreva a mensagem antes de enviar.','warn'); return; }
-  const m = ministros.find(x=>x.nome===nome);
+  const m = buscarMinistroPorNome(nome);
   const horarios = [];
   // Pega os horários do responsável da lista renderizada
   document.querySelectorAll('#resp-lista .resp-horario').forEach(el=>{
@@ -9581,7 +9597,7 @@ window.enviarParaTodosResp = async function(){
 
   // Filtra só quem tem telefone
   const comTel = nomes.filter(nome=>{
-    const m = ministros.find(x=>x.nome===nome);
+    const m = buscarMinistroPorNome(nome);
     return m && (typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'').length>=10);
   });
   const semTel = nomes.filter(nome=>!comTel.includes(nome));
@@ -9598,7 +9614,7 @@ O WhatsApp abrirá para cada um. Toque "Enviar" em cada conversa.`);
   // Abre sequencialmente com 1.5s de intervalo
   comTel.forEach((nome, idx)=>{
     setTimeout(()=>{
-      const m = ministros.find(x=>x.nome===nome);
+      const m = buscarMinistroPorNome(nome);
       const tel = typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
       const horarios = resp[nome].map(h=>`${h.tipo} ${h.hora}`).join(', ');
       const msgFinal = msg
@@ -10924,7 +10940,7 @@ function renderCardHorarioCirio(colId, hora){
       </button>
     </div>
     ${escalados.length ? escalados.map(nome=>{
-      const min = ministros.find(x=>x.nome===nome);
+      const min = buscarMinistroPorNome(nome);
       const isResp = nome===dados.responsavel;
       const n = (window._cirioContagemEscalas||{})[nome]||0;
       const detalheOutros = n>1 ? _cirioDetalheTexto(nome) : '';
@@ -11767,7 +11783,7 @@ function _horarioParaCodigo(hora){ return hora.replace(':',''); } // "12:00h" ->
 
 // Manda uma cobrança educada por WhatsApp pro responsável de um horário específico com pendência
 window.cobrarPresencaResponsavel = async function(responsavelNome, tipo, hora, dataISO, semanaNum, totalEscalados, totalMarcados, mesKey){
-  const m = ministros.find(x=>x.nome===responsavelNome);
+  const m = buscarMinistroPorNome(responsavelNome);
   if(!m || !m.tel){ toast('Esse responsável não tem telefone cadastrado.','warn'); return; }
 
   // BLINDAGEM CONTRA DADO DESATUALIZADO: os números recebidos aqui são de quando a tela do
@@ -11918,7 +11934,7 @@ window.renderEnvioLinksPresenca = async function(){
 };
 
 function _linhaEnvioPresenca(hora, responsavelNome, link, tagExtra){
-  const m = ministros.find(x=>x.nome===responsavelNome);
+  const m = buscarMinistroPorNome(responsavelNome);
   const semTel = !m || !_telValido(m);
   return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
     <div style="flex:1;min-width:0">
@@ -11930,7 +11946,7 @@ function _linhaEnvioPresenca(hora, responsavelNome, link, tagExtra){
 }
 
 window.enviarLinkPresenca = function(responsavelNome, link){
-  const m = ministros.find(x=>x.nome===responsavelNome);
+  const m = buscarMinistroPorNome(responsavelNome);
   if(!m) return;
   const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
   if(!tel) return;
@@ -12386,14 +12402,14 @@ async function gerarImagemTodasSemanas(){
 
       const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
       const datasLabel = dias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
-      const respObj = ministros.find(x=>x.nome===resp);
+      const respObj = buscarMinistroPorNome(resp);
       const corH = CORES_HORARIO_SEM[h] || {escuro:'#085041',claro:'#eef5f2'};
 
       let idx=0;
       const linhasN = ord.map((m)=>{
         idx++;
         const isResp = m===resp;
-        const mo = ministros.find(x=>x.nome===m);
+        const mo = buscarMinistroPorNome(m);
         const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:60px;height:60px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}">` : `<div style="width:60px;height:60px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m)}</div>`;
         return `<tr><td style="width:50px;text-align:center;color:#666;padding:8px 6px;font-size:24px;border-bottom:1px solid rgba(0,0,0,.08)">${idx}</td><td style="width:76px;text-align:center;padding:7px;border-bottom:1px solid rgba(0,0,0,.08)">${fotoHtml}</td><td style="padding:11px 12px;font-size:29px;line-height:1.2;color:#1a1a1a;border-bottom:1px solid rgba(0,0,0,.08);${isResp?'font-weight:700':''}">${m}</td></tr>`;
       }).join('');
@@ -12402,7 +12418,7 @@ async function gerarImagemTodasSemanas(){
       for(const rf of refsHora){
         linhasR += rf.ministros.map((m)=>{
           idx++;
-          const mo = ministros.find(x=>x.nome===m);
+          const mo = buscarMinistroPorNome(m);
           const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:60px;height:60px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e0c04a">` : `<div style="width:60px;height:60px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
           return `<tr style="background:#fff6d6"><td style="width:50px;text-align:center;color:#8a6d0c;padding:6px;font-size:24px;border-bottom:1px solid #f0e2b0">${idx}</td><td style="width:76px;text-align:center;padding:6px;border-bottom:1px solid #f0e2b0">${fotoHtml}</td><td style="padding:9px 12px;font-size:29px;line-height:1.15;font-weight:600;border-bottom:1px solid #f0e2b0">${m} <span style="font-size:21px;background:#f5c518;color:#5a4500;padding:3px 12px;border-radius:16px;font-weight:800;white-space:nowrap">⭐ REFORÇO ${rf.label}</span></td></tr>`;
         }).join('');
@@ -13148,7 +13164,7 @@ function renderEventoDetalhe(){
       </div>
       ${escala.length ? escala.map(nome=>{
         const ehResp = e.responsavel===nome;
-        const min = ministros.find(x=>x.nome===nome);
+        const min = buscarMinistroPorNome(nome);
         const foto = min?.foto
           ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
           : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
@@ -13173,7 +13189,7 @@ function renderEventoDetalhe(){
         <span style="font-size:11px;color:#1D9E75;font-weight:600">${Object.values(presenca).filter(p=>p.status==='P').length}/${escala.length} presentes</span>
       </div>
       ${escala.map(nome=>{
-        const mObj = ministros.find(x=>x.nome===nome);
+        const mObj = buscarMinistroPorNome(nome);
         const id = mObj?mObj.id:nome;
         const st = presenca[id]?.status || '';
         return `<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #f0f0f0">
@@ -13198,7 +13214,7 @@ window.enviarLinkPresencaEvento = function(){
     toast('⚠️ Defina um responsável primeiro (toque na ★ ao lado do nome dele na escala).','warn');
     return;
   }
-  const m = ministros.find(x=>x.nome===e.responsavel);
+  const m = buscarMinistroPorNome(e.responsavel);
   if(!m){ toast('Responsável não encontrado no cadastro.','warn'); return; }
   const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
   if(!tel || tel.length<10){ toast(`⚠️ ${m.nome.split(' ')[0]} está sem telefone válido no cadastro.`,'warn'); return; }
