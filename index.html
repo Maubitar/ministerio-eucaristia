@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.43.0';
+const APP_VERSAO = '20.44.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -390,11 +390,25 @@ window.addEventListener('load', async()=>{
   try{
     const mesAtualNum = _hoje.getMonth();   // 0-based (julho=6)
     const anoAtualNum = _hoje.getFullYear();
-    ['esc-mes','pres-mes','resp-mes'].forEach(id=>{
+    // A aba Escala usa o "mês de trabalho" que o coordenador escalou por último (salvo em
+    // trocarMes), não necessariamente o mês real de hoje — importante em datas de virada de
+    // mês (ex: Quinzena do Círio, que é escalada em outubro mas o relógio já pode estar
+    // marcando setembro nos últimos dias). Presença/Responsáveis continuam no mês real: eles
+    // já se ressincronizam sozinhos com o mês da Escala ao abrir cada aba.
+    let mesEscTrabalho = mesAtualNum, anoEscTrabalho = anoAtualNum;
+    try{
+      const salvo = JSON.parse(localStorage.getItem('sogi_mes_trabalho')||'null');
+      if(salvo && Number.isInteger(salvo.mes) && Number.isInteger(salvo.ano)){
+        mesEscTrabalho = salvo.mes; anoEscTrabalho = salvo.ano;
+      }
+    }catch(e){}
+    const escMesEl = document.getElementById('esc-mes'); if(escMesEl) escMesEl.value = String(mesEscTrabalho);
+    const escAnoEl = document.getElementById('esc-ano'); if(escAnoEl) escAnoEl.value = String(anoEscTrabalho);
+    ['pres-mes','resp-mes'].forEach(id=>{
       const el = document.getElementById(id);
       if(el) el.value = String(mesAtualNum);
     });
-    ['esc-ano','pres-ano','resp-ano'].forEach(id=>{
+    ['pres-ano','resp-ano'].forEach(id=>{
       const el = document.getElementById(id);
       if(el) el.value = String(anoAtualNum);
     });
@@ -3692,6 +3706,15 @@ function _resincronizarEstadoComEscala(){
 
 window.trocarMes = function(){
   _resincronizarEstadoComEscala();
+  // BLINDAGEM: lembra qual foi o último mês que o coordenador escalou de propósito, pra
+  // abrir o app de novo já nesse mês (e não sempre no mês real atual) — sem isso, buscas como
+  // "Onde esse ministro está servindo?" na tela inicial não achavam nada de outubro assim que
+  // o relógio virou o mês, mesmo com a Quinzena do Círio em andamento.
+  try{
+    const m = parseInt(document.getElementById('esc-mes')?.value);
+    const a = parseInt(document.getElementById('esc-ano')?.value);
+    if(!isNaN(m) && !isNaN(a)) localStorage.setItem('sogi_mes_trabalho', JSON.stringify({mes:m, ano:a}));
+  }catch(e){}
   // Reset o select para semana 1 ao trocar de mês
   const selSem = document.getElementById('esc-sem');
   if(selSem && selSem.options.length > 0) selSem.value = selSem.options[0].value;
