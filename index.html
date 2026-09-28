@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.41.0';
+const APP_VERSAO = '20.42.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7052,6 +7052,24 @@ window.imprimirPresenca = async function(){
 };
 
 
+// BLINDAGEM: reun-data/reun-body/ador-data/ador-body existem em DOIS lugares no app (aba
+// Presença E aba Secretaria → "Reuniões & Adorações") — IDs de HTML precisam ser únicos, mas
+// aqui não são, então document.getElementById só encontrava a cópia da Presença, deixando a
+// tela de Secretaria "travada" (clicar em P/F/J não aparecia mudar nada por lá). Estas duas
+// funções acham e sincronizam TODAS as cópias existentes, então as duas telas sempre refletem
+// o mesmo estado, qualquer uma delas que o coordenador esteja usando.
+function _valorDeTodos(id){
+  const els = Array.from(document.querySelectorAll(`[id="${id}"]`));
+  if(!els.length) return undefined;
+  const visivel = els.find(el=>el.offsetParent !== null) || els[0];
+  const v = visivel.value;
+  els.forEach(el=>{ if(el!==visivel) el.value = v; });
+  return v;
+}
+function _setHtmlEmTodos(id, html){
+  document.querySelectorAll(`[id="${id}"]`).forEach(el=>{ el.innerHTML = html; });
+}
+
 const presReuniaoMap = {};
 
 window.setStatusReun = function(nome, val){
@@ -7067,7 +7085,7 @@ window.setJustReun = function(nome, val){
 
 let _reuniaoDataCarregada = null;
 window.renderReuniao = async function(){
-  const data = document.getElementById('reun-data')?.value;
+  const data = _valorDeTodos('reun-data');
   if(data && data !== _reuniaoDataCarregada){
     _reuniaoDataCarregada = data;
     Object.keys(presReuniaoMap).forEach(k=>delete presReuniaoMap[k]); // limpa resíduo de outra data
@@ -7083,7 +7101,7 @@ window.renderReuniao = async function(){
     }catch(e){}
   }
   const lista = ministros;
-  document.getElementById('reun-body').innerHTML = lista.map(m=>{
+  _setHtmlEmTodos('reun-body', lista.map(m=>{
     const pr = presReuniaoMap[m.nome];
     const status = pr?.status || '';
     const faltas = m.faltasReuniao||0;
@@ -7099,11 +7117,11 @@ window.renderReuniao = async function(){
         oninput="setJustReun('${m.nome.replace(/'/g,"\\'")}',this.value)"
         style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#BA7517;margin-top:4px">`:'' }
     </div>`;
-  }).join('');
+  }).join(''));
 };
 
 window.salvarReuniao = async function(){
-  const data=document.getElementById('reun-data').value || new Date().toISOString().split('T')[0];
+  const data=_valorDeTodos('reun-data') || new Date().toISOString().split('T')[0];
   const registros={};
   ministros.forEach(m=>{
     const pr=presReuniaoMap[m.nome];
@@ -7188,7 +7206,7 @@ window.setJustAdor = function(nome, val){
 
 let _adoracaoDataCarregada = null;
 window.renderAdoracao = async function(){
-  const data = document.getElementById('ador-data')?.value;
+  const data = _valorDeTodos('ador-data');
   if(data && data !== _adoracaoDataCarregada){
     _adoracaoDataCarregada = data;
     Object.keys(presAdoracaoMap).forEach(k=>delete presAdoracaoMap[k]);
@@ -7204,7 +7222,7 @@ window.renderAdoracao = async function(){
     }catch(e){}
   }
   const lista = ministros;
-  document.getElementById('ador-body').innerHTML = lista.map(m=>{
+  _setHtmlEmTodos('ador-body', lista.map(m=>{
     const pr = presAdoracaoMap[m.nome];
     const status = pr?.status || '';
     const faltas = m.faltasAdoracao||0;
@@ -7220,11 +7238,11 @@ window.renderAdoracao = async function(){
         oninput="setJustAdor('${m.nome.replace(/'/g,"\\'")}',this.value)"
         style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;color:#BA7517;margin-top:4px">`:'' }
     </div>`;
-  }).join('');
+  }).join(''));
 };
 
 window.salvarAdoracao = async function(){
-  const data=document.getElementById('ador-data').value || new Date().toISOString().split('T')[0];
+  const data=_valorDeTodos('ador-data') || new Date().toISOString().split('T')[0];
   const registros={};
   ministros.forEach(m=>{
     const pr=presAdoracaoMap[m.nome];
