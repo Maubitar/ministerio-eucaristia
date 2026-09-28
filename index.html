@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.33.0';
+const APP_VERSAO = '20.34.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3809,6 +3809,11 @@ window.renderEscala = async function(){
     '12:00h': [{id:'sab12', label:'Missa Sábado 12h'}],
     '18:00h': [{id:'qui18', label:'Missa Quinta 18h'}, {id:'sab17', label:'Missa Sábado 17h'}]
   };
+  // Missas especiais da Quinzena do Círio (datas fixas, só aparecem no mês/ano delas)
+  if(mesAtualNum===9 && anoAtualNum===2026){
+    reforcosDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
+    reforcosDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
+  }
 
   document.getElementById('esc-body').innerHTML = horasRender.map(hora=>{
     const g = escalas[key][hora] || {ministros:[], responsavel:''};
