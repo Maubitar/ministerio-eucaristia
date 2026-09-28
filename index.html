@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.53.0';
+const APP_VERSAO = '20.54.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2193,6 +2193,7 @@ window.nav = function(id, btn){
     financeiro: ()=>renderFinanceiro(),
     secretaria: ()=>renderSecretaria(),
     finalizadas: ()=>renderEscalasFinalizadas(),
+    transmissao: ()=>renderTransmissaoCentral(),
     'tel-rapido': ()=>renderTelefonesRapido(),
     'envio-presenca': ()=>renderEnvioLinksPresenca(),
     'envio-cart': ()=>renderEnvioCarteirinhas(),
@@ -6261,6 +6262,92 @@ function montarPaginasEscalaFinalizada(info){
   return paginas;
 }
 
+// ===== TRANSMISSÃO CENTRAL (v20.54.0) =====
+// Até aqui, cada tipo de escala/evento tinha seu próprio jeito de mandar pro WhatsApp
+// (ou nem tinha, como o Círio e os Eventos Especiais, que só imprimiam). Estas funções geram
+// a MESMA imagem "oficial" (com logos, cores por horário, fotos) usada pela Escala Dominical/
+// Semanal, só que a partir dos dados do Círio e dos Eventos — assim a Transmissão Central
+// consegue oferecer os quatro tipos (Dominical, Semanal, Eventos, Círio) no mesmo padrão.
+
+// Monta os "cards" (um por horário com missa) de UM DIA do Círio, no mesmo formato usado
+// pela Escala Semanal/Dominical — reaproveita cardHorarioFin.
+async function _montarCardsCirioDia(colId){
+  await carregarCirioConfig();
+  const cfg = _cirioConfig;
+  const coluna = cfg?.colunas?.find(c=>c.id===colId);
+  if(!coluna) return null;
+  const horariosAtivos = (cfg.horarios||[]).filter(h => cfg.grade[colId] && cfg.grade[colId][h]);
+  const dados = await _lerEscalaDocRaw(_cirioEscalaKey(colId));
+  const cards = horariosAtivos.map(hora=>{
+    const g = dados[hora] || {ministros:[], responsavel:''};
+    const ordenados = [...(g.ministros||[])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    if(!ordenados.length) return null;
+    const respObj = buscarMinistroPorNome(g.responsavel||'');
+    const hObj = {
+      hora, responsavel: g.responsavel||'', respTel: respObj?.tel ? ` — ${respObj.tel}` : '',
+      ministros: ordenados.map((nome,i)=>({ num:i+1, nome, isResp: nome===g.responsavel, isReforco:false,
+        foto: buscarMinistroPorNome(nome)?.foto||null }))
+    };
+    const html = cardHorarioFin(hObj);
+    return html ? { html, peso:(hObj.ministros.length||0)+2 } : null;
+  }).filter(Boolean);
+  if(!cards.length) return null;
+  return {
+    rotulo: `ESCALA QUINZENA DO CÍRIO${cfg.ano?' '+cfg.ano:''}`,
+    tituloFaixa: `${coluna.label} — ${_cirioLabelDatas(coluna)}`,
+    cards, corBorda:'#085041'
+  };
+}
+
+// Monta o card de UM Evento Especial, no mesmo formato — o "horário" do card vira o
+// nome do evento + data/hora, já que um evento não é dividido por hora como o resto.
+async function _montarCardEvento(eventoId){
+  await carregarEventos();
+  const ev = _eventos.find(e=>e.id===eventoId);
+  if(!ev) return null;
+  const escalados = [...(ev.escala||[])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  if(!escalados.length) return null;
+  const dataFmt = (ev.data||'').split('-').reverse().join('/');
+  const respObj = buscarMinistroPorNome(ev.responsavel||'');
+  const hObj = {
+    hora: `${ev.nome||'Evento'} — ${dataFmt}${ev.hora?' '+ev.hora+'h':''}${ev.local?' · '+ev.local:''}`,
+    responsavel: ev.responsavel||'', respTel: respObj?.tel ? ` — ${respObj.tel}` : '',
+    ministros: escalados.map((nome,i)=>({ num:i+1, nome, isResp: nome===ev.responsavel, isReforco:false,
+      foto: buscarMinistroPorNome(nome)?.foto||null }))
+  };
+  const html = cardHorarioFin(hObj);
+  if(!html) return null;
+  return {
+    rotulo: 'ESCALA EVENTOS ESPECIAIS',
+    tituloFaixa: `Basílica Santuário de Nossa Senhora de Nazaré`,
+    cards: [{ html, peso:(hObj.ministros.length||0)+2 }], corBorda:'#085041'
+  };
+}
+
+// Gera a(s) imagem(ns) de uma "página" (dia do Círio, evento, semana ou dominical já montada)
+// e dispara o mesmo fluxo de download usado no resto do app (📎 Documento no WhatsApp).
+async function _gerarEBaixarPagina(pagina, nomeArqBase){
+  if(!pagina){ toast('Nada escalado ainda pra transmitir.','warn'); return; }
+  toast('Gerando imagem...','ok');
+  const resultados = await capturarPaginaComDivisao(pagina.rotulo, pagina.tituloFaixa, pagina.cards, pagina.corBorda);
+  const itens = resultados.map((r,i)=>({ blob:r.blob, nomeArq:`${nomeArqBase}${resultados.length>1?'_p'+(i+1):''}.png` }));
+  await compartilharVariasImagens(itens, 'Escala MESCE', pagina.rotulo);
+}
+
+window.transmitirCirioDia = async function(colId){
+  try{
+    const pagina = await _montarCardsCirioDia(colId);
+    await _gerarEBaixarPagina(pagina, `escala_cirio_${colId}`);
+  }catch(e){ toast('Erro ao transmitir: '+e.message,'warn'); }
+};
+
+window.transmitirEvento = async function(eventoId){
+  try{
+    const pagina = await _montarCardEvento(eventoId);
+    await _gerarEBaixarPagina(pagina, `evento_${eventoId}`);
+  }catch(e){ toast('Erro ao transmitir: '+e.message,'warn'); }
+};
+
 // ██ BLINDAGEM PERMANENTE (v20.52.0) — NÃO REINTRODUZIR ESTE ERRO ██
 // Este mesmo bug de "horários fora de ordem no PDF" já foi corrigido 3 vezes nesta escala.
 // A causa raiz sempre foi a mesma: alguma versão do código decidia em qual COLUNA cada
@@ -6755,6 +6842,86 @@ window.renderEscalasFinalizadas = async function(){
   }catch(e){
     cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: ${e.message}</p>`;
   }
+};
+
+// ===== TRANSMISSÃO CENTRAL (v20.54.0) =====
+// Reúne, numa única tela, tudo que pode ser transmitido por WhatsApp: Escala Dominical e
+// Semanal (já finalizadas), Eventos Especiais e Escala do Círio — o coordenador marca o que
+// quiser e recebe uma fila de botões "Enviar", um por item, na ordem certa.
+window._transmItens = [];
+window.renderTransmissaoCentral = async function(){
+  const cont = document.getElementById('transm-lista');
+  const fila = document.getElementById('transm-fila');
+  if(fila){ fila.innerHTML=''; fila.style.display='none'; }
+  if(!cont) return;
+  cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando...</p>';
+  try{
+    const mesKey = getMesAtual();
+    const itens = [];
+
+    // Escala Dominical (finalizada) do mês em que a Escala está trabalhando agora
+    let docDom = null;
+    try{ const d = await getDoc(doc(db,'escalas_finalizadas', mesKey+'_dom')); if(d.exists()) docDom = {id:d.id, ...d.data()}; }catch(e){}
+    if(docDom) itens.push({ tipo:'dom', chave: docDom.id, label:`📅 Escala Dominical — ${docDom.mesNome||''}/${docDom.ano||''}` });
+
+    // Escala Semanal (finalizada) — uma entrada por semana
+    let docSem = null;
+    try{ const d = await getDoc(doc(db,'escalas_finalizadas', mesKey+'_sem')); if(d.exists()) docSem = {id:d.id, ...d.data()}; }catch(e){}
+    (docSem?.semanas||[]).forEach((s,i)=>{
+      itens.push({ tipo:'sem', chave: docSem.id, indice:i, label:`📆 Escala Semanal — ${s.label||('Semana '+(i+1))}${s.periodo?' ('+s.periodo+')':''}` });
+    });
+
+    // Escala do Círio — uma entrada por dia (coluna) que já tem pelo menos 1 ministro escalado
+    await carregarCirioConfig();
+    const cfg = _cirioConfig;
+    if(cfg?.colunas?.length){
+      for(const c of cfg.colunas){
+        const horariosAtivos = (cfg.horarios||[]).filter(h=>cfg.grade[c.id]&&cfg.grade[c.id][h]);
+        if(!horariosAtivos.length) continue;
+        const dados = await _lerEscalaDocRaw(_cirioEscalaKey(c.id));
+        const temGente = horariosAtivos.some(h=>(dados[h]?.ministros||[]).length);
+        if(temGente) itens.push({ tipo:'cirio', chave: c.id, label:`🕯️ Círio — ${c.label} (${_cirioLabelDatas(c)})` });
+      }
+    }
+
+    // Eventos Especiais — um por evento que já tem pelo menos 1 ministro escalado
+    await carregarEventos();
+    _eventos.forEach(ev=>{
+      if((ev.escala||[]).length){
+        const dataFmt = (ev.data||'').split('-').reverse().join('/');
+        itens.push({ tipo:'evento', chave: ev.id, label:`🎉 ${ev.nome||'Evento'} — ${dataFmt}${ev.hora?' '+ev.hora+'h':''}` });
+      }
+    });
+
+    window._transmItens = itens;
+    if(!itens.length){
+      cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Nada pra transmitir ainda — finalize a Escala Dominical/Semanal, ou escale alguém nos Eventos/Círio primeiro.</p>';
+      return;
+    }
+    cont.innerHTML = itens.map((it,i)=>`
+      <label style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #f0f0f0;cursor:pointer">
+        <input type="checkbox" class="transm-chk" data-idx="${i}" style="width:20px;height:20px;flex-shrink:0;accent-color:#0A6E58">
+        <span style="font-size:13.5px;flex:1">${it.label}</span>
+      </label>`).join('');
+  }catch(e){
+    cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: ${e.message}</p>`;
+  }
+};
+
+window.montarFilaTransmissao = function(){
+  const marcados = Array.from(document.querySelectorAll('.transm-chk:checked')).map(el=>parseInt(el.dataset.idx,10));
+  const fila = document.getElementById('transm-fila');
+  if(!marcados.length){ toast('Marque pelo menos uma escala ou evento pra transmitir.','warn'); return; }
+  const itensSelecionados = marcados.map(i=>window._transmItens[i]).filter(Boolean);
+  const acoes = { dom:'compartilharEscalaFinalizada', sem:'transmitirPaginaIndividual', cirio:'transmitirCirioDia', evento:'transmitirEvento' };
+  fila.innerHTML = `<p class="ct" style="color:#1ba34d;margin:0 0 4px">📤 Fila de envio</p>
+    <p style="font-size:11.5px;color:#666;margin:0 0 12px">Toque em cada botão abaixo, um de cada vez, na ordem. Cada um baixa a imagem já pronta — no WhatsApp, anexe como 📎 Documento (não Foto) pra manter a qualidade.</p>` +
+    itensSelecionados.map((it,i)=>{
+      const args = it.tipo==='sem' ? `'${it.chave}',${it.indice}` : `'${it.chave}'`;
+      return `<button onclick="${acoes[it.tipo]}(${args})" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left">${i+1}. 📤 ${it.label}</button>`;
+    }).join('');
+  fila.style.display='block';
+  fila.scrollIntoView({behavior:'smooth', block:'start'});
 };
 
 // ===== GERAÇÃO DE PDF REAL (paginação controlada, não depende do navegador) =====
@@ -15974,6 +16141,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <div id="s-mais" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="border:1.5px solid #25D366;background:#f6fff9">
+    <p class="ct" style="color:#1ba34d">📤 Transmissão Central</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Marque de uma vez só o que quer transmitir por WhatsApp — Dominical, Semanal, Eventos Especiais e Círio, tudo num lugar só.</p>
+    <button onclick="nav('transmissao')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer">📤 Abrir Transmissão Central</button>
+  </div>
   <div class="card" style="border:1.5px solid #185FA5;background:#eef5fb">
     <p class="ct" style="color:#185FA5">📋 Links de Presença por Horário</p>
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Mande pro responsável de cada horário o link que só mostra os ministros dele — ele marca a presença no celular dele mesmo, sem precisar de aparelho na sacristia.</p>
@@ -16122,7 +16294,28 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p class="ct" style="color:#0A6E58">✅ Escalas Finalizadas</p>
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0">Aqui ficam as escalas que você travou (finalizou). Elas não mudam mais sozinhas — imprima direto daqui sempre que precisar, sem editar data nenhuma.</p>
   </div>
+  <div class="card" style="border:1.5px solid #25D366;background:#f6fff9">
+    <p class="ct" style="color:#1ba34d">📤 Transmissão Central (novo)</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Marque de uma vez só o que quer transmitir — Dominical, Semanal, Eventos Especiais e Círio, tudo num lugar só.</p>
+    <button onclick="nav('transmissao')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer">📤 Abrir Transmissão Central</button>
+  </div>
   <div id="lista-finalizadas"></div>
+</div>
+
+<!-- TRANSMISSÃO CENTRAL: reúne Dominical, Semanal, Eventos e Círio num lugar só pra transmitir -->
+<div id="s-transmissao" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#0A6E58,#25D366);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">📤 Transmissão Central</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Marque tudo que quer transmitir hoje e envie um de cada vez, na ordem — sem precisar procurar em várias telas.</p>
+  </div>
+  <div class="card" style="border:1.5px solid #e1f5ee">
+    <p class="ct">✅ O que transmitir</p>
+    <p style="font-size:11.5px;color:#888;margin:0 0 10px">Só aparece aqui o que já tem gente escalada (Dominical/Semanal precisam estar finalizadas primeiro, na aba "Escalas Finalizadas").</p>
+    <div id="transm-lista"></div>
+    <button onclick="montarFilaTransmissao()" style="width:100%;padding:13px;border:none;border-radius:10px;background:#0A6E58;color:white;font-size:14px;font-weight:800;cursor:pointer;margin-top:12px">✅ Marcar e montar fila de envio</button>
+  </div>
+  <div id="transm-fila" class="card" style="border:1.5px solid #25D366;background:#f6fff9;display:none"></div>
 </div>
 
 <!-- SEÇÃO: EVENTOS ESPECIAIS (lista) -->
