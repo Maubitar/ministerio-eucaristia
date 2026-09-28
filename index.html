@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.51.0';
+const APP_VERSAO = '20.52.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6477,12 +6477,12 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     // página nova ANTES de desenhar qualquer coisa dessa semana, pra nunca cortar ela ao meio.
     const alturaTitulo = tituloFaixa ? 11 : 0;
     const colYSim = Array(numColunas).fill(y + alturaTitulo);
-    const horariosOrdenadosSim = [...horariosComGente].sort((a,b)=>alturaCard(b)-alturaCard(a));
-    horariosOrdenadosSim.forEach(h=>{
-      let col = 0;
-      for(let i=1;i<numColunas;i++){ if(colYSim[i] < colYSim[col]) col = i; }
-      colYSim[col] += alturaCard(h);
-    });
+    // BLINDAGEM (v20.52.0): a simulação de espaço agora segue a MESMA ordem cronológica
+    // estrita usada no desenho de verdade abaixo (coluna 1 = 06:00, coluna 2 = 08:00...) —
+    // antes ela balanceava por altura, o que fazia a estimativa de espaço não bater com o
+    // resultado real e podia disparar uma quebra de página no lugar errado.
+    const horariosOrdenadosSim = [...horariosComGente].sort((a,b)=>a.hora.localeCompare(b.hora));
+    horariosOrdenadosSim.forEach((h,i)=>{ colYSim[i % numColunas] += alturaCard(h); });
     const alturaEstimada = Math.max(...colYSim) - y;
     if(y > M+16 && y + alturaEstimada > rodapePagina){
       pdf.addPage(); cabecalho(); y = M+16;
@@ -6496,22 +6496,17 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
       y += 8 + 3;
     }
 
-    // Agrupa por tamanho (do maior pro menor) só pra decidir QUEM fica em qual coluna, de forma
-    // equilibrada — sem isso, uma coluna podia ficar com o dobro de conteúdo de outra. Mas depois
-    // de agrupar, reordena tudo em ordem CRESCENTE de horário — tanto a ordem das colunas da
-    // esquerda pra direita quanto a ordem de cima pra baixo dentro de cada uma — pra nunca sair
-    // com os horários embaralhados na leitura.
+    // BLINDAGEM (v20.52.0): distribuição estritamente CRONOLÓGICA entre as colunas — coluna 1
+    // recebe o 1º horário (sempre o mais cedo, ex.: 06:00), coluna 2 o 2º, coluna 3 o 3º, coluna 4
+    // o 4º, e daí volta pra coluna 1 com o 5º horário (empilhando abaixo do 06:00), e assim por
+    // diante. Antes, os horários eram distribuídos por TAMANHO do card (pra equilibrar altura
+    // entre colunas), o que espalhava os horários fora de ordem pela página — ex.: coluna 1 podia
+    // ficar com 06:00 e 12:00 enquanto a coluna 2 ficava só com 08:00, confundindo a leitura.
+    // Agora a ordem de leitura (esquerda pra direita, de cima pra baixo) é sempre crescente a
+    // partir das 06:00, mesmo que isso deixe uma coluna um pouco mais alta que outra.
     const buckets = Array.from({length:numColunas}, ()=>[]);
-    const alturaBuckets = Array(numColunas).fill(0);
-    const porTamanho = [...horariosComGente].sort((a,b)=>alturaCard(b)-alturaCard(a));
-    porTamanho.forEach(h=>{
-      let idx = 0;
-      for(let i=1;i<numColunas;i++){ if(alturaBuckets[i] < alturaBuckets[idx]) idx = i; }
-      buckets[idx].push(h);
-      alturaBuckets[idx] += alturaCard(h);
-    });
-    buckets.forEach(b => b.sort((a,c)=> a.hora.localeCompare(c.hora)));
-    buckets.sort((a,b) => (a[0]?.hora||'99:99h').localeCompare(b[0]?.hora||'99:99h'));
+    const horariosOrdenados = [...horariosComGente].sort((a,b)=>a.hora.localeCompare(b.hora));
+    horariosOrdenados.forEach((h,i)=>{ buckets[i % numColunas].push(h); });
 
     // Todas as colunas compartilham a MESMA noção de página — se uma obriga a virar página, todas viram juntas.
     // Desenha intercalado (uma de cada coluna por vez) — mantém o mesmo comportamento de quebra
