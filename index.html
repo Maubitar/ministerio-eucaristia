@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.40.0';
+const APP_VERSAO = '20.41.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3184,6 +3184,113 @@ function _semanaContemDataISO(sem, dataISOAlvo){
   return dataISOAlvo >= datasISO[0] && dataISOAlvo <= datasISO[datasISO.length-1];
 }
 
+// ===== REFORÇOS DE DATAS ESPECIAIS (cadastro genérico, sem precisar mexer no código) =====
+// Cada mês tem uma listinha { id, data:'YYYY-MM-DD', hora:'07:00h', label:'Trasladação' }
+// guardada em config/reforcos_especiais_${mesKey}. Usa-se a MESMA equipe já escalada na
+// semana em que a data cai — só aumenta a quantidade com reforço extra naquele horário.
+let _reforcosEspeciaisCache = {};
+
+async function carregarReforcosEspeciais(mesKey){
+  if(_reforcosEspeciaisCache[mesKey]) return _reforcosEspeciaisCache[mesKey];
+  try{
+    const d = await getDoc(doc(db,'config',`reforcos_especiais_${mesKey}`));
+    const lista = d.exists() ? (d.data().lista||[]) : [];
+    _reforcosEspeciaisCache[mesKey] = lista;
+    return lista;
+  }catch(e){ return []; }
+}
+
+async function salvarReforcosEspeciaisLista(mesKey, lista){
+  _reforcosEspeciaisCache[mesKey] = lista;
+  await setDoc(doc(db,'config',`reforcos_especiais_${mesKey}`), {lista});
+}
+
+// Monta, para UMA semana (pelo número "sem"), o mapa hora -> [{id,label}] com os reforços
+// de datas especiais cadastrados que caem dentro do período daquela semana.
+function _reforcosEspeciaisDaSemana(lista, sem){
+  const porHora = {};
+  (lista||[]).forEach(item=>{
+    if(!item?.data || !item?.hora) return;
+    if(_semanaContemDataISO(sem, item.data)){
+      if(!porHora[item.hora]) porHora[item.hora] = [];
+      porHora[item.hora].push({ id:item.id, label: `${item.label||'Missa especial'} (${isoParaDDMM(item.data)})` });
+    }
+  });
+  return porHora;
+}
+
+// Abre o cadastro de reforços de datas especiais (⭐ Reforços de datas especiais)
+window.abrirModalReforcosEspeciais = async function(){
+  document.getElementById('modal-reforcos-especiais').style.display = 'flex';
+  document.getElementById('lista-reforcos-especiais').innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:14px 0">Carregando...</p>';
+  // Sugere já a data de hoje (dentro do mês/ano da Escala) no campo de nova data
+  try{
+    const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+    const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+    const inp = document.getElementById('re-nova-data');
+    if(inp) inp.value = `${ano}-${String(mes+1).padStart(2,'0')}-01`;
+  }catch(e){}
+  await renderListaReforcosEspeciais();
+};
+
+async function renderListaReforcosEspeciais(){
+  const mesKey = getMesAtualEscala();
+  delete _reforcosEspeciaisCache[mesKey]; // sempre busca fresco ao abrir/editar o cadastro
+  const lista = await carregarReforcosEspeciais(mesKey);
+  const cont = document.getElementById('lista-reforcos-especiais');
+  if(!cont) return;
+  if(!lista.length){
+    cont.innerHTML = '<p style="font-size:12px;color:#aaa;text-align:center;padding:10px 0">Nenhuma data especial cadastrada ainda para este mês.</p>';
+    return;
+  }
+  const ordenada = [...lista].sort((a,b)=>(a.data||'').localeCompare(b.data||'') || (a.hora||'').localeCompare(b.hora||''));
+  cont.innerHTML = ordenada.map(item=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:#f5f5f3;border-radius:9px">
+      <div style="flex:1;min-width:0">
+        <p style="font-size:13px;font-weight:700;color:#222;margin:0">${isoParaDDMM(item.data)} — ${item.hora}</p>
+        <p style="font-size:11.5px;color:#888;margin:2px 0 0">${item.label||'Missa especial'}</p>
+      </div>
+      <button onclick="removerReforcoEspecial('${item.id}')" style="border:none;background:#fbeaea;color:#A32D2D;font-size:11px;font-weight:700;padding:6px 10px;border-radius:14px;cursor:pointer;flex-shrink:0">Apagar</button>
+    </div>`).join('');
+}
+
+window.adicionarReforcoEspecial = async function(){
+  const dataInp = document.getElementById('re-nova-data')?.value;
+  const hora = document.getElementById('re-nova-hora')?.value;
+  const label = document.getElementById('re-novo-label')?.value?.trim();
+  if(!dataInp){ toast('Escolha uma data.','warn'); return; }
+  if(!label){ toast('Dê um nome pra essa missa (ex: Trasladação).','warn'); return; }
+  const mesKey = getMesAtualEscala();
+  const lista = await carregarReforcosEspeciais(mesKey);
+  if(lista.some(i=>i.data===dataInp && i.hora===hora)){
+    toast('Já existe um reforço cadastrado nessa data e horário.','warn'); return;
+  }
+  const novoItem = { id: `esp_${Date.now()}_${Math.floor(Math.random()*1000)}`, data: dataInp, hora, label };
+  const novaLista = [...lista, novoItem];
+  try{
+    await salvarReforcosEspeciaisLista(mesKey, novaLista);
+    toast('✓ Data especial cadastrada! Já aparece na semana correspondente.','ok');
+    document.getElementById('re-novo-label').value = '';
+    await renderListaReforcosEspeciais();
+    if(document.getElementById('esc-tipo')?.value==='sem') renderEscala();
+  }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); }
+};
+
+window.removerReforcoEspecial = async function(id){
+  if(!confirm('Apagar esta data especial? Os ministros de reforço já adicionados nela também serão removidos.')) return;
+  const mesKey = getMesAtualEscala();
+  const lista = await carregarReforcosEspeciais(mesKey);
+  const novaLista = lista.filter(i=>i.id!==id);
+  try{
+    await salvarReforcosEspeciaisLista(mesKey, novaLista);
+    // Limpa também o documento de ministros de reforço deste id (não fica "fantasma" no banco)
+    try{ await setDoc(doc(db,'reforcos',`reforco_${id}_${mesKey}`), {ministros:[],responsavel:''}); delete reforcos[`reforco_${id}_${mesKey}`]; }catch(e){}
+    toast('✓ Removido.','ok');
+    await renderListaReforcosEspeciais();
+    if(document.getElementById('esc-tipo')?.value==='sem') renderEscala();
+  }catch(e){ toast('Erro ao remover: '+e.message,'warn'); }
+};
+
 function atualizarChipPeriodoSemana(){
   const el = document.getElementById('periodo-semana-chip');
   if(!el) return;
@@ -3869,12 +3976,16 @@ window.renderEscala = async function(){
     '12:00h': [{id:'sab12', label:'Missa Sábado 12h'}],
     '18:00h': [{id:'qui18', label:'Missa Quinta 18h'}, {id:'sab17', label:'Missa Sábado 17h'}]
   };
-  // Missas especiais avulsas da Quinzena (datas fixas) — usam a MESMA equipe já escalada
-  // na semana normal, só aumentando a quantidade com reforço extra. Só aparece na semana
-  // que realmente contém aquele dia (checagem robusta por data, não pelo array de dias).
-  if(mesAtualNum===9 && anoAtualNum===2026){
-    if(_semanaContemDataISO(sem, '2026-10-09')) reforcosDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
-    if(_semanaContemDataISO(sem, '2026-10-10')) reforcosDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
+  // Reforços de datas especiais cadastrados pelo coordenador (⭐ Reforços de datas especiais)
+  // — usam a MESMA equipe já escalada na semana normal, só aumentando com reforço extra
+  // naquele horário. Só aparece na semana que realmente contém aquele dia (checagem robusta
+  // por ISO, via _semanaContemDataISO), e some sozinho quando a data é removida do cadastro.
+  if(tipo==='sem'){
+    const _listaReforcosEsp = await carregarReforcosEspeciais(getMesAtual());
+    const _mapaReforcosEsp = _reforcosEspeciaisDaSemana(_listaReforcosEsp, sem);
+    Object.entries(_mapaReforcosEsp).forEach(([hora, itens])=>{
+      reforcosDoHorario[hora] = [...(reforcosDoHorario[hora]||[]), ...itens];
+    });
   }
 
   document.getElementById('esc-body').innerHTML = horasRender.map(hora=>{
@@ -5284,10 +5395,14 @@ async function buscarEscalaDoDia(info){
   const reforcosDoDia = {};
   if(info.diaSemana === 'Quinta'){ reforcosDoDia['18:00h'] = ['qui18']; }
   if(info.diaSemana === 'Sábado'){ reforcosDoDia['12:00h'] = ['sab12']; reforcosDoDia['18:00h'] = ['sab17']; }
-  // Missas especiais avulsas — entram na presença só do dia exato (comparação por ISO, a
-  // mais confiável, já que "info.iso" vem pronto de _isoDaDataSemanaPresenca)
-  if(info.iso === '2026-10-09'){ reforcosDoDia['07:00h'] = [...(reforcosDoDia['07:00h']||[]), 'esp0910_0700']; }
-  if(info.iso === '2026-10-10'){ reforcosDoDia['09:00h'] = [...(reforcosDoDia['09:00h']||[]), 'esp1010_0900']; }
+  // Reforços de datas especiais cadastrados — entram na presença só do dia exato (comparação
+  // por ISO, a mais confiável, já que "info.iso" vem pronto de _isoDaDataSemanaPresenca)
+  const _listaReforcosEspDia = await carregarReforcosEspeciais(mesAtualKey);
+  _listaReforcosEspDia.forEach(item=>{
+    if(item?.data === info.iso && item?.hora){
+      reforcosDoDia[item.hora] = [...(reforcosDoDia[item.hora]||[]), item.id];
+    }
+  });
 
   for(const [hora, tiposRef] of Object.entries(reforcosDoDia)){
     for(const tipoRef of tiposRef){
@@ -5853,9 +5968,13 @@ window.finalizarEscalaSemanal = async function(){
     const reforcoQui18 = await lerReforco('qui18');
     const reforcoSab12 = await lerReforco('sab12');
     const reforcoSab17 = await lerReforco('sab17');
-    // Missas especiais avulsas (datas fixas, só existem em out2026)
-    const reforcoEsp0910 = mesKey==='out2026' ? await lerReforco('esp0910_0700') : [];
-    const reforcoEsp1010 = mesKey==='out2026' ? await lerReforco('esp1010_0900') : [];
+    // Reforços de datas especiais cadastrados (⭐ Reforços de datas especiais) — pré-carrega
+    // a lista de ministros de cada um antes do loop de semanas (que é síncrono)
+    const listaReforcosEsp = await carregarReforcosEspeciais(mesKey);
+    const reforcosEspMinistros = {};
+    for(const item of listaReforcosEsp){
+      if(item?.id) reforcosEspMinistros[item.id] = await lerReforco(item.id);
+    }
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
     // Cada nome guarda o rótulo exato do reforço (pra mostrar "REFORÇO Missa Quinta 18h" etc — igual à tela de montar escala)
     const reforcosPorHora = {
@@ -5872,15 +5991,18 @@ window.finalizarEscalaSemanal = async function(){
       // Cópia local — nunca mexe no cache da escala ao vivo (evita corromper a tela de edição)
       const esc = {};
       Object.keys(escOriginal).forEach(h=>{ esc[h] = { ...escOriginal[h], ministros: [...(escOriginal[h].ministros||[])] }; });
-      // Reforços que valem só para ESTA semana (missas especiais de data fixa) — checagem
+      // Reforços que valem só para ESTA semana (datas especiais cadastradas) — checagem
       // robusta por ISO, só entra na semana que realmente contém aquele dia
       const reforcosPorHoraSemana = { ...reforcosPorHora };
-      if(_semanaContemDataISO(s, '2026-10-09') && reforcoEsp0910.length){
-        reforcosPorHoraSemana['07:00h'] = [...(reforcosPorHoraSemana['07:00h']||[]), ...reforcoEsp0910.map(n=>({nome:n, label:'Missa Especial 09/10 07h'}))];
-      }
-      if(_semanaContemDataISO(s, '2026-10-10') && reforcoEsp1010.length){
-        reforcosPorHoraSemana['09:00h'] = [...(reforcosPorHoraSemana['09:00h']||[]), ...reforcoEsp1010.map(n=>({nome:n, label:'Missa Especial 10/10 09h'}))];
-      }
+      listaReforcosEsp.forEach(item=>{
+        if(!item?.id || !item?.hora) return;
+        const nomes = reforcosEspMinistros[item.id]||[];
+        if(!nomes.length) return;
+        if(_semanaContemDataISO(s, item.data)){
+          const labelData = `${item.label||'Missa especial'} (${isoParaDDMM(item.data)})`;
+          reforcosPorHoraSemana[item.hora] = [...(reforcosPorHoraSemana[item.hora]||[]), ...nomes.map(n=>({nome:n, label:labelData}))];
+        }
+      });
       const mapaReforcoPorHora = {};
       Object.entries(reforcosPorHoraSemana).forEach(([hora, itensReforco])=>{
         if(!itensReforco.length) return;
@@ -12478,6 +12600,10 @@ async function gerarImagemTodasSemanas(){
     }
   }
 
+  // Reforços de datas especiais cadastrados (⭐ Reforços de datas especiais) — carrega uma
+  // vez só, fora do loop de semanas
+  const _listaReforcosEspImg = await carregarReforcosEspeciais(mesKey);
+
   const semanasParaGerar = [];
   for(const s of sems){
     const key = `escala_sem_sem${s}_${mesKey}`;
@@ -12502,12 +12628,12 @@ async function gerarImagemTodasSemanas(){
       '12:00h':[{id:'sab12',label:'Missa Sábado 12h'}],
       '18:00h':[{id:'qui18',label:'Missa Quinta 18h'},{id:'sab17',label:'Missa Sábado 17h'}]
     };
-    // Missas especiais avulsas (datas fixas) — só entram na semana que realmente contém
+    // Reforços de datas especiais cadastrados — só entram na semana que realmente contém
     // aquele dia (checagem robusta por ISO via ini/fim salvos, não pelo array de dias)
-    if(mesKey === 'out2026'){
-      if(_semanaContemDataISO(s, '2026-10-09')) refDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
-      if(_semanaContemDataISO(s, '2026-10-10')) refDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
-    }
+    const _mapaReforcosEspImg = _reforcosEspeciaisDaSemana(_listaReforcosEspImg, s);
+    Object.entries(_mapaReforcosEspImg).forEach(([hora, itens])=>{
+      refDoHorario[hora] = [...(refDoHorario[hora]||[]), ...itens];
+    });
     let horasCards = [];
     for(const h of MISSAS_SEM){
       const g = esc[h]||{ministros:[],responsavel:''};
@@ -15343,6 +15469,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <div id="painel-semanas-cards" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
+      <!-- REFORÇOS DE DATAS ESPECIAIS (cadastro genérico) -->
+      <div style="background:#fffdf0;border:1.5px solid #f0d53a;border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <p style="font-size:13px;font-weight:700;color:#8a6d0c;margin:0">⭐ Reforços de datas especiais</p>
+          <button onclick="abrirModalReforcosEspeciais()" style="font-size:11px;padding:5px 12px;border:1.5px solid #f0c000;border-radius:16px;background:white;color:#8a6d0c;cursor:pointer;font-weight:700">✏️ Gerenciar</button>
+        </div>
+        <p style="font-size:11px;color:#8a6d0c;margin:6px 0 0">Cadastre aqui uma missa com reforço extra numa data específica (ex: Trasladação, Chegada do Círio) — usa a mesma equipe já escalada na semana, só aumenta o reforço naquele dia e horário. Some sozinho quando você apagar.</p>
+      </div>
+
       <!-- Select oculto — usado internamente para compatibilidade com renderEscala -->
       <div id="esc-sem-wrap" style="display:none">
         <select id="esc-sem" onchange="renderEscala();atualizarCardsSemanas();" style="margin:0;width:100%">
@@ -16511,6 +16646,34 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
       style="width:100%;padding:14px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:800;cursor:pointer">
       ✓ Confirmar semanas
     </button>
+  </div>
+</div>
+
+<!-- MODAL REFORÇOS DE DATAS ESPECIAIS -->
+<div id="modal-reforcos-especiais" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-reforcos-especiais')">
+  <div class="modal-box" style="max-height:92vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <p style="font-size:16px;font-weight:800;color:#8a6d0c;margin:0">⭐ Reforços de datas especiais</p>
+      <button onclick="fecharModal('modal-reforcos-especiais')" style="border:none;background:none;font-size:24px;cursor:pointer;color:#aaa;line-height:1">×</button>
+    </div>
+    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Cadastre datas com missa especial que vão precisar de reforço extra (ex: Trasladação, Chegada do Círio). O sistema usa a mesma equipe já escalada na semana daquela data — só aumenta o reforço no horário indicado. Some sozinho quando você apagar aqui.</p>
+
+    <div id="lista-reforcos-especiais" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
+
+    <div style="background:#fffdf0;border:1.5px dashed #f0c000;border-radius:10px;padding:12px">
+      <p style="font-size:12px;font-weight:700;color:#8a6d0c;margin:0 0 8px">+ Adicionar nova data</p>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input type="date" id="re-nova-data" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+        <select id="re-nova-hora" style="flex:0 0 100px;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+          <option value="07:00h">07:00h</option>
+          <option value="09:00h">09:00h</option>
+          <option value="12:00h">12:00h</option>
+          <option value="18:00h">18:00h</option>
+        </select>
+      </div>
+      <input type="text" id="re-novo-label" placeholder="Nome da missa (ex: Trasladação)" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
+      <button onclick="adicionarReforcoEspecial()" style="width:100%;padding:11px;border:none;border-radius:10px;background:#f0c000;color:#5a4500;font-size:13.5px;font-weight:800;cursor:pointer">+ Adicionar</button>
+    </div>
   </div>
 </div>
 
