@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.32.0';
+const APP_VERSAO = '20.33.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3167,57 +3167,113 @@ function atualizarChipPeriodoSemana(){
   }
 }
 
-window.abrirEditarPeriodoSemana = function(){
-  const custom1 = _periodoSemanaCustom['1'];
-  // Usa o mês E ANO do seletor da escala — não o mês atual do sistema
-  const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-  const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
-
-  let sugestao;
-  if(custom1){
-    sugestao = custom1.ini;
-  } else {
-    // esc-mes já é 0-based (Janeiro=0, Julho=6) — usa direto no Date
-    const d = new Date(ano, mes, 1);
-    while(d.getDay() !== 1) d.setDate(d.getDate()+1);
-    sugestao = d.toISOString().slice(0,10);
+// Gera todas as semanas (seg a sáb) que tocam o mês/ano informado — candidatas para o coordenador escolher
+function gerarSemanasCandidatasMes(ano, mes){
+  // esc-mes é 0-based (Janeiro=0)
+  let d = new Date(ano, mes, 1);
+  while(d.getDay() !== 1) d.setDate(d.getDate()-1); // volta pra segunda-feira anterior (ou o próprio dia 1, se já for segunda)
+  const ultimoDia = new Date(ano, mes+1, 0);
+  const candidatas = [];
+  let guard = 0;
+  while(d <= ultimoDia && guard < 8){
+    const ini = new Date(d);
+    const fim = new Date(d); fim.setDate(fim.getDate()+5); // seg a sáb = 6 dias
+    candidatas.push({ini, fim});
+    d.setDate(d.getDate()+7);
+    guard++;
   }
+  return candidatas;
+}
 
-  document.getElementById('periodo-sem-ini').value = sugestao;
-
-  // Resetar botões de quantidade
-  document.querySelectorAll('[onclick^="selQtdSem"]').forEach(b=>{
-    b.style.background='white'; b.style.color='#888'; b.style.borderColor='#ddd';
-    b.textContent = b.textContent.replace(' ✓','');
-  });
-  const qtdAtual = parseInt(document.getElementById('periodo-sem-qtd')?.value||'4');
-  const btnAtual = document.querySelector(`[onclick="selQtdSem(${qtdAtual},this)"]`);
-  if(btnAtual){ btnAtual.style.background='#185FA5'; btnAtual.style.color='white'; btnAtual.style.borderColor='#185FA5'; btnAtual.textContent=qtdAtual+' ✓'; }
-
+window.abrirEditarPeriodoSemana = function(){
+  renderSemanasCandidatasNoModal();
   document.getElementById('modal-periodo-semana').style.display = 'flex';
-  // Preview imediato
-  atualizarPreviewSemanas(sugestao, qtdAtual);
 };
 
+// Desenha os cards com checkbox de cada semana candidata do mês selecionado na escala
+function renderSemanasCandidatasNoModal(){
+  const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const candidatas = gerarSemanasCandidatasMes(ano, mes);
+  const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+
+  // Se já existem semanas salvas para este mês, pré-marca exatamente essas; senão marca todas por padrão
+  const iniciosSalvos = Object.values(_periodoSemanaCustom||{}).map(p=>p.ini);
+  const temSalvas = iniciosSalvos.length > 0;
+
+  const el = document.getElementById('lista-semanas-candidatas');
+  if(!el) return;
+  el.innerHTML = candidatas.map(c=>{
+    const iniISO = c.ini.toISOString().slice(0,10);
+    const fimISO = c.fim.toISOString().slice(0,10);
+    const marcada = temSalvas ? iniciosSalvos.includes(iniISO) : true;
+    return `<label class="card-semana-cand" style="display:flex;align-items:center;gap:10px;background:${marcada?'#f0f6ff':'#f7f7f5'};border:1.5px solid ${marcada?'#185FA5':'#ddd'};border-radius:9px;padding:10px 12px;cursor:pointer">
+      <input type="checkbox" class="chk-semana-cand" data-ini="${iniISO}" data-fim="${fimISO}" ${marcada?'checked':''} onchange="_onToggleSemanaCand(this)" style="width:20px;height:20px;flex-shrink:0;accent-color:#185FA5">
+      <div style="flex:1">
+        <p class="num-semana-cand" style="font-size:13px;font-weight:700;margin:0;color:${marcada?'#185FA5':'#999'}">${marcada?'incluída':'não incluída'}</p>
+        <p style="font-size:12px;color:#555;margin:2px 0 0">${DIAS[c.ini.getDay()]} ${fmt(c.ini)} → ${DIAS[c.fim.getDay()]} ${fmt(c.fim)}</p>
+      </div>
+    </label>`;
+  }).join('');
+  atualizarNumeracaoSemanasCandidatas();
+}
+
+// Ao marcar/desmarcar uma semana candidata, atualiza visual e renumera
+window._onToggleSemanaCand = function(chk){
+  const card = chk.closest('label');
+  if(card){
+    card.style.background = chk.checked ? '#f0f6ff' : '#f7f7f5';
+    card.style.borderColor = chk.checked ? '#185FA5' : '#ddd';
+  }
+  atualizarNumeracaoSemanasCandidatas();
+};
+
+window.marcarTodasSemanasCandidatas = function(valor){
+  document.querySelectorAll('.chk-semana-cand').forEach(chk=>{
+    chk.checked = valor;
+    window._onToggleSemanaCand(chk);
+  });
+};
+
+// Renumera "1ª semana selecionada", "2ª semana selecionada"... na ordem cronológica dos marcados
+function atualizarNumeracaoSemanasCandidatas(){
+  let n = 0;
+  document.querySelectorAll('.chk-semana-cand').forEach(chk=>{
+    const label = chk.closest('label')?.querySelector('.num-semana-cand');
+    if(!label) return;
+    if(chk.checked){
+      n++;
+      label.textContent = `${n}ª semana selecionada`;
+      label.style.color = '#185FA5';
+    } else {
+      label.textContent = 'não incluída';
+      label.style.color = '#999';
+    }
+  });
+}
+
 window.confirmarPeriodoSemana = function(){
-  const iniStr = document.getElementById('periodo-sem-ini').value;
-  if(!iniStr){ toast('Informe a data de início da 1ª semana.','warn'); return; }
+  const marcados = Array.from(document.querySelectorAll('.chk-semana-cand')).filter(c=>c.checked);
+  if(!marcados.length){ toast('Marque ao menos uma semana para escalar.','warn'); return; }
+
+  // Garante ordem cronológica, mesmo que o DOM mude
+  marcados.sort((a,b)=> a.dataset.ini.localeCompare(b.dataset.ini));
 
   const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
   const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
   const fmtPeriodo = (ini, fim) => `${fmt(ini)} a ${fmt(fim)}`;
-
-  // Usa a quantidade escolhida pelo coordenador no modal
-  const totalSems = parseInt(document.getElementById('periodo-sem-qtd')?.value || '4');
   // esc-mes é 0-based (Julho=6); getMonth() também é 0-based — comparação direta
   const _mesSelecionado = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-  let cursor = new Date(iniStr + 'T12:00:00');
-  _periodoSemanaCustom = {}; // limpa customizações anteriores
 
-  for(let s = 1; s <= totalSems; s++){
-    const dIni = new Date(cursor);
-    const dFim = new Date(cursor);
-    dFim.setDate(dFim.getDate() + 5); // seg a sáb = 6 dias
+  _periodoSemanaCustom = {}; // limpa customizações anteriores
+  // limpa semanas numeradas antigas do SEMANAS_MES pra não deixar lixo de configuração anterior
+  Object.keys(SEMANAS_MES).forEach(k=>{ if(!isNaN(parseInt(k))) delete SEMANAS_MES[k]; });
+
+  marcados.forEach((chk, idx)=>{
+    const s = idx + 1; // renumera sequencialmente na ordem cronológica das semanas escolhidas
+    const dIni = new Date(chk.dataset.ini + 'T12:00:00');
+    const dFim = new Date(chk.dataset.fim + 'T12:00:00');
 
     const dias = [];
     let d = new Date(dIni);
@@ -3232,19 +3288,17 @@ window.confirmarPeriodoSemana = function(){
       d.setDate(d.getDate()+1);
     }
 
-    const iniISO = dIni.toISOString().slice(0,10);
-    const fimISO = dFim.toISOString().slice(0,10);
-    _periodoSemanaCustom[String(s)] = { ini: iniISO, fim: fimISO };
+    _periodoSemanaCustom[String(s)] = { ini: chk.dataset.ini, fim: chk.dataset.fim };
 
-    if(!SEMANAS_MES[String(s)]) SEMANAS_MES[String(s)] = {};
-    SEMANAS_MES[String(s)].label = `${s}ª semana`;
-    SEMANAS_MES[String(s)].periodo = fmtPeriodo(dIni, dFim);
-    SEMANAS_MES[String(s)].dias = dias;
-    SEMANAS_MES[String(s)].cruzaMeses = dIni.getMonth() !== dFim.getMonth();
+    SEMANAS_MES[String(s)] = {
+      label: `${s}ª semana`,
+      periodo: fmtPeriodo(dIni, dFim),
+      dias,
+      cruzaMeses: dIni.getMonth() !== dFim.getMonth()
+    };
+  });
 
-    // Próxima semana começa na segunda seguinte (pula o domingo)
-    cursor.setDate(cursor.getDate() + 7);
-  }
+  const totalSems = marcados.length;
 
   // Atualiza o select com os novos períodos
   const sel = document.getElementById('esc-sem');
@@ -3260,10 +3314,6 @@ window.confirmarPeriodoSemana = function(){
     sel.value = '1'; // volta para 1ª semana
   }
 
-  // Seleciona a 1ª semana e atualiza os cards
-  const selFirst = document.getElementById('esc-sem');
-  if(selFirst){ selFirst.value='1'; }
-
   // SALVA no localStorage (rápido, uso no próprio aparelho) E na nuvem (pra o link do responsável funcionar em qualquer celular)
   try{
     const mesKey = getMesAtual();
@@ -3276,47 +3326,8 @@ window.confirmarPeriodoSemana = function(){
   atualizarChipPeriodoSemana();
   atualizarCardsSemanas();
   renderEscala();
-  toast(`✓ ${totalSems} semanas definidas e salvas para ${getMesAtual()}!`);
+  toast(`✓ ${totalSems} semana(s) definida(s) e salva(s) para ${getMesAtual()}!`);
 };
-
-// ===== CARDS DE SEMANAS =====
-// Seleciona quantidade de semanas no modal
-window.selQtdSem = function(n, btn){
-  document.getElementById('periodo-sem-qtd').value = n;
-  document.querySelectorAll('[onclick^="selQtdSem"]').forEach(b=>{
-    b.style.background='white'; b.style.color='#888'; b.style.borderColor='#ddd';
-    b.textContent = b.textContent.replace(' ✓','');
-  });
-  btn.style.background='#185FA5'; btn.style.color='white'; btn.style.borderColor='#185FA5';
-  btn.textContent = n + ' ✓';
-  const ini = document.getElementById('periodo-sem-ini')?.value;
-  if(ini) atualizarPreviewSemanas(ini, n);
-};
-
-// Preview instantâneo das semanas — mostra cards com datas exatas
-function atualizarPreviewSemanas(iniStr, qtd){
-  const el = document.getElementById('preview-semanas-cards');
-  if(!el || !iniStr) return;
-  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-  const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-  let cursor = new Date(iniStr+'T12:00:00');
-  let html = '';
-  for(let s=1; s<=qtd; s++){
-    const ini = new Date(cursor);
-    const fim = new Date(cursor); fim.setDate(fim.getDate()+5);
-    html += `<div style="display:flex;align-items:center;gap:10px;background:#f0f6ff;border:1.5px solid #185FA5;border-radius:9px;padding:10px 12px">
-      <div style="width:28px;height:28px;border-radius:50%;background:#185FA5;color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0">${s}</div>
-      <div>
-        <p style="font-size:13px;font-weight:700;color:#185FA5;margin:0">${s}ª semana</p>
-        <p style="font-size:12px;color:#555;margin:2px 0 0">${DIAS[ini.getDay()]} ${fmt(ini)} → ${DIAS[fim.getDay()]} ${fmt(fim)}</p>
-      </div>
-    </div>`;
-    cursor.setDate(cursor.getDate()+7);
-  }
-  el.innerHTML = html;
-}
-
-// Preview já está no onchange do input — listener redundante removido
 
 // Carrega semanas persistidas no Firebase para o mês atual
 async function carregarSemanasSalvas(){
@@ -16364,26 +16375,19 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
 <!-- MODAL EDITAR PERÍODO DA SEMANA -->
 <div id="modal-periodo-semana" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-periodo-semana')">
   <div class="modal-box">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <p style="font-size:16px;font-weight:800;color:#185FA5;margin:0">📅 Semanas de serviço</p>
       <button onclick="fecharModal('modal-periodo-semana')" style="border:none;background:none;font-size:24px;cursor:pointer;color:#aaa;line-height:1">×</button>
     </div>
+    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Marque quais semanas do mês vão ter escala. Pode marcar só algumas (ex: apenas 2 semanas) e não precisam ser seguidas.</p>
 
-    <label style="font-size:12px;color:#555;font-weight:700;display:block;margin-bottom:6px">Início da 1ª semana</label>
-    <input type="date" id="periodo-sem-ini"
-      onchange="atualizarPreviewSemanas(this.value, parseInt(document.getElementById('periodo-sem-qtd').value||4))"
-      style="width:100%;padding:12px;border:2px solid #185FA5;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box;font-weight:700;color:#185FA5">
-
-    <label style="font-size:12px;color:#555;font-weight:700;display:block;margin-bottom:8px">Quantas semanas?</label>
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <button onclick="selQtdSem(3,this)" style="flex:1;padding:12px;border:2px solid #ddd;border-radius:10px;background:white;color:#888;font-size:16px;font-weight:800;cursor:pointer">3</button>
-      <button onclick="selQtdSem(4,this)" id="btn-sem-qtd-4" style="flex:1;padding:12px;border:2px solid #185FA5;border-radius:10px;background:#185FA5;color:white;font-size:16px;font-weight:800;cursor:pointer">4 ✓</button>
-      <button onclick="selQtdSem(5,this)" style="flex:1;padding:12px;border:2px solid #ddd;border-radius:10px;background:white;color:#888;font-size:16px;font-weight:800;cursor:pointer">5</button>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button onclick="marcarTodasSemanasCandidatas(true)" style="flex:1;padding:9px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:12px;font-weight:700;cursor:pointer">☑ Marcar todas</button>
+      <button onclick="marcarTodasSemanasCandidatas(false)" style="flex:1;padding:9px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#888;font-size:12px;font-weight:700;cursor:pointer">☐ Desmarcar todas</button>
     </div>
-    <input type="hidden" id="periodo-sem-qtd" value="4">
 
-    <!-- Preview instantâneo -->
-    <div id="preview-semanas-cards" style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px"></div>
+    <!-- Semanas candidatas do mês, cada uma com checkbox -->
+    <div id="lista-semanas-candidatas" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
 
     <button onclick="confirmarPeriodoSemana()"
       style="width:100%;padding:14px;border:none;border-radius:10px;background:#185FA5;color:white;font-size:15px;font-weight:800;cursor:pointer">
