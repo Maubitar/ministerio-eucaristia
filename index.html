@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.50.0';
+const APP_VERSAO = '20.51.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11535,7 +11535,9 @@ window.imprimirEscalaCirio = async function(){
     .datas{ font-weight:700; font-size:9px; color:#000; opacity:1; }
     .hora-col{ background:#f0faf5; font-weight:700; text-align:center; white-space:nowrap; color:#085041; }
     .lista-nomes{ display:flex; flex-wrap:wrap; }
-    .nome{ width:50%; box-sizing:border-box; padding:0.5px 4px 0.5px 0; }
+    .nome{ width:50%; box-sizing:border-box; padding:0.5px 4px 0.5px 6px; }
+    .nome:nth-child(odd){ padding-left:0; }
+    .nome:nth-child(even){ border-left:1.5px solid #185FA5; }
     .nome.resp{ font-weight:700; color:#a07d2a; }
     .vazio{ color:#ccc; text-align:center; }
     .sem-missa{ background:#f8d7da; }
@@ -11548,7 +11550,10 @@ window.imprimirEscalaCirio = async function(){
        ao meio e confundindo quem está lendo a escala impressa.
        BLINDAGEM (v20.50.0): enxuga margens/fontes/espaçamento e divide a lista de ministros de
        cada horário em 2 colunas dentro da célula — sem isso a escala saía em páginas demais,
-       difícil de manusear numa reunião. */
+       difícil de manusear numa reunião.
+       BLINDAGEM (v20.51.0): linha azul separando as 2 colunas de nomes — sem isso, ministros
+       mais idosos podiam confundir e ler um nome da coluna da esquerda "grudado" com um da
+       direita, achando que era um nome só. */
     thead{ display: table-header-group; } /* repete o cabeçalho (dias/datas) em toda página nova */
     tr{ page-break-inside: avoid; break-inside: avoid; } /* nunca corta um horário no meio */
     .cab-print{ page-break-after: avoid; break-after: avoid; }
