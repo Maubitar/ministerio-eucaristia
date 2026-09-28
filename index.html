@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.48.0';
+const APP_VERSAO = '20.49.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11542,6 +11542,12 @@ window.imprimirEscalaCirio = async function(){
     .cab-print img{ width:56px; height:56px; object-fit:contain; flex-shrink:0; }
     .cab-print .miolo{ flex:1; text-align:center; }
     .cab-print .mesce{ font-size:10px; color:#555; margin:0; text-transform:uppercase; font-weight:700; letter-spacing:1px; }
+    /* BLINDAGEM (v20.49.0): organiza a quebra de página na impressão — sem isso, um horário
+       de missa podia começar numa página e terminar na seguinte, cortando a lista de ministros
+       ao meio e confundindo quem está lendo a escala impressa. */
+    thead{ display: table-header-group; } /* repete o cabeçalho (dias/datas) em toda página nova */
+    tr{ page-break-inside: avoid; break-inside: avoid; } /* nunca corta um horário no meio */
+    .cab-print{ page-break-after: avoid; break-after: avoid; }
     @media print{ .no-print{ display:none; } }
   </style></head>
   <body>
@@ -11617,6 +11623,11 @@ window.imprimirEventos = async function(){
     .cab-print img{ width:56px; height:56px; object-fit:contain; flex-shrink:0; }
     .cab-print .miolo{ flex:1; text-align:center; }
     .cab-print .mesce{ font-size:10px; color:#555; margin:0; text-transform:uppercase; font-weight:700; letter-spacing:1px; }
+    /* BLINDAGEM (v20.49.0): organiza a quebra de página — repete o cabeçalho de cada evento em
+       toda página nova e nunca corta uma linha de nomes no meio entre duas páginas. */
+    thead{ display: table-header-group; }
+    tr{ page-break-inside: avoid; break-inside: avoid; }
+    .cab-print{ page-break-after: avoid; break-after: avoid; }
     @media print{ .no-print{ display:none; } }
   </style></head>
   <body>
