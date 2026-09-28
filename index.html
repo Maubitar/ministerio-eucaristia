@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.38.0';
+const APP_VERSAO = '20.40.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3123,6 +3123,18 @@ window.carregarDomingosCustom = function(){
 
 // ===== ABAS DOMINICAL / SEMANAL =====
 window.trocarAbaEscala = function(tipo){
+  // BLINDAGEM: se a aba Presença deixou o estado global de mês (MES_ATUAL_DIN/SEMANAS_MES/
+  // _periodoSemanaCustom) apontando pra um mês DIFERENTE do que está selecionado aqui nos
+  // campos esc-mes/esc-ano, resincroniza tudo antes de continuar — sem isso, reforços e
+  // semanas podiam ser lidos/gravados usando o período de OUTRO mês por trás dos panos,
+  // mesmo com a tela mostrando o mês certo. Só mexe em algo quando realmente há
+  // divergência, pra não perder a semana selecionada à toa em uso normal.
+  try{
+    if(typeof getMesAtualEscala==='function' && typeof getMesAtual==='function'
+       && getMesAtualEscala() !== getMesAtual() && typeof _resincronizarEstadoComEscala==='function'){
+      _resincronizarEstadoComEscala();
+    }
+  }catch(e){}
   const escTipo = document.getElementById('esc-tipo');
   if(escTipo) escTipo.value = tipo;
 
@@ -3550,25 +3562,47 @@ window.semanaProxima = function(){
   }
 };
 
-window.trocarMes = function(){
+// BLINDAGEM CRÍTICA: re-sincroniza TODO o estado global de mês/semanas (CAL, SEMANAS_MES,
+// _periodoSemanaCustom, MES_ATUAL_DIN) com o que está selecionado nos campos esc-mes/esc-ano
+// da aba Escala. Isso é necessário porque a aba Presença usa essas MESMAS variáveis globais
+// (trocarMesPresenca) — se o coordenador dá uma olhada na Presença de outro mês e depois volta
+// pra Escala sem trocar o seletor de mês (que continua mostrando, por ex., outubro), o estado
+// global fica "preso" no mês que a Presença deixou. Isso causava reforços de missas especiais
+// sendo salvos/apagados na semana errada (a semana "2" passava a apontar pro período do OUTRO
+// mês). Chamar isto sempre que se reentra na aba Escala corrige o estado antes de qualquer
+// leitura ou gravação de reforço/escala.
+function _resincronizarEstadoComEscala(){
   if(_domingosCustom){
     _domingosCustom = null;
   }
-  // Ao trocar de mês, zera memória local e carrega do localStorage
   _periodoSemanaCustom = {};
   Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
   carregarNumSemanas();
   recalcularComSemanas();
-  // BLINDAGEM: restaura domingos manuais salvos para este mês (se houver) — sobrepõe o cálculo automático
   carregarDomingosCustom();
-  // Carrega semanas do novo mês (se já foram definidas antes)
   carregarSemanasLocais();
+}
+
+window.trocarMes = function(){
+  _resincronizarEstadoComEscala();
   // Reset o select para semana 1 ao trocar de mês
   const selSem = document.getElementById('esc-sem');
   if(selSem && selSem.options.length > 0) selSem.value = selSem.options[0].value;
   if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
 };
 window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
+// BLINDAGEM: getMesAtual() usa window.MES_ATUAL_DIN, uma variável GLOBAL que também é
+// sobrescrita por trocarMesPresenca() (aba Presença). Isso causava o Radar de Escalação
+// mostrar o mês errado: se o coordenador desse uma olhada na Presença de setembro, o
+// MES_ATUAL_DIN global virava "set2026" e o Radar (que roda dentro da aba Escala) passava
+// a mostrar setembro mesmo com a Escala configurada e visível em outubro. Esta função lê
+// direto dos seletores da própria aba Escala (esc-mes/esc-ano), sem depender da variável
+// global compartilhada com a Presença.
+window.getMesAtualEscala = function(){
+  const m = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const a = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  return `${MESES_KEY[m]}${a}`;
+};
 // BLINDAGEM: carrega a escolha de nº de semanas salva pelo usuário (4 ou 5)
 window.carregarNumSemanas = function(){
   try{
@@ -8231,7 +8265,7 @@ function _diasSemEscalar(m){
 }
 
 async function calcularDisponibilidadeEscala(){
-  const mesKey = getMesAtual();
+  const mesKey = getMesAtualEscala();
   const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
   const semanasKeys = Object.keys(SEMANAS_MES);
   const docsSem = {};
@@ -8364,12 +8398,28 @@ function montarPainelRadarCompleto(dados){
   const ativos = ministros.filter(m=>m.ativo!==false);
 
   const naoEscalados = [];
-  let escaladosEsteMes = 0;
+  const escalados = [];
   ativos.forEach(m=>{
     const s = _statusMinistroNoMes(m);
-    if(s.escaladoEmAlgo) escaladosEsteMes++;
+    if(s.escaladoEmAlgo) escalados.push({ m, s });
     else naoEscalados.push({ m, s });
   });
+  const escaladosEsteMes = escalados.length;
+  escalados.sort((a,b)=>a.m.nome.localeCompare(b.m.nome,'pt-BR'));
+
+  // Detalhe de ONDE cada escalado foi escalado (missa dominical, semanal, Círio ou evento) —
+  // fica escondido atrás de um "ver detalhes" pra não poluir a tela por padrão.
+  const escaladosLinhas = escalados.map(({m,s})=>{
+    const onde = [];
+    if(s.escaladoDom.length) onde.push(`⛪ Dominical: ${s.escaladoDom.join(', ')}`);
+    if(s.escaladoSem.length) onde.push(`⛪ Semanal: ${s.escaladoSem.join(', ')}`);
+    if(s.escaladoCirio.length) onde.push(`🕯️ Círio: ${s.escaladoCirio.join(', ')}`);
+    if(s.escaladoEventos.length) onde.push(`🎉 Eventos: ${s.escaladoEventos.join(', ')}`);
+    return `<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">
+      <p style="font-size:12px;font-weight:700;color:#222;margin:0">${m.nome}</p>
+      <p style="font-size:11px;color:#888;margin:2px 0 0">${onde.join(' · ') || '—'}</p>
+    </div>`;
+  }).join('');
 
   // Prioridade automática: quem está há MAIS tempo sem ser escalado aparece primeiro —
   // é exatamente quem mais precisa de atenção agora.
@@ -8411,6 +8461,10 @@ function montarPainelRadarCompleto(dados){
         <p style="font-size:10px;color:#555;margin:2px 0 0;line-height:1.3">total de<br>ministros</p>
       </div>
     </div>
+    ${escalados.length ? `<details style="margin:0 0 14px;background:#f7fbf9;border:1px solid #dcece5;border-radius:9px;padding:9px 11px">
+      <summary style="cursor:pointer;font-size:11.5px;font-weight:700;color:#085041">Ver onde cada um dos ${escalados.length} escalados foi escalado</summary>
+      <div style="margin-top:8px;max-height:280px;overflow-y:auto">${escaladosLinhas}</div>
+    </details>` : ''}
     <p style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.4px;margin:0 0 8px">Quem falta escalar em ${mesLegivel} — mais urgente primeiro</p>
     ${linhas || '<p style="font-size:13px;color:#1D9E75;font-weight:600;padding:10px 0">✓ Todos os ministros ativos já foram escalados em algo este mês!</p>'}
   `;
@@ -8429,7 +8483,7 @@ window.buscarStatusMinistroEscala = function(valor){
   if(!m){ cont.innerHTML = '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum ministro encontrado.</p>'; return; }
 
   const s = _statusMinistroNoMes(m);
-  const mesLegivel = finMesKeyLegivel(_dispEscalaCache?.mesKey || getMesAtual());
+  const mesLegivel = finMesKeyLegivel(_dispEscalaCache?.mesKey || getMesAtualEscala());
   const listaEscalado = [];
   if(s.escaladoDom.length) listaEscalado.push(`⛪ Missa Dominical: ${s.escaladoDom.join(', ')}`);
   if(s.escaladoSem.length) listaEscalado.push(`⛪ Missa Semanal: ${s.escaladoSem.join(', ')}`);
