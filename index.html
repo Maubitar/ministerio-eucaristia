@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.45.0';
+const APP_VERSAO = '20.46.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11504,14 +11504,25 @@ window.imprimirEscalaCirio = async function(){
     .nome.resp{ font-weight:700; color:#a07d2a; }
     .vazio{ color:#ccc; text-align:center; }
     .sem-missa{ background:#f8d7da; }
+    .cab-print{ display:flex; align-items:center; gap:14px; border-bottom:3px solid #085041; padding-bottom:10px; margin-bottom:14px; }
+    .cab-print img{ width:56px; height:56px; object-fit:contain; flex-shrink:0; }
+    .cab-print .miolo{ flex:1; text-align:center; }
+    .cab-print .mesce{ font-size:10px; color:#555; margin:0; text-transform:uppercase; font-weight:700; letter-spacing:1px; }
     @media print{ .no-print{ display:none; } }
   </style></head>
   <body>
     <div class="no-print" style="text-align:center;margin-bottom:14px">
       <button onclick="window.print()" style="padding:10px 24px;font-size:14px;font-weight:700;background:#085041;color:white;border:none;border-radius:8px;cursor:pointer">🖨️ Imprimir</button>
     </div>
-    <h1>ESCALA QUINZENA DO CÍRIO${cfg.ano?' '+cfg.ano:''}</h1>
-    <h2>Ministério Extraordinário da Sagrada Comunhão Eucarística — Basílica Santuário de Nossa Senhora de Nazaré</h2>
+    <div class="cab-print">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="miolo">
+        <p class="mesce">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+        <h1 style="margin:3px 0">ESCALA QUINZENA DO CÍRIO${cfg.ano?' '+cfg.ano:''}</h1>
+        <h2 style="margin:0">Basílica Santuário de Nossa Senhora de Nazaré — Belém/PA</h2>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
     <table>
       <thead><tr><th></th>${colunasHtml}</tr></thead>
       <tbody>${linhasHtml}</tbody>
@@ -11568,14 +11579,25 @@ window.imprimirEventos = async function(){
     th .nome-evt{ font-size:10.5px; font-weight:800; margin-top:2px; }
     td.resp{ font-weight:700; color:#a07d2a; }
     td:nth-child(odd){ background:#fafafa; }
+    .cab-print{ display:flex; align-items:center; gap:14px; border-bottom:3px solid #085041; padding-bottom:10px; margin-bottom:14px; }
+    .cab-print img{ width:56px; height:56px; object-fit:contain; flex-shrink:0; }
+    .cab-print .miolo{ flex:1; text-align:center; }
+    .cab-print .mesce{ font-size:10px; color:#555; margin:0; text-transform:uppercase; font-weight:700; letter-spacing:1px; }
     @media print{ .no-print{ display:none; } }
   </style></head>
   <body>
     <div class="no-print" style="text-align:center;margin-bottom:12px">
       <button onclick="window.print()" style="padding:10px 24px;font-size:14px;font-weight:700;background:#085041;color:white;border:none;border-radius:8px;cursor:pointer">🖨️ Imprimir</button>
     </div>
-    <h1>ESCALA EVENTOS ESPECIAIS</h1>
-    <h2>Ministério Extraordinário da Sagrada Comunhão Eucarística — Basílica Santuário de Nossa Senhora de Nazaré</h2>
+    <div class="cab-print">
+      <img src="${APP_URL}/${LOGO_BASILICA}" onerror="this.style.display='none'">
+      <div class="miolo">
+        <p class="mesce">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+        <h1 style="margin:3px 0">ESCALA EVENTOS ESPECIAIS</h1>
+        <h2 style="margin:0">Basílica Santuário de Nossa Senhora de Nazaré — Belém/PA</h2>
+      </div>
+      <img src="${APP_URL}/${LOGO_MESCE}" onerror="this.style.display='none'">
+    </div>
     <table>
       <thead><tr>${colunasHtml}</tr></thead>
       <tbody>${linhasHtml}</tbody>
