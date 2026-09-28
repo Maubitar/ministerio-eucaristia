@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.49.0';
+const APP_VERSAO = '20.50.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11514,7 +11514,7 @@ window.imprimirEscalaCirio = async function(){
       const nomes = dadosHora.ministros || [];
       const resp = dadosHora.responsavel || '';
       const listaHtml = nomes.length
-        ? nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★':''}</div>`).join('')
+        ? `<div class="lista-nomes">${nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★':''}</div>`).join('')}</div>`
         : '<div class="vazio">—</div>';
       return `<td>${listaHtml}</td>`;
     }).join('');
@@ -11525,26 +11525,30 @@ window.imprimirEscalaCirio = async function(){
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Escala Círio — Impressão</title>
   <style>
-    @page{ size: A4 landscape; margin: 10mm; }
-    body{ font-family: Arial, sans-serif; margin:0; padding:16px; color:#222; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    h1{ text-align:center; font-size:16px; margin:0 0 2px; color:#085041; }
-    h2{ text-align:center; font-size:12px; margin:0 0 14px; color:#666; font-weight:normal; }
+    @page{ size: A4 landscape; margin: 7mm; }
+    body{ font-family: Arial, sans-serif; margin:0; padding:8px; color:#222; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    h1{ text-align:center; font-size:14px; margin:0 0 1px; color:#085041; }
+    h2{ text-align:center; font-size:10px; margin:0; color:#666; font-weight:normal; }
     table{ width:100%; border-collapse:collapse; }
-    th, td{ border:1px solid #ccc; vertical-align:top; padding:6px 8px; font-size:11px; line-height:1.45; }
-    th{ background:#f0faf5; color:#000; font-size:13px; font-weight:800; text-align:center; border:1.5px solid #085041; }
-    .datas{ font-weight:700; font-size:10px; color:#000; opacity:1; }
+    th, td{ border:1px solid #ccc; vertical-align:top; padding:3px 5px; font-size:9.5px; line-height:1.25; }
+    th{ background:#f0faf5; color:#000; font-size:11px; font-weight:800; text-align:center; padding:4px 5px; border:1.5px solid #085041; }
+    .datas{ font-weight:700; font-size:9px; color:#000; opacity:1; }
     .hora-col{ background:#f0faf5; font-weight:700; text-align:center; white-space:nowrap; color:#085041; }
-    .nome{ padding:2.5px 0; }
+    .lista-nomes{ display:flex; flex-wrap:wrap; }
+    .nome{ width:50%; box-sizing:border-box; padding:0.5px 4px 0.5px 0; }
     .nome.resp{ font-weight:700; color:#a07d2a; }
     .vazio{ color:#ccc; text-align:center; }
     .sem-missa{ background:#f8d7da; }
-    .cab-print{ display:flex; align-items:center; gap:14px; border-bottom:3px solid #085041; padding-bottom:10px; margin-bottom:14px; }
-    .cab-print img{ width:56px; height:56px; object-fit:contain; flex-shrink:0; }
+    .cab-print{ display:flex; align-items:center; gap:8px; border-bottom:2px solid #085041; padding-bottom:4px; margin-bottom:6px; }
+    .cab-print img{ width:38px; height:38px; object-fit:contain; flex-shrink:0; }
     .cab-print .miolo{ flex:1; text-align:center; }
-    .cab-print .mesce{ font-size:10px; color:#555; margin:0; text-transform:uppercase; font-weight:700; letter-spacing:1px; }
+    .cab-print .mesce{ font-size:8.5px; color:#555; margin:0; text-transform:uppercase; font-weight:700; letter-spacing:0.5px; }
     /* BLINDAGEM (v20.49.0): organiza a quebra de página na impressão — sem isso, um horário
        de missa podia começar numa página e terminar na seguinte, cortando a lista de ministros
-       ao meio e confundindo quem está lendo a escala impressa. */
+       ao meio e confundindo quem está lendo a escala impressa.
+       BLINDAGEM (v20.50.0): enxuga margens/fontes/espaçamento e divide a lista de ministros de
+       cada horário em 2 colunas dentro da célula — sem isso a escala saía em páginas demais,
+       difícil de manusear numa reunião. */
     thead{ display: table-header-group; } /* repete o cabeçalho (dias/datas) em toda página nova */
     tr{ page-break-inside: avoid; break-inside: avoid; } /* nunca corta um horário no meio */
     .cab-print{ page-break-after: avoid; break-after: avoid; }
