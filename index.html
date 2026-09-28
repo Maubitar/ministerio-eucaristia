@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.42.0';
+const APP_VERSAO = '20.43.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5887,28 +5887,27 @@ window.mostrarOndeServeUm = async function(nome){
   if(!cont) return;
   cont.innerHTML = '<p style="font-size:12px;color:#888;padding:8px 0 0">Procurando...</p>';
   try{
-    const mesKey = getMesAtual();
-    const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
-    const semanasKeys = Object.keys(SEMANAS_MES);
-    const achadosDom = MISSAS_DOM.filter(hora => (docDom?.[hora]?.ministros||[]).includes(nome));
-    const achadosSem = [];
-    for(const s of semanasKeys){
-      const docSem = await _lerEscalaDocRaw(`escala_sem_sem${s}_${mesKey}`);
-      MISSAS_SEM.forEach(hora=>{
-        if((docSem?.[hora]?.ministros||[]).includes(nome)){
-          achadosSem.push(`${SEMANAS_MES[s]?.label || (s+'ª semana')} ${hora}`);
-        }
-      });
-    }
-    if(!achadosDom.length && !achadosSem.length){
+    const m = ministros.find(x=>x.nome===nome);
+    if(!m){ cont.innerHTML = '<p style="font-size:12px;color:#888;padding:8px 0 0">Ministro não encontrado.</p>'; return; }
+    // BLINDAGEM: reaproveita a mesma varredura completa do Radar de Escalação — cobre missa
+    // dominical, semanal, Círio, Eventos Especiais E reforços (recorrentes e de datas
+    // especiais). Antes esta busca só olhava a escala dominical/semanal "normal", e por isso
+    // sumia quem serve só como reforço, no Círio ou em eventos (ex: o coordenador, que reforça
+    // várias missas especiais sem estar escalado normalmente nelas).
+    await calcularDisponibilidadeEscala();
+    const s = _statusMinistroNoMes(m);
+    const partes = [];
+    if(s.escaladoDom.length) partes.push(`⛪ Dominical: ${s.escaladoDom.join(', ')}`);
+    if(s.escaladoSem.length) partes.push(`📆 Semanal: ${s.escaladoSem.join(', ')}`);
+    if(s.escaladoCirio.length) partes.push(`🕯️ Círio: ${s.escaladoCirio.join(', ')}`);
+    if(s.escaladoEventos.length) partes.push(`🎉 Eventos: ${s.escaladoEventos.join(', ')}`);
+    if(s.escaladoReforco.length) partes.push(`⭐ ${s.escaladoReforco.join(', ')}`);
+    if(!partes.length){
       cont.innerHTML = `<div style="background:#FBEAEA;border:1px solid #E9A8A8;border-radius:8px;padding:10px 12px;margin-top:8px">
-        <p style="margin:0;font-size:13px;color:#A32D2D"><strong>${nome}</strong> não está escalado(a) em nenhuma missa este mês.</p>
+        <p style="margin:0;font-size:13px;color:#A32D2D"><strong>${nome}</strong> não está escalado(a) em nada este mês (missa, Círio, evento ou reforço).</p>
       </div>`;
       return;
     }
-    const partes = [];
-    if(achadosDom.length) partes.push(`⛪ Dominical: ${achadosDom.join(', ')}`);
-    if(achadosSem.length) partes.push(`📆 Semanal: ${achadosSem.join(' · ')}`);
     cont.innerHTML = `<div style="background:#eef7f2;border:1px solid #cde8d8;border-radius:8px;padding:10px 12px;margin-top:8px">
       <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#085041">${nome}</p>
       <p style="margin:0;font-size:12.5px;color:#1D9E75">${partes.join(' · ')}</p>
@@ -8424,7 +8423,27 @@ async function calcularDisponibilidadeEscala(){
   let eventosCarregados = [];
   try{ await carregarEventos(); eventosCarregados = _eventos||[]; }catch(e){}
 
-  _dispEscalaCache = { mesKey, docDom, semanasKeys, docsSem, cirioCfg, docsColunas, eventosCarregados };
+  // Reforços: recorrentes (Sábado 12h/17h, Quinta 18h) + os de datas especiais cadastrados
+  // (⭐ Reforços de datas especiais) — sem isso, um ministro que só serve como reforço
+  // aparecia como "não escalado em nada" tanto no Radar quanto na busca "Onde está servindo".
+  const reforcoTipos = [
+    {id:'sab12', label:'Reforço — Missa Sábado 12h'},
+    {id:'qui18', label:'Reforço — Missa Quinta 18h'},
+    {id:'sab17', label:'Reforço — Missa Sábado 17h'},
+  ];
+  try{
+    const listaReforcosEsp = await carregarReforcosEspeciais(mesKey);
+    listaReforcosEsp.forEach(item=>{
+      if(item?.id) reforcoTipos.push({ id:item.id, label:`Reforço — ${item.label||'Missa especial'} (${isoParaDDMM(item.data)})` });
+    });
+  }catch(e){}
+  const docsReforco = {};
+  for(const rt of reforcoTipos){
+    try{ const d = await getDoc(doc(db,'reforcos',`reforco_${rt.id}_${mesKey}`)); docsReforco[rt.id] = d.exists()?d.data():{ministros:[]}; }
+    catch(e){ docsReforco[rt.id] = {ministros:[]}; }
+  }
+
+  _dispEscalaCache = { mesKey, docDom, semanasKeys, docsSem, cirioCfg, docsColunas, eventosCarregados, reforcoTipos, docsReforco };
 
   const ativos = ministros.filter(m=>m.ativo!==false);
   const alertaFinal = [];
@@ -8442,7 +8461,7 @@ async function calcularDisponibilidadeEscala(){
 // mas não foi usado) — reaproveitado pelo radar geral e pela busca individual.
 function _statusMinistroNoMes(m){
   const c = _dispEscalaCache;
-  const escaladoDom = [], escaladoSem = [], escaladoCirio = [], escaladoEventos = [];
+  const escaladoDom = [], escaladoSem = [], escaladoCirio = [], escaladoEventos = [], escaladoReforco = [];
   if(c){
     MISSAS_DOM.forEach(hora=>{ if((c.docDom?.[hora]?.ministros||[]).includes(m.nome)) escaladoDom.push(hora); });
     MISSAS_SEM.forEach(hora=>{
@@ -8456,8 +8475,11 @@ function _statusMinistroNoMes(m){
       });
     }
     (c.eventosCarregados||[]).forEach(e=>{ if((e.escala||[]).includes(m.nome)) escaladoEventos.push(e.nome); });
+    (c.reforcoTipos||[]).forEach(rt=>{
+      if((c.docsReforco?.[rt.id]?.ministros||[]).includes(m.nome)) escaladoReforco.push(rt.label);
+    });
   }
-  const escaladoEmAlgo = !!(escaladoDom.length || escaladoSem.length || escaladoCirio.length || escaladoEventos.length);
+  const escaladoEmAlgo = !!(escaladoDom.length || escaladoSem.length || escaladoCirio.length || escaladoEventos.length || escaladoReforco.length);
 
   const partesDisp = [];
   if((m.dispDom||[]).length) partesDisp.push(`Dominical: ${m.dispDom.join(', ')}`);
@@ -8466,7 +8488,7 @@ function _statusMinistroNoMes(m){
   if(temCirio) partesDisp.push('Quinzena do Círio');
   if((m.dispCirioEventos||[]).length) partesDisp.push('Eventos especiais');
 
-  return { escaladoDom, escaladoSem, escaladoCirio, escaladoEventos, escaladoEmAlgo, temDisponibilidade: partesDisp.length>0, partesDisp };
+  return { escaladoDom, escaladoSem, escaladoCirio, escaladoEventos, escaladoReforco, escaladoEmAlgo, temDisponibilidade: partesDisp.length>0, partesDisp };
 }
 
 // Monta o HTML do relatório — reaproveitado tanto na aba de Relatórios quanto no modal da Escala
@@ -8555,6 +8577,7 @@ function montarPainelRadarCompleto(dados){
     if(s.escaladoSem.length) onde.push(`⛪ Semanal: ${s.escaladoSem.join(', ')}`);
     if(s.escaladoCirio.length) onde.push(`🕯️ Círio: ${s.escaladoCirio.join(', ')}`);
     if(s.escaladoEventos.length) onde.push(`🎉 Eventos: ${s.escaladoEventos.join(', ')}`);
+    if(s.escaladoReforco.length) onde.push(`⭐ ${s.escaladoReforco.join(', ')}`);
     return `<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">
       <p style="font-size:12px;font-weight:700;color:#222;margin:0">${m.nome}</p>
       <p style="font-size:11px;color:#888;margin:2px 0 0">${onde.join(' · ') || '—'}</p>
@@ -8629,6 +8652,7 @@ window.buscarStatusMinistroEscala = function(valor){
   if(s.escaladoSem.length) listaEscalado.push(`⛪ Missa Semanal: ${s.escaladoSem.join(', ')}`);
   if(s.escaladoCirio.length) listaEscalado.push(`🕯️ Quinzena do Círio: ${s.escaladoCirio.join(', ')}`);
   if(s.escaladoEventos.length) listaEscalado.push(`🎉 Eventos: ${s.escaladoEventos.join(', ')}`);
+  if(s.escaladoReforco.length) listaEscalado.push(`⭐ ${s.escaladoReforco.join(', ')}`);
 
   cont.innerHTML = `
     <div style="background:white;border:1px solid #eee;border-radius:10px;padding:12px;margin-top:8px">
