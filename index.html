@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.34.0';
+const APP_VERSAO = '20.36.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3809,10 +3809,12 @@ window.renderEscala = async function(){
     '12:00h': [{id:'sab12', label:'Missa Sábado 12h'}],
     '18:00h': [{id:'qui18', label:'Missa Quinta 18h'}, {id:'sab17', label:'Missa Sábado 17h'}]
   };
-  // Missas especiais da Quinzena do Círio (datas fixas, só aparecem no mês/ano delas)
+  // Missas especiais da Quinzena do Círio (datas fixas) — só aparece na semana que
+  // realmente contém aquele dia, pra sumir sozinho depois que a semana passar
   if(mesAtualNum===9 && anoAtualNum===2026){
-    reforcosDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
-    reforcosDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
+    const diasDaSemanaAtual = (semInfo?.dias||[]).map(d=>d.data);
+    if(diasDaSemanaAtual.includes('09/10')) reforcosDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
+    if(diasDaSemanaAtual.includes('10/10')) reforcosDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
   }
 
   document.getElementById('esc-body').innerHTML = horasRender.map(hora=>{
@@ -3903,8 +3905,10 @@ window.renderEscala = async function(){
 function renderReforcoNoQuadrante(hora, refArray){
   if(!refArray || !refArray.length) return '';
   const mesKey = getMesAtual();
+  // Reforços de data fixa (missas especiais avulsas) — id sempre começa com "esp".
+  // Esses NÃO se repetem toda semana, ao contrário do sab12/qui18/sab17.
+  const ehDataFixa = id => id.startsWith('esp');
 
-  let temAlgum = false;
   let blocos = refArray.map(refInfo=>{
     const key = `reforco_${refInfo.id}_${mesKey}`;
     if(!reforcos[key]){
@@ -3915,7 +3919,6 @@ function renderReforcoNoQuadrante(hora, refArray){
       reforcos[key] = {ministros:[], responsavel:''};
     }
     const lista = reforcos[key].ministros || [];
-    if(lista.length) temAlgum = true;
 
     const linhas = lista.map((m,ri)=>{
       const min = buscarMinistroPorNome(m);
@@ -3933,7 +3936,11 @@ function renderReforcoNoQuadrante(hora, refArray){
 
     const acId = `acrefq-${refInfo.id}`;
     const inpId = `inprefq-${refInfo.id}`;
-    return `${linhas}
+    // Aviso específico deste tipo de reforço (data fixa avulsa vs. recorrente toda semana)
+    const avisoTipo = ehDataFixa(refInfo.id)
+      ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Só para esta missa especial (${refInfo.label}) — não se repete nas demais semanas</p>`
+      : (lista.length ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço de ${refInfo.label} — vale toda semana do mês</p>` : '');
+    return `${avisoTipo}${linhas}
       <div style="position:relative">
         <input type="text" id="${inpId}" placeholder="⭐ + Adicionar reforço (${refInfo.label})..."
           autocomplete="off"
@@ -3943,8 +3950,7 @@ function renderReforcoNoQuadrante(hora, refArray){
       </div>`;
   }).join('');
 
-  const aviso = temAlgum ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço vale para todas as semanas do mês</p>` : '';
-  return `<div style="margin-top:6px">${aviso}${blocos}</div>`;
+  return `<div style="margin-top:6px">${blocos}</div>`;
 }
 
 window.acReforcoQuad = function(inp, acId, key, tipoRef){
@@ -4299,7 +4305,7 @@ window.verDisponiveis = function(key, hora, dispKey){
   const tipo = dispKey==='dispDom'?'Dominical':'Semanal';
   const jaEscalados = new Set((escalas[key]?.[hora]?.ministros)||[]);
   document.getElementById('vd-titulo').textContent = `${tipo} — ${hora}`;
-  document.getElementById('vd-count').textContent = `${disponiveis.length} disponíveis`;
+  document.getElementById('vd-count').innerHTML = `${disponiveis.length} disponíveis · <span id="vd-count-escalados" style="font-weight:800">${jaEscalados.size}</span> já escalado(s) neste horário`;
   document.getElementById('vd-body').innerHTML = disponiveis.length
     ? disponiveis.map((m,i)=>{
         const jaEsc = jaEscalados.has(m.nome);
@@ -4328,6 +4334,8 @@ window.addMinDoModal = function(key, hora, nome, btn){
   btn.style.background = '#e1f5ee';
   btn.style.color = '#085041';
   btn.style.cursor = 'default';
+  const contEl = document.getElementById('vd-count-escalados');
+  if(contEl) contEl.textContent = String(parseInt(contEl.textContent||'0',10)+1);
   toast(nome.split(' ')[0]+' adicionado à escala!');
 };
 
@@ -5216,6 +5224,13 @@ async function buscarEscalaDoDia(info){
   const reforcosDoDia = {};
   if(info.diaSemana === 'Quinta'){ reforcosDoDia['18:00h'] = ['qui18']; }
   if(info.diaSemana === 'Sábado'){ reforcosDoDia['12:00h'] = ['sab12']; reforcosDoDia['18:00h'] = ['sab17']; }
+  // Missas especiais da Quinzena do Círio — datas fixas, só entram na presença do dia exato
+  if(mesAtualKey === 'out2026' && info.data === '09/10'){
+    reforcosDoDia['07:00h'] = [...(reforcosDoDia['07:00h']||[]), 'esp0910_0700'];
+  }
+  if(mesAtualKey === 'out2026' && info.data === '10/10'){
+    reforcosDoDia['09:00h'] = [...(reforcosDoDia['09:00h']||[]), 'esp1010_0900'];
+  }
 
   for(const [hora, tiposRef] of Object.entries(reforcosDoDia)){
     for(const tipoRef of tiposRef){
@@ -5781,6 +5796,9 @@ window.finalizarEscalaSemanal = async function(){
     const reforcoQui18 = await lerReforco('qui18');
     const reforcoSab12 = await lerReforco('sab12');
     const reforcoSab17 = await lerReforco('sab17');
+    // Missas especiais da Quinzena do Círio (datas fixas, só existem em out2026)
+    const reforcoEsp0910 = mesKey==='out2026' ? await lerReforco('esp0910_0700') : [];
+    const reforcoEsp1010 = mesKey==='out2026' ? await lerReforco('esp1010_0900') : [];
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
     // Cada nome guarda o rótulo exato do reforço (pra mostrar "REFORÇO Missa Quinta 18h" etc — igual à tela de montar escala)
     const reforcosPorHora = {
@@ -5797,8 +5815,18 @@ window.finalizarEscalaSemanal = async function(){
       // Cópia local — nunca mexe no cache da escala ao vivo (evita corromper a tela de edição)
       const esc = {};
       Object.keys(escOriginal).forEach(h=>{ esc[h] = { ...escOriginal[h], ministros: [...(escOriginal[h].ministros||[])] }; });
+      // Reforços que valem só para ESTA semana (missas especiais de data fixa) — só entra
+      // na semana que realmente contém aquele dia, nunca nas semanas seguintes
+      const diasDestaSemana = (info?.dias||[]).map(d=>d.data);
+      const reforcosPorHoraSemana = { ...reforcosPorHora };
+      if(diasDestaSemana.includes('09/10') && reforcoEsp0910.length){
+        reforcosPorHoraSemana['07:00h'] = [...(reforcosPorHoraSemana['07:00h']||[]), ...reforcoEsp0910.map(n=>({nome:n, label:'Missa Especial 09/10 07h'}))];
+      }
+      if(diasDestaSemana.includes('10/10') && reforcoEsp1010.length){
+        reforcosPorHoraSemana['09:00h'] = [...(reforcosPorHoraSemana['09:00h']||[]), ...reforcoEsp1010.map(n=>({nome:n, label:'Missa Especial 10/10 09h'}))];
+      }
       const mapaReforcoPorHora = {};
-      Object.entries(reforcosPorHora).forEach(([hora, itensReforco])=>{
+      Object.entries(reforcosPorHoraSemana).forEach(([hora, itensReforco])=>{
         if(!itensReforco.length) return;
         if(!esc[hora]) esc[hora] = {ministros:[], responsavel:''};
         const mapa = new Map();
@@ -10998,7 +11026,7 @@ window.verDisponiveisCirio = function(colId, hora){
   const dados = window._cirioEscalaDados[hora] || {ministros:[]};
   const jaEscalados = new Set(dados.ministros||[]);
   document.getElementById('vd-titulo').textContent = `${coluna?.label||''} — ${hora}`;
-  document.getElementById('vd-count').textContent = `${disponiveis.length} disponíveis`;
+  document.getElementById('vd-count').innerHTML = `${disponiveis.length} disponíveis · <span id="vd-count-escalados" style="font-weight:800">${jaEscalados.size}</span> já escalado(s) neste horário`;
   document.getElementById('vd-body').innerHTML = disponiveis.length
     ? disponiveis.map(m=>{
         const jaEsc = jaEscalados.has(m.nome);
@@ -11033,6 +11061,8 @@ window.cirioAddMinDoModal = function(colId, hora, nome, btn){
     btn.style.color = '#085041';
     btn.style.cursor = 'default';
   }
+  const contEl = document.getElementById('vd-count-escalados');
+  if(contEl) contEl.textContent = String(parseInt(contEl.textContent||'0',10)+1);
   toast(nome.split(' ')[0]+' adicionado à escala!');
 };
 
@@ -12396,6 +12426,13 @@ async function gerarImagemTodasSemanas(){
       '12:00h':[{id:'sab12',label:'Missa Sábado 12h'}],
       '18:00h':[{id:'qui18',label:'Missa Quinta 18h'},{id:'sab17',label:'Missa Sábado 17h'}]
     };
+    // Missas especiais da Quinzena do Círio (datas fixas) — só entram na semana que
+    // realmente contém aquele dia, pra não ficar aparecendo nas semanas seguintes depois que passou
+    if(mesKey === 'out2026'){
+      const diasDaSemana = (info?.dias||[]).map(d=>d.data);
+      if(diasDaSemana.includes('09/10')) refDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
+      if(diasDaSemana.includes('10/10')) refDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
+    }
 
     let horasCards = [];
     for(const h of MISSAS_SEM){
@@ -13281,7 +13318,7 @@ window.verDisponiveisEvento = function(){
   const disponiveis = calcularDisponiveisParaEvento(e);
   const dataFmt = (e.data||'').split('-').reverse().join('/');
   document.getElementById('vd-titulo').textContent = `${e.nome} — ${dataFmt}`;
-  document.getElementById('vd-count').textContent = `${disponiveis.length} disponíveis`;
+  document.getElementById('vd-count').innerHTML = `${disponiveis.length} disponíveis · <span id="vd-count-escalados" style="font-weight:800">${jaEscalados.size}</span> já escalado(s) neste evento`;
   document.getElementById('vd-body').innerHTML = disponiveis.length
     ? disponiveis.map(d=>{
         const jaEsc = jaEscalados.has(d.m.nome);
@@ -13312,6 +13349,8 @@ window.addMinEventoDoModal = function(nome, btn){
     btn.style.color = '#085041';
     btn.style.cursor = 'default';
   }
+  const contEl = document.getElementById('vd-count-escalados');
+  if(contEl) contEl.textContent = String(parseInt(contEl.textContent||'0',10)+1);
 };
 
 window.addMinEvento = async function(nome){
