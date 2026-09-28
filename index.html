@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.46.0';
+const APP_VERSAO = '20.47.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11288,34 +11288,68 @@ function renderCardHorarioCirio(colId, hora){
   </div>`;
 }
 
-// Abre o modal (o mesmo já usado pela escala normal) com a lista COMPLETA de quem marcou
+// Abre o modal (o mesmo já usado pela escala normal) com a lista de quem marcou
 // disponibilidade pra esse dia/hora do Círio, com botão de adicionar direto.
+// BLINDAGEM (v20.47.0): o coordenador pediu liberdade pra escalar QUALQUER ministro
+// neste horário, mesmo quem não marcou disponibilidade — ex: só 6 marcaram disponível
+// pra um horário que precisa de 12. Por isso o modal agora tem um botão pra alternar
+// entre "só disponíveis" e "todos os ministros" (busca livre continua funcionando
+// em ambos os modos, via cirioEscBuscar no card do horário).
+window._cirioVdCtx = null;
 window.verDisponiveisCirio = function(colId, hora){
+  window._cirioVdCtx = { colId, hora, modoTodos: false };
+  _renderModalVDCirio();
+};
+
+window.cirioAlternarModoVD = function(){
+  if(!window._cirioVdCtx) return;
+  window._cirioVdCtx.modoTodos = !window._cirioVdCtx.modoTodos;
+  _renderModalVDCirio();
+};
+
+function _renderModalVDCirio(){
+  const ctx = window._cirioVdCtx;
+  if(!ctx) return;
+  const { colId, hora, modoTodos } = ctx;
   const cfg = _cirioConfig;
   const coluna = cfg.colunas.find(c=>c.id===colId);
   const contagem = window._cirioContagemEscalas || {};
-  const disponiveis = ministros.filter(m => ((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora))
-    .sort((a,b)=>{
-      const ca = contagem[a.nome]||0, cb = contagem[b.nome]||0;
-      if(ca!==cb) return ca-cb; // quem tem menos escalações na quinzena aparece primeiro
-      return a.nome.localeCompare(b.nome,'pt-BR');
-    });
+  const disponiveisSet = new Set(ministros.filter(m => ((m.dispCirio&&m.dispCirio[colId])||[]).includes(hora)).map(m=>m.nome));
+  const listaBase = modoTodos ? ministros.filter(m=>m.ativo!==false) : ministros.filter(m=>disponiveisSet.has(m.nome));
+  const lista = [...listaBase].sort((a,b)=>{
+    if(modoTodos){
+      const da = disponiveisSet.has(a.nome), db = disponiveisSet.has(b.nome);
+      if(da!==db) return da?-1:1; // disponíveis primeiro, mesmo no modo "todos"
+    }
+    const ca = contagem[a.nome]||0, cb = contagem[b.nome]||0;
+    if(ca!==cb) return ca-cb; // quem tem menos escalações na quinzena aparece primeiro
+    return a.nome.localeCompare(b.nome,'pt-BR');
+  });
   const dados = window._cirioEscalaDados[hora] || {ministros:[]};
   const jaEscalados = new Set(dados.ministros||[]);
   document.getElementById('vd-titulo').textContent = `${coluna?.label||''} — ${hora}`;
-  document.getElementById('vd-count').innerHTML = `${disponiveis.length} disponíveis · <span id="vd-count-escalados" style="font-weight:800">${jaEscalados.size}</span> já escalado(s) neste horário`;
-  document.getElementById('vd-body').innerHTML = disponiveis.length
-    ? disponiveis.map(m=>{
+  document.getElementById('vd-count').innerHTML = `${modoTodos?lista.length+' ministro(s) no total':disponiveisSet.size+' disponíveis'} · <span id="vd-count-escalados" style="font-weight:800">${jaEscalados.size}</span> já escalado(s) neste horário
+    <button onclick="cirioAlternarModoVD()" style="display:block;margin-top:8px;font-size:11.5px;font-weight:700;padding:6px 12px;border-radius:20px;border:1.5px solid #185FA5;background:${modoTodos?'#185FA5':'#e6f1fb'};color:${modoTodos?'white':'#185FA5'};cursor:pointer">
+      ${modoTodos?'⭐ Ver só quem está disponível':'🔎 Ver TODOS os ministros (independente da disponibilidade)'}
+    </button>`;
+  document.getElementById('vd-body').innerHTML = lista.length
+    ? lista.map(m=>{
         const jaEsc = jaEscalados.has(m.nome);
+        const disp = disponiveisSet.has(m.nome);
         const n = contagem[m.nome]||0;
         const detalhe = _cirioDetalheTexto(m.nome);
         const tagContagem = n>0
           ? `<span style="font-size:9.5px;color:${n>=3?'#A32D2D':'#BA7517'};font-weight:700">já escalado em: ${detalhe}</span>`
           : `<span style="font-size:9.5px;color:#1D9E75;font-weight:700;white-space:nowrap">ainda não serviu</span>`;
+        const tagDisp = modoTodos
+          ? (disp
+              ? '<span style="font-size:9px;background:#e1f5ee;color:#085041;padding:1px 7px;border-radius:12px;font-weight:700;margin-left:4px">✨ disponível</span>'
+              : '<span style="font-size:9px;background:#fdf3d3;color:#8a6d0c;padding:1px 7px;border-radius:12px;font-weight:700;margin-left:4px">⚠️ não marcou disponibilidade</span>')
+          : '';
         return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #eee">
           <div style="width:28px;height:28px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>
           <div style="flex:1">
-            <p style="font-size:13px;margin:0">${m.nome}</p>
+            <p style="font-size:13px;margin:0">${m.nome}${tagDisp}</p>
             <p style="margin:1px 0 0">${tagContagem}</p>
           </div>
           <button onclick="cirioAddMinDoModal('${colId}','${hora}','${m.nome.replace(/'/g,"\\'")}',this)"
@@ -11325,9 +11359,9 @@ window.verDisponiveisCirio = function(colId, hora){
           </button>
         </div>`;
       }).join('')
-    : '<p style="font-size:13px;color:#888;padding:12px 0">Nenhum ministro marcou disponibilidade pra este dia/hora ainda.</p>';
+    : `<p style="font-size:13px;color:#888;padding:12px 0">${modoTodos?'Nenhum ministro cadastrado.':'Nenhum ministro marcou disponibilidade pra este dia/hora ainda — toque em "Ver TODOS os ministros" acima pra escalar de qualquer jeito.'}</p>`;
   document.getElementById('modal-vd').style.display='flex';
-};
+}
 
 window.cirioAddMinDoModal = function(colId, hora, nome, btn){
   cirioEscAdicionarMin(colId, hora, nome);
@@ -16355,7 +16389,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <p style="font-size:16px;font-weight:700" id="vd-titulo"></p>
       <button onclick="fecharModal('modal-vd')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
-    <p id="vd-count" style="font-size:12px;color:#1D9E75;margin-bottom:12px"></p>
+    <div id="vd-count" style="font-size:12px;color:#1D9E75;margin-bottom:12px"></div>
     <div style="position:relative;margin-bottom:10px">
       <input type="text" id="vd-busca" placeholder="Filtrar por nome..." oninput="filtrarVD()" style="margin-bottom:0;padding-right:66px">
       <button onclick="iniciarDitadoTexto('vd-busca', this)" title="Falar o nome"
