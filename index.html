@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.36.0';
+const APP_VERSAO = '20.38.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3152,6 +3152,26 @@ window.trocarAbaEscala = function(tipo){
 // ===== CONTROLE MANUAL DO PERÍODO DA SEMANA (escala semanal) =====
 let _periodoSemanaCustom = {}; // { "1": {ini:'YYYY-MM-DD', fim:'YYYY-MM-DD'}, "2": {...} }
 
+// Verifica, de forma robusta, se uma semana (pelo número "sem") contém uma data específica
+// (formato ISO 'YYYY-MM-DD'). Usa ini/fim de _periodoSemanaCustom quando disponível (fonte
+// mais confiável — vem direto do que foi salvo), e só cai para o array "dias" como reserva.
+function _semanaContemDataISO(sem, dataISOAlvo){
+  const custom = _periodoSemanaCustom?.[sem];
+  if(custom?.ini && custom?.fim){
+    return dataISOAlvo >= custom.ini && dataISOAlvo <= custom.fim;
+  }
+  const info = SEMANAS_MES?.[sem];
+  if(!info?.dias?.length) return false;
+  const toISO = dm => {
+    const p = (dm||'').split('/');
+    if(p.length!==2) return null;
+    return `2026-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  };
+  const datasISO = info.dias.map(d=>toISO(d.data)).filter(Boolean).sort();
+  if(!datasISO.length) return false;
+  return dataISOAlvo >= datasISO[0] && dataISOAlvo <= datasISO[datasISO.length-1];
+}
+
 function atualizarChipPeriodoSemana(){
   const el = document.getElementById('periodo-semana-chip');
   if(!el) return;
@@ -3342,6 +3362,9 @@ async function carregarSemanasSalvas(){
       const dados = d.data();
       if(dados.periodos && Object.keys(dados.periodos).length > 0){
         _periodoSemanaCustom = dados.periodos;
+        // Limpa semanas numeradas antigas (do calendário padrão ou de uma config anterior)
+        // antes de reconstruir — evita semanas "fantasma" sobrando com datas erradas.
+        Object.keys(SEMANAS_MES).forEach(k=>{ if(!isNaN(parseInt(k))) delete SEMANAS_MES[k]; });
         // Reconstrói SEMANAS_MES com os dados salvos
         const DIAS_NOME=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
         const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -3388,6 +3411,9 @@ function carregarSemanasLocais(){
 
     // Reconstrói _periodoSemanaCustom e SEMANAS_MES
     _periodoSemanaCustom = dados.periodos;
+    // Limpa semanas numeradas antigas antes de reconstruir — evita semanas "fantasma"
+    // sobrando (do calendário padrão ou de uma configuração anterior) com datas erradas.
+    Object.keys(SEMANAS_MES).forEach(k=>{ if(!isNaN(parseInt(k))) delete SEMANAS_MES[k]; });
     const DIAS_NOME = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
     const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
@@ -3809,12 +3835,12 @@ window.renderEscala = async function(){
     '12:00h': [{id:'sab12', label:'Missa Sábado 12h'}],
     '18:00h': [{id:'qui18', label:'Missa Quinta 18h'}, {id:'sab17', label:'Missa Sábado 17h'}]
   };
-  // Missas especiais da Quinzena do Círio (datas fixas) — só aparece na semana que
-  // realmente contém aquele dia, pra sumir sozinho depois que a semana passar
+  // Missas especiais avulsas da Quinzena (datas fixas) — usam a MESMA equipe já escalada
+  // na semana normal, só aumentando a quantidade com reforço extra. Só aparece na semana
+  // que realmente contém aquele dia (checagem robusta por data, não pelo array de dias).
   if(mesAtualNum===9 && anoAtualNum===2026){
-    const diasDaSemanaAtual = (semInfo?.dias||[]).map(d=>d.data);
-    if(diasDaSemanaAtual.includes('09/10')) reforcosDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
-    if(diasDaSemanaAtual.includes('10/10')) reforcosDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
+    if(_semanaContemDataISO(sem, '2026-10-09')) reforcosDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
+    if(_semanaContemDataISO(sem, '2026-10-10')) reforcosDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
   }
 
   document.getElementById('esc-body').innerHTML = horasRender.map(hora=>{
@@ -5224,13 +5250,10 @@ async function buscarEscalaDoDia(info){
   const reforcosDoDia = {};
   if(info.diaSemana === 'Quinta'){ reforcosDoDia['18:00h'] = ['qui18']; }
   if(info.diaSemana === 'Sábado'){ reforcosDoDia['12:00h'] = ['sab12']; reforcosDoDia['18:00h'] = ['sab17']; }
-  // Missas especiais da Quinzena do Círio — datas fixas, só entram na presença do dia exato
-  if(mesAtualKey === 'out2026' && info.data === '09/10'){
-    reforcosDoDia['07:00h'] = [...(reforcosDoDia['07:00h']||[]), 'esp0910_0700'];
-  }
-  if(mesAtualKey === 'out2026' && info.data === '10/10'){
-    reforcosDoDia['09:00h'] = [...(reforcosDoDia['09:00h']||[]), 'esp1010_0900'];
-  }
+  // Missas especiais avulsas — entram na presença só do dia exato (comparação por ISO, a
+  // mais confiável, já que "info.iso" vem pronto de _isoDaDataSemanaPresenca)
+  if(info.iso === '2026-10-09'){ reforcosDoDia['07:00h'] = [...(reforcosDoDia['07:00h']||[]), 'esp0910_0700']; }
+  if(info.iso === '2026-10-10'){ reforcosDoDia['09:00h'] = [...(reforcosDoDia['09:00h']||[]), 'esp1010_0900']; }
 
   for(const [hora, tiposRef] of Object.entries(reforcosDoDia)){
     for(const tipoRef of tiposRef){
@@ -5796,7 +5819,7 @@ window.finalizarEscalaSemanal = async function(){
     const reforcoQui18 = await lerReforco('qui18');
     const reforcoSab12 = await lerReforco('sab12');
     const reforcoSab17 = await lerReforco('sab17');
-    // Missas especiais da Quinzena do Círio (datas fixas, só existem em out2026)
+    // Missas especiais avulsas (datas fixas, só existem em out2026)
     const reforcoEsp0910 = mesKey==='out2026' ? await lerReforco('esp0910_0700') : [];
     const reforcoEsp1010 = mesKey==='out2026' ? await lerReforco('esp1010_0900') : [];
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
@@ -5815,14 +5838,13 @@ window.finalizarEscalaSemanal = async function(){
       // Cópia local — nunca mexe no cache da escala ao vivo (evita corromper a tela de edição)
       const esc = {};
       Object.keys(escOriginal).forEach(h=>{ esc[h] = { ...escOriginal[h], ministros: [...(escOriginal[h].ministros||[])] }; });
-      // Reforços que valem só para ESTA semana (missas especiais de data fixa) — só entra
-      // na semana que realmente contém aquele dia, nunca nas semanas seguintes
-      const diasDestaSemana = (info?.dias||[]).map(d=>d.data);
+      // Reforços que valem só para ESTA semana (missas especiais de data fixa) — checagem
+      // robusta por ISO, só entra na semana que realmente contém aquele dia
       const reforcosPorHoraSemana = { ...reforcosPorHora };
-      if(diasDestaSemana.includes('09/10') && reforcoEsp0910.length){
+      if(_semanaContemDataISO(s, '2026-10-09') && reforcoEsp0910.length){
         reforcosPorHoraSemana['07:00h'] = [...(reforcosPorHoraSemana['07:00h']||[]), ...reforcoEsp0910.map(n=>({nome:n, label:'Missa Especial 09/10 07h'}))];
       }
-      if(diasDestaSemana.includes('10/10') && reforcoEsp1010.length){
+      if(_semanaContemDataISO(s, '2026-10-10') && reforcoEsp1010.length){
         reforcosPorHoraSemana['09:00h'] = [...(reforcosPorHoraSemana['09:00h']||[]), ...reforcoEsp1010.map(n=>({nome:n, label:'Missa Especial 10/10 09h'}))];
       }
       const mapaReforcoPorHora = {};
@@ -12426,14 +12448,12 @@ async function gerarImagemTodasSemanas(){
       '12:00h':[{id:'sab12',label:'Missa Sábado 12h'}],
       '18:00h':[{id:'qui18',label:'Missa Quinta 18h'},{id:'sab17',label:'Missa Sábado 17h'}]
     };
-    // Missas especiais da Quinzena do Círio (datas fixas) — só entram na semana que
-    // realmente contém aquele dia, pra não ficar aparecendo nas semanas seguintes depois que passou
+    // Missas especiais avulsas (datas fixas) — só entram na semana que realmente contém
+    // aquele dia (checagem robusta por ISO via ini/fim salvos, não pelo array de dias)
     if(mesKey === 'out2026'){
-      const diasDaSemana = (info?.dias||[]).map(d=>d.data);
-      if(diasDaSemana.includes('09/10')) refDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
-      if(diasDaSemana.includes('10/10')) refDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
+      if(_semanaContemDataISO(s, '2026-10-09')) refDoHorario['07:00h'] = [{id:'esp0910_0700', label:'Missa Especial 09/10 07h'}];
+      if(_semanaContemDataISO(s, '2026-10-10')) refDoHorario['09:00h'] = [{id:'esp1010_0900', label:'Missa Especial 10/10 09h'}];
     }
-
     let horasCards = [];
     for(const h of MISSAS_SEM){
       const g = esc[h]||{ministros:[],responsavel:''};
