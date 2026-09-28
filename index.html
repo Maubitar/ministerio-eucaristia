@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.44.0';
+const APP_VERSAO = '20.45.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3720,14 +3720,28 @@ window.trocarMes = function(){
   if(selSem && selSem.options.length > 0) selSem.value = selSem.options[0].value;
   if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
 };
-window.getMesAtual = function(){ return window.MES_ATUAL_DIN || MES_ATUAL; };
-// BLINDAGEM: getMesAtual() usa window.MES_ATUAL_DIN, uma variável GLOBAL que também é
-// sobrescrita por trocarMesPresenca() (aba Presença). Isso causava o Radar de Escalação
-// mostrar o mês errado: se o coordenador desse uma olhada na Presença de setembro, o
-// MES_ATUAL_DIN global virava "set2026" e o Radar (que roda dentro da aba Escala) passava
-// a mostrar setembro mesmo com a Escala configurada e visível em outubro. Esta função lê
-// direto dos seletores da própria aba Escala (esc-mes/esc-ano), sem depender da variável
-// global compartilhada com a Presença.
+// BLINDAGEM CRÍTICA (v20.45.0): getMesAtual() ANTES lia window.MES_ATUAL_DIN, uma variável
+// GLOBAL que também é sobrescrita por trocarMesPresenca() (aba Presença). Isso causava o
+// Radar de Escalação — e TODO o sistema de reforços (adicionar/remover ministro, imagens,
+// etc., que usam getMesAtual() por baixo dos panos) — mostrar/gravar no mês errado: se o
+// coordenador desse uma olhada na Presença de setembro, o MES_ATUAL_DIN global virava
+// "set2026" e, ao voltar pra Escala (já configurada em outubro), os reforços eram
+// lidos/gravados sob a chave de SETEMBRO mesmo com a tela mostrando outubro — por isso um
+// reforço aparecia certinho na tela (cache local em memória) mas sumia da busca "Onde esse
+// ministro está servindo?" (que lê direto do Firestore). Agora getMesAtual() SEMPRE lê
+// direto dos seletores da própria aba Escala (esc-mes/esc-ano) — a mesma fonte usada pela
+// busca e pelo Radar — em vez de depender da variável global compartilhada com a Presença,
+// eliminando essa divergência para sempre.
+window.getMesAtual = function(){
+  const escMes = document.getElementById('esc-mes');
+  const escAno = document.getElementById('esc-ano');
+  if(escMes && escAno){
+    const m = parseInt(escMes.value ?? CONFIG_MES.mes);
+    const a = parseInt(escAno.value ?? CONFIG_MES.ano);
+    if(!isNaN(m) && !isNaN(a)) return `${MESES_KEY[m]}${a}`;
+  }
+  return window.MES_ATUAL_DIN || MES_ATUAL;
+};
 window.getMesAtualEscala = function(){
   const m = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
   const a = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
