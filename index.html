@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.47.0';
+const APP_VERSAO = '20.48.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11526,13 +11526,13 @@ window.imprimirEscalaCirio = async function(){
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Escala Círio — Impressão</title>
   <style>
     @page{ size: A4 landscape; margin: 10mm; }
-    body{ font-family: Arial, sans-serif; margin:0; padding:16px; color:#222; }
+    body{ font-family: Arial, sans-serif; margin:0; padding:16px; color:#222; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     h1{ text-align:center; font-size:16px; margin:0 0 2px; color:#085041; }
     h2{ text-align:center; font-size:12px; margin:0 0 14px; color:#666; font-weight:normal; }
     table{ width:100%; border-collapse:collapse; }
     th, td{ border:1px solid #ccc; vertical-align:top; padding:6px 8px; font-size:11px; line-height:1.45; }
-    th{ background:#085041; color:white; font-size:11px; text-align:center; }
-    .datas{ font-weight:normal; font-size:9px; opacity:.85; }
+    th{ background:#f0faf5; color:#000; font-size:13px; font-weight:800; text-align:center; border:1.5px solid #085041; }
+    .datas{ font-weight:700; font-size:10px; color:#000; opacity:1; }
     .hora-col{ background:#f0faf5; font-weight:700; text-align:center; white-space:nowrap; color:#085041; }
     .nome{ padding:2.5px 0; }
     .nome.resp{ font-weight:700; color:#a07d2a; }
@@ -11602,15 +11602,15 @@ window.imprimirEventos = async function(){
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Escala Eventos Especiais — Impressão</title>
   <style>
     @page{ size: A4 landscape; margin: 8mm; }
-    body{ font-family: Arial, sans-serif; margin:0; padding:14px; color:#222; }
+    body{ font-family: Arial, sans-serif; margin:0; padding:14px; color:#222; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     h1{ text-align:center; font-size:15px; margin:0 0 2px; color:#085041; }
     h2{ text-align:center; font-size:11px; margin:0 0 12px; color:#666; font-weight:normal; }
     table{ width:100%; border-collapse:collapse; }
     th, td{ border:1px solid #ccc; padding:4px 6px; font-size:10px; text-align:left; vertical-align:top; }
-    th{ background:#085041; color:white; text-align:center; }
-    th .local{ font-size:10px; font-weight:700; }
-    th .datahora{ font-size:9px; opacity:.9; }
-    th .nome-evt{ font-size:10.5px; font-weight:800; margin-top:2px; }
+    th{ background:#f0faf5; color:#000; text-align:center; border:1.5px solid #085041; }
+    th .local{ font-size:10.5px; font-weight:800; color:#000; }
+    th .datahora{ font-size:9.5px; font-weight:700; color:#000; opacity:1; }
+    th .nome-evt{ font-size:11px; font-weight:800; margin-top:2px; color:#000; }
     td.resp{ font-weight:700; color:#a07d2a; }
     td:nth-child(odd){ background:#fafafa; }
     .cab-print{ display:flex; align-items:center; gap:14px; border-bottom:3px solid #085041; padding-bottom:10px; margin-bottom:14px; }
