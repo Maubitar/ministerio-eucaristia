@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.70.0';
+const APP_VERSAO = '20.71.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4848,7 +4848,13 @@ const SOGI_QUALIDADE = Object.freeze({
   // já é muito maior que o que qualquer Foto do WhatsApp preserva, então NADA se perde na prática —
   // só o desperdício de tempo é cortado. A impressão em papel (ESCALA_ALVO acima) continua intocada.
   ESCALA_ALVO_FOTO: 4,      // resolução da imagem que vai virar Foto no WhatsApp — nítida, rápida de gerar e leve de baixar
-  QUALIDADE_JPEG_FOTO: 0.93 // JPEG de altíssima qualidade — visualmente idêntico ao PNG depois que o WhatsApp recomprime
+  QUALIDADE_JPEG_FOTO: 0.93, // JPEG de altíssima qualidade — visualmente idêntico ao PNG depois que o WhatsApp recomprime
+  // BLINDAGEM (v20.71.0): "Memória insuficiente" / navegador travou — a Escala Dominical inteira
+  // (todos os domingos do mês, com foto de cada ministro) é um elemento gigante; gerando a 4x com
+  // teto de 16000px (o mesmo da impressão em papel) o navegador tentava criar uma imagem/canvas
+  // monstruosa e estourava a memória. Pra Foto no WhatsApp, um teto bem menor já é muito mais do
+  // que qualquer celular preserva — corta o risco de travar sem perder nitidez nenhuma na prática.
+  LADO_MAXIMO_FOTO: 6000
 });
 
 // paraFoto=true → saída otimizada pra virar Foto no WhatsApp (JPEG, resolução ESCALA_ALVO_FOTO).
@@ -4863,10 +4869,16 @@ async function capturarImagemAlta(elemento, paraFoto){
   // 2) BLINDAGEM DE RESOLUÇÃO: calcula a MAIOR escala possível, nunca abaixo do mínimo
   const larguraEl = elemento.scrollWidth || 1600;
   const alturaEl = elemento.scrollHeight || 1200;
+  const ladoMaximo = paraFoto ? SOGI_QUALIDADE.LADO_MAXIMO_FOTO : SOGI_QUALIDADE.LADO_MAXIMO;
   let escala = paraFoto ? SOGI_QUALIDADE.ESCALA_ALVO_FOTO : SOGI_QUALIDADE.ESCALA_ALVO;
-  if(larguraEl*escala > SOGI_QUALIDADE.LADO_MAXIMO) escala = SOGI_QUALIDADE.LADO_MAXIMO/larguraEl;
-  if(alturaEl*escala > SOGI_QUALIDADE.LADO_MAXIMO) escala = Math.min(escala, SOGI_QUALIDADE.LADO_MAXIMO/alturaEl);
-  escala = Math.max(SOGI_QUALIDADE.ESCALA_MINIMA, escala);
+  if(larguraEl*escala > ladoMaximo) escala = ladoMaximo/larguraEl;
+  if(alturaEl*escala > ladoMaximo) escala = Math.min(escala, ladoMaximo/alturaEl);
+  // BLINDAGEM (v20.71.0): o piso de qualidade (ESCALA_MINIMA) NUNCA pode furar o teto físico acima
+  // — pra conteúdo gigante (ex.: a Dominical inteira, com muitos horários e fotos empilhados),
+  // forçar o piso por cima do teto criava uma imagem monstruosa e derrubava o navegador ("Memória
+  // insuficiente"). Só sobe até o piso mínimo se isso realmente couber dentro do teto físico.
+  const escalaMinimaSegura = Math.min(SOGI_QUALIDADE.ESCALA_MINIMA, ladoMaximo/larguraEl, ladoMaximo/alturaEl);
+  escala = Math.max(escalaMinimaSegura, escala);
 
   const tipoSaida = paraFoto ? 'image/jpeg' : 'image/png';
   const qualidadeSaida = paraFoto ? SOGI_QUALIDADE.QUALIDADE_JPEG_FOTO : 1.0;
@@ -7133,6 +7145,11 @@ window.montarFilaTransmissao = function(){
       }catch(e){
         if(wrapPreparando) wrapPreparando.innerHTML = `<button disabled style="width:100%;padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:13px;font-weight:700;text-align:left">⚠️ Erro: ${e.message} — ${it.label}</button>`;
       }
+      // BLINDAGEM (v20.71.0): dá um respiro pro navegador liberar a memória da imagem gigante que
+      // acabou de gerar antes de começar a próxima — sem isso, em listas grandes (Dominical +
+      // várias semanas de uma vez), a memória se acumulava rápido demais e o navegador travava
+      // ("Memória insuficiente").
+      await new Promise(r=>setTimeout(r,250));
     }
   })();
 };
