@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.71.0';
+const APP_VERSAO = '20.72.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1243,6 +1243,10 @@ function _cirioLabelDatas(coluna){
 // Roda sozinha sempre que o config é carregado, tanto pelo coordenador quanto pelo ministro.
 function _cirioAplicarCorrecoes(cfg){
   let mudou = false;
+  if(Array.isArray(cfg.horarios)){
+    const ord = [...cfg.horarios].sort((x,y)=>_horaParaMin(x)-_horaParaMin(y));
+    if(JSON.stringify(ord)!==JSON.stringify(cfg.horarios)){ cfg.horarios = ord; mudou = true; }
+  }
   if(cfg.grade){
     // Domingo do Círio (11/10): só tem missa às 06:00, 16:00, 18:00 e 20:00 — os outros
     // horários da lista (05:45, 07 a 12h) existem como linha da tabela, mas não têm missa
@@ -5166,107 +5170,40 @@ window.gerarImagemEscala = async function(){
   if(tipo==='dom'){ periodoLabel='Escala Dominical'; subLabel=`Domingos: ${DOMINGOS_MES.join(' · ')}`; }
   else { periodoLabel='Escala Semanal'; subLabel=`Semana de ${SEMANAS_MES[sem]?.periodo||''}`; }
 
-  // Monta um CARD por horário (formato Excel: 2 colunas lado a lado, fotos proporcionais)
-  // Paleta clean e suave — uma cor por horário (ajuda leitura, sobretudo p/ ministros idosos)
-  const CORES_HORARIO = {
-    '06:00h':{escuro:'#2E5EAA',claro:'#eef3fb'},
-    '08:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'},
-    '10:00h':{escuro:'#B5852A',claro:'#faf4e6'},
-    '12:00h':{escuro:'#9B4A8C',claro:'#f8eef6'},
-    '16:00h':{escuro:'#5C6BC0',claro:'#eef0fa'},
-    '18:00h':{escuro:'#C05A3E',claro:'#fbefeb'},
-    '20:00h':{escuro:'#3E7C8C',claro:'#ebf4f6'},
-    '07:00h':{escuro:'#2E5EAA',claro:'#eef3fb'},
-    '09:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'}
-  };
-  function cardHorario(h){
-    const g=esc[h]||{ministros:[],responsavel:''};
-    if(!g.ministros.length) return '';
-    const corH = CORES_HORARIO[h] || {escuro:'#085041',claro:'#eef5f2'};
-    const responsavel=g.responsavel;
-    const respObj=buscarMinistroPorNome(responsavel);
-    const ord=[...g.ministros].sort((a,b)=>{ if(a===responsavel)return -1; if(b===responsavel)return 1; return a.localeCompare(b,'pt-BR'); });
-    let datasLabel='';
-    if(tipo==='dom'){ datasLabel=DOMINGOS_MES.join(' · '); }
-    else {
-      const sd=(SEMANAS_MES[sem]?.dias||[]).filter(d=>{
-        if(!MISSAS_SEM_DIAS[d.dia]?.includes(h)) return false;
-        return d.mesRef === true;
-      });
-      datasLabel=sd.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
-    }
-    const linhas=ord.map((m,i)=>{
-      const isResp=m===responsavel;
-      const minObj = buscarMinistroPorNome(m);
-      const fotoHtml = minObj?.foto
-        ? `<img src="${minObj.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
-        : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m)}</div>`;
-      return `<tr>
-        <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${i+1}</td>
-        <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
-        <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${isResp?'font-weight:700':''}">${m}</td>
-      </tr>`;
-    }).join('');
-    const respTelTop = respObj?.tel ? `<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${respObj.tel}</span>` : '';
-    const respTop = responsavel ? `<div style="font-weight:700;font-size:24px;margin-top:5px;line-height:1.3;word-break:break-word">★ ${responsavel}${respTelTop}</div>` : '';
-    return `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:24px;break-inside:avoid">
-      <div style="background:${corH.escuro};color:white;padding:14px 20px">
-        <div style="font-weight:800;font-size:34px">⏰ ${h}</div>
-        ${respTop}
-      </div>
-      <table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhas}</tbody></table>
-    </div>`;
-  }
-
-  // Monta os cards e distribui em 3 COLUNAS (imagem PAISAGEM — larga e baixa, ideal p/ WhatsApp)
-  const cards = horas.map(h=>cardHorario(h)).filter(c=>c);
-  if(!cards.length){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
-  // Distribui em 3 colunas equilibradas
-  const cols3 = ['','',''];
-  cards.forEach((c,i)=>{ cols3[i%3]+=c; });
-  let blocos = `<div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols3[0]}</div><div style="flex:1;min-width:0">${cols3[1]}</div><div style="flex:1;min-width:0">${cols3[2]}</div></div>`;
+  // Monta os horários (mesmo cartão e mesmo padrão de slide 16:9 de TODAS as escalas do app)
+  const hObjs = _ordenarPorHora(horas, h=>h).map(h=>{
+    const g = esc[h]||{ministros:[],responsavel:''};
+    if(!g.ministros.length) return null;
+    const responsavel = g.responsavel;
+    const respObj = buscarMinistroPorNome(responsavel);
+    const ord = [...g.ministros].sort((a,b)=>{ if(a===responsavel)return -1; if(b===responsavel)return 1; return a.localeCompare(b,'pt-BR'); });
+    return {
+      hora:h, responsavel: responsavel||'', respTel: respObj?.tel ? ` — ${respObj.tel}` : '',
+      ministros: ord.map((m,i)=>({ num:i+1, nome:m, isResp:m===responsavel, isReforco:false, foto: buscarMinistroPorNome(m)?.foto||null }))
+    };
+  }).filter(Boolean);
+  if(!hObjs.length){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
 
   toast('Gerando imagem...','ok');
-
-  // Container offscreen — largura p/ 3 colunas caberem com moldura, sem cortar
-  const BASE_W = 1900;
-  const wrap=document.createElement('div');
-  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
-  wrap.innerHTML=`
-   <div style="border:3px solid #085041;border-radius:14px;padding:26px 24px;background:white">
-    <div style="display:flex;align-items:center;gap:22px;border-bottom:4px solid #085041;padding-bottom:16px;margin-bottom:8px">
-      <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
-      <div style="flex:1;text-align:center">
-        <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1 style="margin:4px 0;color:#085041;font-size:30px">${periodoLabel}</h1>
-        <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      </div>
-      <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
-    </div>
-    <div style="background:#085041;color:white;text-align:center;padding:14px 20px;border-radius:8px;margin:14px 0 22px">
-      <span style="font-size:28px;font-weight:800;letter-spacing:.5px">📅 ${tipo==='dom'?'DOMINGOS':'SEMANA'}: ${(subLabel||'').replace('Domingos: ','').replace('Semana de ','')}</span>
-    </div>
-    ${blocos}
-    <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Sistema Operacional de Governança e Inteligência · Ministério da Eucaristia · Basílica de Nazaré</p>
-   </div>`;
-  document.body.appendChild(wrap);
-
   try{
-    // espera as imagens (logos + fotos dos ministros) carregarem antes de capturar
-    await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
-      img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
-    ));
-    // ALTA QUALIDADE NATIVA via snapdom (muito superior ao html2canvas)
-    // Imprimir/Copiar continuam em PNG na resolução máxima; Compartilhar/Baixar (vai virar Foto
-    // no WhatsApp) usa o modo "foto" — JPEG leve e rápido, sem perda perceptível (v20.68.0).
+    // Imprimir/Copiar = PNG em alta resolução; Compartilhar/Baixar (vira Foto no WhatsApp) = JPEG leve
     const paraFoto = (_modoImagem === 'compartilhar' || _modoImagem === 'baixar');
-    const blob = await capturarImagemAlta(wrap, paraFoto);
-    const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.${_extParaBlob(blob)}`;
-    await compartilharOuBaixarImagem(blob, nomeArq);
+    const tituloFaixa = `📅 ${tipo==='dom'?'DOMINGOS':'SEMANA'}: ${(subLabel||'').replace('Domingos: ','').replace('Semana de ','')}`;
+    const resultados = await capturarPaginaComDivisao(periodoLabel, tituloFaixa, hObjs.map(h=>({hObj:h, hora:h.hora})), '#085041', { paraFoto });
+    if(!resultados.length){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
+    const nomeBase = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}`;
+    const itens = resultados.map((r,i)=>({ blob:r.blob, nomeArq:`${nomeBase}${resultados.length>1?'_p'+(i+1):''}.${_extParaBlob(r.blob)}` }));
+    if(_modoImagem === 'imprimir'){
+      if(itens.length>1) finalizarImpressaoVariasImagens(itens.map(x=>x.blob), '#085041');
+      else await compartilharOuBaixarImagem(itens[0].blob, itens[0].nomeArq);
+    } else if(_modoImagem === 'copiar'){
+      if(itens.length>1) toast(`Copiei a parte 1 de ${itens.length}. Pra mandar todas, use a Transmissão Central.`,'warn');
+      await compartilharOuBaixarImagem(itens[0].blob, itens[0].nomeArq);
+    } else {
+      await compartilharVariasImagens(itens, 'Escala MESCE', periodoLabel);
+    }
   }catch(e){
     toast('Erro ao gerar imagem: '+e.message,'err');
-  }finally{
-    document.body.removeChild(wrap);
   }
 };
 
@@ -6225,7 +6162,7 @@ async function montarDadosEscalaFinalizada(docId){
   // Fotos não ficam salvas no snapshot (estouraria o limite de 1MB do Firestore) — reanexa do cadastro atual
   const semanasComFoto = (dados.semanas||[]).map(sem=>({
     ...sem,
-    horarios: (sem.horarios||[]).map(h=>({
+    horarios: _ordenarPorHora(sem.horarios||[], h=>h.hora).map(h=>({
       ...h,
       ministros: (h.ministros||[]).map(m=>{
         const minObj = buscarMinistroPorNome(m.nome);
@@ -6237,6 +6174,20 @@ async function montarDadosEscalaFinalizada(docId){
   return { semanasComFoto, rotulo, tipo: dados.tipo };
 }
 
+// ===== PADRÃO ÚNICO DE APRESENTAÇÃO + ORDEM CRONOLÓGICA (v20.72.0) =====
+// Ordem de exibição de TODAS as escalas: sempre do horário mais cedo pro mais tarde. Esta é a
+// ÚNICA função que converte um horário ("06:00h", "6:00", "18h") em número comparável — nunca
+// compare horários como texto (ex.: "6:00" viria depois de "18:00").
+function _horaParaMin(h){
+  const m = String(h||'').match(/(\d{1,2})\s*[:hH]\s*(\d{2})?/);
+  if(!m) return 99999;
+  return parseInt(m[1],10)*60 + parseInt(m[2]||'0',10);
+}
+function _ordenarPorHora(lista, getHora){
+  getHora = getHora || (x=>x);
+  return [...lista].sort((a,b)=>_horaParaMin(getHora(a)) - _horaParaMin(getHora(b)));
+}
+
 const CORES_HORARIO_FIN = {
   '06:00h':{escuro:'#2E5EAA',claro:'#eef3fb'}, '07:00h':{escuro:'#2E5EAA',claro:'#eef3fb'},
   '08:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'}, '09:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'},
@@ -6244,124 +6195,156 @@ const CORES_HORARIO_FIN = {
   '16:00h':{escuro:'#5C6BC0',claro:'#eef0fa'}, '18:00h':{escuro:'#C05A3E',claro:'#fbefeb'},
   '20:00h':{escuro:'#3E7C8C',claro:'#ebf4f6'}
 };
+const PALETA_HORARIO_FIN = [
+  {escuro:'#2E5EAA',claro:'#eef3fb'}, {escuro:'#1D8A6E',claro:'#eaf6f2'}, {escuro:'#B5852A',claro:'#faf4e6'},
+  {escuro:'#9B4A8C',claro:'#f8eef6'}, {escuro:'#5C6BC0',claro:'#eef0fa'}, {escuro:'#C05A3E',claro:'#fbefeb'},
+  {escuro:'#3E7C8C',claro:'#ebf4f6'}
+];
+// Cor por horário — mesma cor em qualquer escala (Dominical, Semanal, Círio). Horário fora da
+// tabela (ex.: 05:45 do Círio) ganha uma cor da paleta pela hora, sempre a mesma.
+function _corDoHorario(hora){
+  const chave = String(hora||'').replace(/h\s*$/i,'').trim();
+  if(CORES_HORARIO_FIN[chave+'h']) return CORES_HORARIO_FIN[chave+'h'];
+  const min = _horaParaMin(hora);
+  if(min >= 99999) return {escuro:'#085041',claro:'#eef5f2'};
+  return PALETA_HORARIO_FIN[Math.floor(min/60) % PALETA_HORARIO_FIN.length];
+}
 
-// Monta o HTML visual da ESCALA finalizada (cards por horário, foto, responsável) — usado no compartilhar (imagem) e no imprimir (PDF/print)
-function cardHorarioFin(hObj){
+// Monta o HTML visual de UM horário (cards por horário, foto, responsável com telefone).
+// k = fator de escala (1 = tamanho padrão; menor que 1 só quando o conteúdo é grande demais pra
+// caber num slide) — todos os tamanhos são multiplicados por k, nada é achatado por transform.
+function cardHorarioFin(hObj, k){
   if(!hObj.ministros || !hObj.ministros.length) return '';
-  const corH = CORES_HORARIO_FIN[hObj.hora] || {escuro:'#085041',claro:'#eef5f2'};
+  k = k || 1;
+  const S = v => Math.max(1, Math.round(v*k)) + 'px';
+  const corH = _corDoHorario(hObj.hora);
   let jaMostrouDivisorReforco = false;
   const linhas = hObj.ministros.map((m)=>{
     const fotoHtml = m.foto
-      ? `<img src="${m.foto}" style="width:66px;height:66px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
-      : `<div style="width:66px;height:66px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
-    const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:10px;background:#F0C000;color:#5a3c00;font-size:16px;font-weight:800;padding:3px 12px;border-radius:20px;vertical-align:middle;white-space:nowrap">☆ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
+      ? `<img src="${m.foto}" style="width:${S(66)};height:${S(66)};border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}" crossorigin="anonymous">`
+      : `<div style="width:${S(66)};height:${S(66)};border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:${S(22)};font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m.nome)}</div>`;
+    const badgeReforco = m.isReforco ? `<span style="display:inline-block;margin-left:${S(10)};background:#F0C000;color:#5a3c00;font-size:${S(16)};font-weight:800;padding:${S(3)} ${S(12)};border-radius:20px;vertical-align:middle;white-space:nowrap">☆ REFORÇO${m.reforcoLabel?' '+m.reforcoLabel:''}</span>` : '';
     let divisor = '';
     if(m.isSoReforco && !jaMostrouDivisorReforco){
       jaMostrouDivisorReforco = true;
-      divisor = `<tr><td colspan="3" style="padding:10px 14px 4px;font-size:18px;font-style:italic;color:#a07d1a;border-top:2px dashed #E8C66B">⭐ Reforço</td></tr>`;
+      divisor = `<tr><td colspan="3" style="padding:${S(10)} ${S(14)} ${S(4)};font-size:${S(18)};font-style:italic;color:#a07d1a;border-top:2px dashed #E8C66B">⭐ Reforço</td></tr>`;
     }
     return `${divisor}<tr style="${m.isSoReforco?'background:#FFF3CD':''}">
-      <td style="width:52px;text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:9px 6px;font-size:26px">${m.num}</td>
-      <td style="width:84px;text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:8px">${fotoHtml}</td>
-      <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:13px 14px;font-size:32px;line-height:1.2;color:#1a1a1a;${m.isResp?'font-weight:700':''}">${m.nome}${badgeReforco}</td>
+      <td style="width:${S(52)};text-align:center;color:#666;border-bottom:1px solid rgba(0,0,0,.08);padding:${S(9)} ${S(6)};font-size:${S(26)}">${m.num}</td>
+      <td style="width:${S(84)};text-align:center;border-bottom:1px solid rgba(0,0,0,.08);padding:${S(8)}">${fotoHtml}</td>
+      <td style="border-bottom:1px solid rgba(0,0,0,.08);padding:${S(13)} ${S(14)};font-size:${S(32)};line-height:1.2;color:#1a1a1a;word-break:break-word;${m.isResp?'font-weight:700':''}">${m.nome}${badgeReforco}</td>
     </tr>`;
   }).join('');
-  const respTop = hObj.responsavel ? `<div style="font-weight:700;font-size:24px;margin-top:5px;line-height:1.3;word-break:break-word">★ ${hObj.responsavel}${hObj.respTel?`<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${hObj.respTel.replace(' — ','')}</span>`:''}</div>` : '';
-  return `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:24px;break-inside:avoid">
-    <div style="background:${corH.escuro};color:white;padding:14px 20px">
-      <div style="font-weight:800;font-size:34px">⏰ ${hObj.hora}</div>
+  const respTop = hObj.responsavel ? `<div style="font-weight:700;font-size:${S(24)};margin-top:${S(5)};line-height:1.3;word-break:break-word">★ ${hObj.responsavel}${hObj.respTel?`<span style="white-space:nowrap;display:inline-block;margin-left:${S(8)}">📞 ${hObj.respTel.replace(' — ','')}</span>`:''}</div>` : '';
+  return `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;break-inside:avoid">
+    <div style="background:${corH.escuro};color:white;padding:${S(14)} ${S(20)}">
+      <div style="font-weight:800;font-size:${S(34)}">⏰ ${hObj.hora}</div>
       ${respTop}
     </div>
     <table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhas}</tbody></table>
   </div>`;
 }
 
-// Monta UMA "PÁGINA" (mesmo tamanho/proporção da dominical: 1900px, cabeçalho com logos) para um conjunto de cards
-// Gera a(s) imagem(ns) de uma faixa (semana ou domingo), em qualidade MÁXIMA sempre.
-// Se o conjunto inteiro de cards gerar um arquivo grande demais pro WhatsApp (16MB), divide os
-// cards em duas metades balanceadas por peso e gera duas imagens separadas — cada uma continua
-// na resolução máxima (8x). Nunca reduz nitidez pra caber no limite de tamanho.
-async function capturarPaginaComDivisao(rotulo, tituloFaixa, cards, corBorda, nivel){
-  nivel = nivel || 1;
-  const paginaHtml = montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda);
-  if(!paginaHtml) return [];
+// ===== PADRÃO DE SLIDE (monitor grande / TV) =====
+// TODA imagem de escala (Dominical, Semanal, Círio, Eventos) sai com a MESMA geometria: 1920x1080
+// (16:9, cabe inteira no monitor sem barra preta nem zoom), cartões SEMPRE com a mesma largura,
+// máx. 3 por linha, sempre em ordem crescente de horário (esquerda→direita, cima→baixo). O que
+// não couber num slide continua no slide seguinte, na sequência — nunca fica cortado nem miúdo.
+const SLIDE_W = 1920, SLIDE_H = 1080, SLIDE_CARD_W = 606, SLIDE_GAP_H = 16, SLIDE_GAP_V = 14;
+const SLIDE_K_MIN = 0.5;
 
-  const BASE_W = 1900;
-  const wrap=document.createElement('div');
-  wrap.style.cssText=`position:fixed;left:-9999px;top:0;width:${BASE_W}px;background:white;padding:0;font-family:Arial,sans-serif;color:#1a1a1a;box-sizing:border-box`;
-  wrap.innerHTML = paginaHtml;
+// Divide n cartões em linhas equilibradas, mantendo a ordem: 7 → 3,2,2 · 4 → 2,2 · 5 → 3,2
+function _planejarLinhas(n){
+  const porLinha = n<=3 ? n : (n===4 ? 2 : 3);
+  const numLinhas = Math.ceil(n/porLinha);
+  const base = Math.floor(n/numLinhas), extra = n % numLinhas;
+  return Array.from({length:numLinhas}, (_,i)=> base + (i<extra ? 1 : 0));
+}
+
+function _montarSlideEscala(rotulo, tituloFaixa, linhas, corBorda, k){
+  const banda = tituloFaixa ? `<div style="flex:none;background:${corBorda};color:white;text-align:center;padding:7px 20px;border-radius:8px;margin:10px 0 12px"><span style="font-size:27px;font-weight:800;letter-spacing:.5px">${tituloFaixa}</span></div>` : '<div style="flex:none;height:12px"></div>';
+  const grade = linhas.map(l=>`<div class="slide-linha" style="display:flex;gap:${SLIDE_GAP_H}px;justify-content:center;align-items:flex-start">${l.map(h=>`<div style="width:${SLIDE_CARD_W}px;flex:none">${cardHorarioFin(h,k)}</div>`).join('')}</div>`).join('');
+  return `<div style="width:${SLIDE_W}px;height:${SLIDE_H}px;box-sizing:border-box;overflow:hidden;background:white;border:3px solid ${corBorda};border-radius:14px;padding:14px 24px 10px;display:flex;flex-direction:column;font-family:Arial,sans-serif;color:#1a1a1a">
+    <div style="flex:none;display:flex;align-items:center;gap:22px;border-bottom:4px solid ${corBorda};padding-bottom:10px">
+      <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:72px;height:72px;object-fit:contain">
+      <div style="flex:1;text-align:center">
+        <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <h1 style="margin:3px 0;color:${corBorda};font-size:28px">${rotulo}</h1>
+        <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
+      </div>
+      <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:72px;height:72px;object-fit:contain">
+    </div>
+    ${banda}
+    <div class="slide-grade" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:${SLIDE_GAP_V}px;overflow:hidden">${grade}</div>
+    <p style="flex:none;text-align:center;margin:6px 0 0;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:6px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
+  </div>`;
+}
+
+// Gera as imagens (slides) de uma faixa (semana, domingos, dia do Círio, evento).
+// cards: [{hObj}] — a ordem é SEMPRE recalculada aqui pela hora (nunca depende de quem chamou).
+// opcoes.paraFoto=false → PNG em alta resolução (impressão/cópia); padrão = JPEG pra WhatsApp.
+async function capturarPaginaComDivisao(rotulo, tituloFaixa, cards, corBorda, opcoes){
+  const paraFoto = !(opcoes && opcoes.paraFoto === false);
+  const hObjs = _ordenarPorHora((cards||[]).map(c=>c && c.hObj).filter(h=>h && h.ministros && h.ministros.length), h=>h.hora);
+  if(!hObjs.length) return [];
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `position:fixed;left:-9999px;top:0;width:${SLIDE_W}px;height:${SLIDE_H}px;overflow:hidden;background:white`;
   document.body.appendChild(wrap);
-  let blob;
-  try{
+  const esperarImgs = async ()=>{
     await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=>
       img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
     ));
-    await new Promise(r=>setTimeout(r,150));
-    // Esta função só existe pra gerar imagens que viram Foto no WhatsApp (nunca impressão em
-    // papel) — por isso sempre pede o modo "foto" (JPEG, resolução otimizada, v20.68.0).
-    blob = await capturarImagemAlta(wrap, true);
+    await new Promise(r=>setTimeout(r,60));
+  };
+  const montar = async (titulo, linhas, k)=>{
+    wrap.innerHTML = _montarSlideEscala(rotulo, titulo, linhas, corBorda, k);
+    await esperarImgs();
+    return wrap.querySelector('.slide-grade');
+  };
+
+  const resultados = [];
+  try{
+    // 1) MEDIÇÃO: monta todas as linhas no tamanho padrão pra saber a altura de cada uma
+    const tamanhos = _planejarLinhas(hObjs.length);
+    const linhasTodas = [];
+    let pos = 0;
+    tamanhos.forEach(t=>{ linhasTodas.push(hObjs.slice(pos, pos+t)); pos += t; });
+    const gradeMedida = await montar(tituloFaixa, linhasTodas, 1);
+    const alturaUtil = gradeMedida.clientHeight;
+    const alturas = Array.from(gradeMedida.querySelectorAll('.slide-linha')).map(el=>el.offsetHeight);
+
+    // 2) EMPACOTA linhas em slides (na ordem): junta linhas no mesmo slide enquanto couberem
+    const slides = [];
+    let atual = { linhas:[], altura:0 };
+    linhasTodas.forEach((linha,i)=>{
+      const soma = atual.altura + (atual.linhas.length ? SLIDE_GAP_V : 0) + alturas[i];
+      if(atual.linhas.length && soma > alturaUtil){ slides.push(atual); atual = { linhas:[], altura:0 }; }
+      atual.altura += (atual.linhas.length ? SLIDE_GAP_V : 0) + alturas[i];
+      atual.linhas.push(linha);
+    });
+    if(atual.linhas.length) slides.push(atual);
+
+    // 3) DESENHA cada slide; se o conteúdo passar da altura, reduz a escala (k) até caber
+    for(let i=0;i<slides.length;i++){
+      const sl = slides[i];
+      const titulo = slides.length>1
+        ? (tituloFaixa ? `${tituloFaixa} (${i+1}/${slides.length})` : `Parte ${i+1} de ${slides.length}`)
+        : tituloFaixa;
+      let k = Math.min(1, alturaUtil / Math.max(1, sl.altura));
+      let grade = await montar(titulo, sl.linhas, k);
+      for(let tent=0; tent<5 && grade.scrollHeight > grade.clientHeight + 1 && k > SLIDE_K_MIN; tent++){
+        k = Math.max(SLIDE_K_MIN, k * (grade.clientHeight / grade.scrollHeight) * 0.97);
+        grade = await montar(titulo, sl.linhas, k);
+      }
+      const blob = await capturarImagemAlta(wrap, paraFoto);
+      resultados.push({ blob, label: titulo });
+      await new Promise(r=>setTimeout(r,120)); // respiro pro navegador liberar memória
+    }
   }finally{
     document.body.removeChild(wrap);
   }
-
-  // Cabe dentro do limite seguro, ou só tem 1 card (não dá mais pra dividir), ou já dividiu 1 vez
-  // — BLINDAGEM (v20.69.0): NUNCA divide mais de uma vez (no máximo 2 pedaços), pra nunca mais
-  // virar "hora por hora" — o de sempre é 1 imagem só por escala/semana.
-  if(blob.size <= SOGI_QUALIDADE.TAMANHO_MAXIMO_BYTES || cards.length <= 1 || nivel > 1){
-    return [{ blob, label: tituloFaixa }];
-  }
-
-  // Passou do limite: divide os cards em duas metades balanceadas por peso, e gera cada
-  // metade como sua própria imagem em qualidade máxima
-  const ordenados = [...cards].sort((a,b)=>b.peso-a.peso);
-  const grupoA = [], grupoB = [];
-  let pesoA = 0, pesoB = 0;
-  ordenados.forEach(c=>{
-    if(pesoA <= pesoB){ grupoA.push(c); pesoA += c.peso; }
-    else{ grupoB.push(c); pesoB += c.peso; }
-  });
-  // Restaura a ordem original dentro de cada grupo (evita embaralhar os horários na imagem)
-  const emGrupoA = new Set(grupoA);
-  const parteA = cards.filter(c=>emGrupoA.has(c));
-  const parteB = cards.filter(c=>!emGrupoA.has(c));
-
-  const tituloA = `${tituloFaixa} — parte 1 de 2`;
-  const tituloB = `${tituloFaixa} — parte 2 de 2`;
-  const resultA = await capturarPaginaComDivisao(rotulo, tituloA, parteA, corBorda, nivel+1);
-  const resultB = await capturarPaginaComDivisao(rotulo, tituloB, parteB, corBorda, nivel+1);
-  return [...resultA, ...resultB];
-}
-
-function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
-  if(!cards.length) return null;
-  // Colunas balanceadas por altura. Usa mais colunas quando há muitos horários juntos (ex.: a
-  // Dominical, que junta o mês inteiro numa faixa só) — assim a imagem fica mais larga e menos
-  // alta, o que ajuda a preservar nitidez sem precisar dividir em várias páginas.
-  const numColunas = cards.length > 4 ? 4 : 2;
-  const cols = Array(numColunas).fill('');
-  const alturas = Array(numColunas).fill(0);
-  cards.forEach(c=>{
-    let menor = 0;
-    for(let i=1;i<numColunas;i++){ if(alturas[i] < alturas[menor]) menor = i; }
-    cols[menor] += c.html;
-    alturas[menor] += c.peso;
-  });
-  const banda = tituloFaixa ? `<div style="background:${corBorda};color:white;text-align:center;padding:14px 20px;border-radius:8px;margin:14px 0 22px"><span style="font-size:28px;font-weight:800;letter-spacing:.5px">${tituloFaixa}</span></div>` : '';
-  return `
-   <div style="border:3px solid ${corBorda};border-radius:14px;padding:26px 24px;background:white">
-    <div style="display:flex;align-items:center;gap:22px;border-bottom:4px solid ${corBorda};padding-bottom:16px;margin-bottom:8px">
-      <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
-      <div style="flex:1;text-align:center">
-        <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-        <h1 style="margin:4px 0;color:${corBorda};font-size:30px">${rotulo}</h1>
-        <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-      </div>
-      <img src="${LOGO_MESCE}" crossorigin="anonymous" style="width:84px;height:84px;object-fit:contain">
-    </div>
-    ${banda}
-    <div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box">${cols.map(c=>`<div style="flex:1;min-width:0">${c}</div>`).join('')}</div>
-    <p style="text-align:center;margin-top:24px;font-size:12px;color:#999;border-top:1px solid #eee;padding-top:12px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré (escala finalizada)</p>
-   </div>`;
+  return resultados;
 }
 
 // Retorna um ARRAY de páginas — SEMPRE uma por semana/domingo, nunca dividida em partes.
@@ -6373,11 +6356,8 @@ function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
 function montarPaginasEscalaFinalizada(info){
   const paginas = [];
   (info.semanasComFoto||[]).forEach(sem=>{
-    const cards = (sem.horarios||[]).map(h=>{
-      const html = cardHorarioFin(h);
-      if(!html) return null;
-      return { html, peso: (h.ministros?.length||0) + 2 };
-    }).filter(Boolean);
+    const cards = _ordenarPorHora((sem.horarios||[]).filter(h=>h.ministros && h.ministros.length), h=>h.hora)
+      .map(h=>({ hObj:h, hora:h.hora }));
     if(!cards.length) return;
     const tituloFaixa = sem.label ? `${sem.label}${sem.periodo?' — '+sem.periodo:''}` : (sem.periodo || '');
     paginas.push({ rotulo: info.rotulo, tituloFaixa, cards, corBorda: '#085041', label: sem.label || tituloFaixa });
@@ -6411,8 +6391,7 @@ async function _montarCardsCirioDia(colId){
       ministros: ordenados.map((nome,i)=>({ num:i+1, nome, isResp: nome===g.responsavel, isReforco:false,
         foto: buscarMinistroPorNome(nome)?.foto||null }))
     };
-    const html = cardHorarioFin(hObj);
-    return html ? { html, peso:(hObj.ministros.length||0)+2 } : null;
+    return { hObj, hora }; 
   }).filter(Boolean);
   if(!cards.length) return null;
   return {
@@ -6438,12 +6417,10 @@ async function _montarCardEvento(eventoId){
     ministros: escalados.map((nome,i)=>({ num:i+1, nome, isResp: nome===ev.responsavel, isReforco:false,
       foto: buscarMinistroPorNome(nome)?.foto||null }))
   };
-  const html = cardHorarioFin(hObj);
-  if(!html) return null;
   return {
     rotulo: 'ESCALA EVENTOS ESPECIAIS',
-    tituloFaixa: `Basílica Santuário de Nossa Senhora de Nazaré`,
-    cards: [{ html, peso:(hObj.ministros.length||0)+2 }], corBorda:'#085041'
+    tituloFaixa: '',
+    cards: [{ hObj, hora: hObj.hora }], corBorda:'#085041'
   };
 }
 
@@ -6543,7 +6520,7 @@ window.transmitirEvento = async function(eventoId){
 // e nunca decida a coluna de um horário com base no tamanho do seu card.
 function _distribuirHorariosEmColunasCronologico(horariosComGente, numColunas){
   const buckets = Array.from({length:numColunas}, ()=>[]);
-  const ordenados = [...horariosComGente].sort((a,b)=>a.hora.localeCompare(b.hora));
+  const ordenados = [...horariosComGente].sort((a,b)=>_horaParaMin(a.hora)-_horaParaMin(b.hora));
   ordenados.forEach((h,i)=>{ buckets[i % numColunas].push(h); });
   // Autoverificação: se por qualquer motivo a ordem sair errada, avisa no console (não trava
   // a impressão) — sinal de que alguém mexeu na função acima sem ler este aviso.
@@ -11209,7 +11186,7 @@ window.cirioAdicionarHorario = function(){
   const cfg = window._cirioEdit;
   if(cfg.horarios.includes(v)){ toast('Esse horário já existe.','warn'); return; }
   cfg.horarios.push(v);
-  cfg.horarios.sort();
+  cfg.horarios.sort((a,b)=>_horaParaMin(a)-_horaParaMin(b));
   renderCirioGradeEditor();
 };
 window.cirioRemoverHorario = function(idx){
@@ -13313,15 +13290,6 @@ async function gerarImagemTodasSemanas(){
     const temMinistrosReais = MISSAS_SEM.some(h => (esc[h]?.ministros||[]).length > 0);
     if(!temMinistrosReais) continue;
     // Cor da semana (mesma paleta da impressão)
-    // Cor por HORÁRIO (mesma paleta clean da dominical — padroniza as duas escalas)
-    const CORES_HORARIO_SEM = {
-      '07:00h':{escuro:'#2E5EAA',claro:'#eef3fb'},
-      '09:00h':{escuro:'#1D8A6E',claro:'#eaf6f2'},
-      '12:00h':{escuro:'#9B4A8C',claro:'#f8eef6'},
-      '18:00h':{escuro:'#C05A3E',claro:'#fbefeb'}
-    };
-    // Cor do título da semana (mantém identidade visual da semana, tom neutro escuro)
-    const corImgSemana = '#334155';
 
     // Reforços do mês (para mesclar nos horários certos)
     const refDoHorario = {
@@ -13334,8 +13302,8 @@ async function gerarImagemTodasSemanas(){
     Object.entries(_mapaReforcosEspImg).forEach(([hora, itens])=>{
       refDoHorario[hora] = [...(refDoHorario[hora]||[]), ...itens];
     });
-    let horasCards = [];
-    for(const h of MISSAS_SEM){
+    const hObjs = [];
+    for(const h of _ordenarPorHora(MISSAS_SEM, x=>x)){
       const g = esc[h]||{ministros:[],responsavel:''};
       const resp = g.responsavel;
       const ord = [...(g.ministros||[])].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
@@ -13353,98 +13321,45 @@ async function gerarImagemTodasSemanas(){
       const totalRef = refsHora.reduce((a,r)=>a+r.ministros.length,0);
       if(!ord.length && !totalRef) continue;
 
-      const dias = (info?.dias||[]).filter(d=>MISSAS_SEM_DIAS[d.dia]?.includes(h));
-      const datasLabel = dias.map(d=>`${d.dia.slice(0,3)} ${d.data}`).join(' · ');
       const respObj = buscarMinistroPorNome(resp);
-      const corH = CORES_HORARIO_SEM[h] || {escuro:'#085041',claro:'#eef5f2'};
-
-      let idx=0;
-      const linhasN = ord.map((m)=>{
-        idx++;
-        const isResp = m===resp;
-        const mo = buscarMinistroPorNome(m);
-        const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:60px;height:60px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid ${corH.escuro}">` : `<div style="width:60px;height:60px;border-radius:50%;background:#fff;color:${corH.escuro};display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;margin:0 auto;border:2px solid ${corH.escuro}">${iniciais(m)}</div>`;
-        return `<tr><td style="width:50px;text-align:center;color:#666;padding:8px 6px;font-size:24px;border-bottom:1px solid rgba(0,0,0,.08)">${idx}</td><td style="width:76px;text-align:center;padding:7px;border-bottom:1px solid rgba(0,0,0,.08)">${fotoHtml}</td><td style="padding:11px 12px;font-size:29px;line-height:1.2;color:#1a1a1a;border-bottom:1px solid rgba(0,0,0,.08);${isResp?'font-weight:700':''}">${m}</td></tr>`;
-      }).join('');
-
-      let linhasR='';
-      for(const rf of refsHora){
-        linhasR += rf.ministros.map((m)=>{
-          idx++;
-          const mo = buscarMinistroPorNome(m);
-          const fotoHtml = mo?.foto ? `<img src="${mo.foto}" crossorigin="anonymous" style="width:60px;height:60px;border-radius:50%;object-fit:cover;display:block;margin:0 auto;border:2px solid #e0c04a">` : `<div style="width:60px;height:60px;border-radius:50%;background:#fdf3d3;color:#8a6d0c;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;margin:0 auto">${iniciais(m)}</div>`;
-          return `<tr style="background:#fff6d6"><td style="width:50px;text-align:center;color:#8a6d0c;padding:6px;font-size:24px;border-bottom:1px solid #f0e2b0">${idx}</td><td style="width:76px;text-align:center;padding:6px;border-bottom:1px solid #f0e2b0">${fotoHtml}</td><td style="padding:9px 12px;font-size:29px;line-height:1.15;font-weight:600;border-bottom:1px solid #f0e2b0">${m} <span style="font-size:21px;background:#f5c518;color:#5a4500;padding:3px 12px;border-radius:16px;font-weight:800;white-space:nowrap">⭐ REFORÇO ${rf.label}</span></td></tr>`;
-        }).join('');
-      }
-
-      const respTelTopS = respObj?.tel ? `<span style="white-space:nowrap;display:inline-block;margin-left:8px">📞 ${respObj.tel}</span>` : '';
-      const respTopS = resp ? `<div style="font-weight:700;font-size:22px;margin-top:4px;line-height:1.3;word-break:break-word">★ ${resp}${respTelTopS}</div>` : '';
-      const _htmlCard = `<div style="border:2px solid ${corH.escuro};border-radius:10px;overflow:hidden;margin-bottom:22px;break-inside:avoid"><div style="background:${corH.escuro};color:white;padding:12px 18px"><div style="font-weight:800;font-size:31px">⏰ ${h}</div>${respTopS}</div><table style="width:100%;border-collapse:separate;border-spacing:0;background:${corH.claro}"><tbody>${linhasN}${linhasR}</tbody></table></div>`;
-      // peso = nº de pessoas (para balancear as colunas por altura)
-      const _peso = ord.length + refsHora.reduce((a,r)=>a+r.ministros.length,0) + 2;
-      horasCards.push({ html:_htmlCard, peso:_peso });
+      let idx = 0;
+      const ministrosH = ord.map(m=>({ num:++idx, nome:m, isResp:m===resp, isReforco:false, foto: buscarMinistroPorNome(m)?.foto||null }));
+      refsHora.forEach(rf=>{
+        rf.ministros.forEach(m=>{
+          ministrosH.push({ num:++idx, nome:m, isResp:false, isReforco:true, isSoReforco:true, reforcoLabel:rf.label, foto: buscarMinistroPorNome(m)?.foto||null });
+        });
+      });
+      hObjs.push({ hora:h, responsavel: resp||'', respTel: respObj?.tel ? ` — ${respObj.tel}` : '', ministros: ministrosH });
     }
-    if(!horasCards.length) continue;
-    // 2 COLUNAS balanceadas por ALTURA (largura 1900px = mesmo tamanho da dominical no zap)
-    const cols2s = ['',''];
-    const alturas2 = [0,0];
-    // preserva ordem cronológica, mas escolhe a coluna mais curta a cada card
-    horasCards.forEach(card=>{
-      const menor = alturas2[0] <= alturas2[1] ? 0 : 1;
-      cols2s[menor] += card.html;
-      alturas2[menor] += card.peso;
-    });
-    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:50px">${s}ª SEMANA</div><div style="font-size:32px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols2s[0]}</div><div style="flex:1;min-width:0">${cols2s[1]}</div></div>`;
-    semanasParaGerar.push({ s, corpo: corpoSemana });
+    if(!hObjs.length) continue;
+    semanasParaGerar.push({ s, hObjs, periodo: info?.periodo||'' });
   }
 
   if(!semanasParaGerar.length){ toast('Nenhuma semana escalada.','warn'); return; }
 
-  // Gera UMA IMAGEM POR SEMANA (cada uma larga e nítida, como a dominical)
+  // Cada semana vira 1 ou mais slides 16:9 — MESMO padrão visual da Dominical, do Círio e dos Eventos
   const totalImgs = semanasParaGerar.length;
+  const paraFoto = (_modoImagem === 'compartilhar' || _modoImagem === 'baixar');
+  const itensShare = [];
   for(let i=0; i<semanasParaGerar.length; i++){
-    const { s, corpo } = semanasParaGerar[i];
+    const { s, hObjs, periodo } = semanasParaGerar[i];
     toast(`Gerando imagem ${i+1} de ${totalImgs} (${s}ª semana)...`, 'ok');
-
-    const wrap = document.createElement('div');
-    wrap.style.cssText='position:fixed;left:-9999px;top:0;width:1900px;background:white;padding:0;font-family:Arial,sans-serif;box-sizing:border-box';
-    wrap.innerHTML = `
-     <div style="border:3px solid #185FA5;border-radius:14px;padding:26px 24px;background:white">
-      <div style="display:flex;align-items:center;gap:18px;border-bottom:4px solid #185FA5;padding-bottom:14px;margin-bottom:16px">
-        <img src="${APP_URL}/${LOGO_BASILICA}" crossorigin="anonymous" style="width:80px;height:80px;object-fit:contain">
-        <div style="flex:1;text-align:center">
-          <p style="font-size:13px;letter-spacing:1.5px;color:#444;margin:0;text-transform:uppercase;font-weight:700">Basílica Santuário de Nossa Senhora de Nazaré</p>
-          <h1 style="margin:4px 0;color:#185FA5;font-size:30px">Escalas Semanais</h1>
-          <p style="font-size:14px;color:#555;margin:0">Ministério Extraordinário da Sagrada Comunhão Eucarística</p>
-        </div>
-        <img src="${APP_URL}/${LOGO_MESCE}" crossorigin="anonymous" style="width:80px;height:80px;object-fit:contain">
-      </div>
-      ${corpo}
-      <p style="text-align:center;margin-top:16px;font-size:11px;color:#999;border-top:1px solid #eee;padding-top:10px">S.O.G.I. — Ministério da Eucaristia · Basílica de Nazaré</p>
-     </div>`;
-    document.body.appendChild(wrap);
-
-    const imgs = wrap.querySelectorAll('img');
-    await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
-    await new Promise(r=>setTimeout(r,200));
-
     try{
-      if(_modoImagem === 'imprimir'){
-        const blob = await capturarImagemAlta(wrap); // impressão: PNG, resolução máxima, sempre
-        _blobsImprimir.push(blob);   // coleta para imprimir todas juntas depois
-      } else {
-        // Compartilhar/Baixar (vira Foto no WhatsApp) — modo "foto": JPEG leve, rápido (v20.68.0)
-        const paraFoto = (_modoImagem === 'compartilhar' || _modoImagem === 'baixar');
-        const blob = await capturarImagemAlta(wrap, paraFoto);
-        await compartilharOuBaixarImagem(blob, `escala_semana${s}_${getMesAtual()}.${_extParaBlob(blob)}`);
-      }
+      const resultados = await capturarPaginaComDivisao('Escala Semanal', `${s}ª SEMANA${periodo?' — '+periodo:''}`, hObjs.map(h=>({hObj:h, hora:h.hora})), '#085041', { paraFoto });
+      resultados.forEach((r,j)=>{
+        if(_modoImagem === 'imprimir') _blobsImprimir.push(r.blob);   // coleta para imprimir todas juntas depois
+        else itensShare.push({ blob:r.blob, nomeArq:`escala_semana${s}${resultados.length>1?'_p'+(j+1):''}_${getMesAtual()}.${_extParaBlob(r.blob)}` });
+      });
     }catch(e){ toast('Erro na '+s+'ª semana: '+e.message,'err'); }
-    finally{ document.body.removeChild(wrap); }
-
-    // pequena pausa entre imagens para o compartilhamento não colidir
-    if(_modoImagem !== 'imprimir' && i < semanasParaGerar.length-1) await new Promise(r=>setTimeout(r,600));
   }
-  if(_modoImagem !== 'imprimir') toast(`✓ ${totalImgs} imagens geradas (uma por semana)!`, 'ok');
+  if(_modoImagem === 'imprimir') return;
+  if(!itensShare.length){ toast('Nenhuma imagem gerada.','warn'); return; }
+  if(_modoImagem === 'copiar'){
+    if(itensShare.length>1) toast(`Copiei a parte 1 de ${itensShare.length}. Pra mandar todas, use a Transmissão Central.`,'warn');
+    await compartilharOuBaixarImagem(itensShare[0].blob, itensShare[0].nomeArq);
+    return;
+  }
+  await compartilharVariasImagens(itensShare, 'Escala MESCE', 'Escala Semanal');
 }
 
 window.imprimirEscala = async function(){
