@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.54.0';
+const APP_VERSAO = '20.55.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11686,7 +11686,20 @@ window.imprimirEscalaCirio = async function(){
 
   const horariosComMissa = (cfg.horarios||[]).filter(h => cfg.colunas.some(c => cfg.grade[c.id] && cfg.grade[c.id][h]));
 
+  // BLINDAGEM (v20.55.0): cada HORÁRIO ganha sua própria cor (igual à Escala Dominical/Semanal
+  // já usa) — o coordenador e os ministros reclamaram que a tabela toda em verde/branco ficava
+  // confusa pra achar rápido "qual é a missa das 07:00". A cor pinta a etiqueta do horário
+  // (coluna da esquerda) e um fundo bem clarinho da mesma cor em toda a linha, pra ler de
+  // relance sem precisar seguir a linha com o dedo.
+  const CORES_HORARIO_CIRIO = {
+    '05:45':{escuro:'#455A64',claro:'#eceff1'}, '06:00':{escuro:'#1565C0',claro:'#e8f1fc'},
+    '07:00':{escuro:'#00897B',claro:'#e6f5f3'}, '08:00':{escuro:'#2E7D32',claro:'#eaf5ea'},
+    '09:00':{escuro:'#9E9D24',claro:'#f7f7e6'}, '10:00':{escuro:'#B8860B',claro:'#fbf3e0'},
+    '12:00':{escuro:'#8E24AA',claro:'#f6ecf9'}, '16:00':{escuro:'#3949AB',claro:'#ecedf9'},
+    '18:00':{escuro:'#D84315',claro:'#fdece5'}, '20:00':{escuro:'#6D4C41',claro:'#efeae8'}
+  };
   const linhasHtml = horariosComMissa.map(h=>{
+    const corH = CORES_HORARIO_CIRIO[h] || {escuro:'#085041',claro:'#eef5f2'};
     const celulas = cfg.colunas.map(c=>{
       const temMissa = cfg.grade[c.id] && cfg.grade[c.id][h];
       if(!temMissa) return `<td class="sem-missa"></td>`;
@@ -11696,9 +11709,9 @@ window.imprimirEscalaCirio = async function(){
       const listaHtml = nomes.length
         ? `<div class="lista-nomes">${nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★':''}</div>`).join('')}</div>`
         : '<div class="vazio">—</div>';
-      return `<td>${listaHtml}</td>`;
+      return `<td style="background:${corH.claro}">${listaHtml}</td>`;
     }).join('');
-    return `<tr><td class="hora-col">${h}</td>${celulas}</tr>`;
+    return `<tr><td class="hora-col" style="background:${corH.escuro};color:#fff">${h}</td>${celulas}</tr>`;
   }).join('');
 
   const colunasHtml = cfg.colunas.map(c=>`<th>${c.label}<br><span class="datas">${_cirioLabelDatas(c)}</span></th>`).join('');
@@ -11709,11 +11722,11 @@ window.imprimirEscalaCirio = async function(){
     body{ font-family: Arial, sans-serif; margin:0; padding:8px; color:#222; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     h1{ text-align:center; font-size:14px; margin:0 0 1px; color:#085041; }
     h2{ text-align:center; font-size:10px; margin:0; color:#666; font-weight:normal; }
-    table{ width:100%; border-collapse:collapse; }
-    th, td{ border:1px solid #ccc; vertical-align:top; padding:3px 5px; font-size:9.5px; line-height:1.25; }
-    th{ background:#f0faf5; color:#000; font-size:11px; font-weight:800; text-align:center; padding:4px 5px; border:1.5px solid #085041; }
+    table{ width:100%; border-collapse:collapse; border:3px solid #C62828; }
+    th, td{ border:1px solid #ccc; border-right:3px solid #C62828; vertical-align:top; padding:3px 5px; font-size:9.5px; line-height:1.25; }
+    th{ background:#f0faf5; color:#000; font-size:11px; font-weight:800; text-align:center; padding:4px 5px; border-top:1.5px solid #085041; border-bottom:1.5px solid #085041; border-right:3px solid #C62828; }
     .datas{ font-weight:700; font-size:9px; color:#000; opacity:1; }
-    .hora-col{ background:#f0faf5; font-weight:700; text-align:center; white-space:nowrap; color:#085041; }
+    .hora-col{ font-weight:700; text-align:center; white-space:nowrap; }
     .lista-nomes{ display:flex; flex-wrap:wrap; }
     .nome{ width:50%; box-sizing:border-box; padding:0.5px 4px 0.5px 6px; }
     .nome:nth-child(odd){ padding-left:0; }
@@ -11733,7 +11746,10 @@ window.imprimirEscalaCirio = async function(){
        difícil de manusear numa reunião.
        BLINDAGEM (v20.51.0): linha azul separando as 2 colunas de nomes — sem isso, ministros
        mais idosos podiam confundir e ler um nome da coluna da esquerda "grudado" com um da
-       direita, achando que era um nome só. */
+       direita, achando que era um nome só.
+       BLINDAGEM (v20.55.0): cada horário ganhou sua própria cor (etiqueta + fundo clarinho da
+       linha inteira) e as colunas dos dias ganharam divisória vermelha grossa — reclamaram que
+       a tabela toda parecida (verde/branco) ficava confusa pra achar o horário certo. */
     thead{ display: table-header-group; } /* repete o cabeçalho (dias/datas) em toda página nova */
     tr{ page-break-inside: avoid; break-inside: avoid; } /* nunca corta um horário no meio */
     .cab-print{ page-break-after: avoid; break-after: avoid; }
