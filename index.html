@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.59.0';
+const APP_VERSAO = '20.60.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4954,12 +4954,31 @@ async function compartilharOuBaixarImagem(blob, nomeArq){
 // Compartilha VÁRIAS imagens de uma vez, numa ÚNICA chamada ao WhatsApp (evita o problema de só a
 // primeira imagem ir — o navegador só permite abrir a caixinha de compartilhar em resposta direta
 // ao toque; chamando várias vezes seguidas, só a primeira funciona de verdade).
+// BLINDAGEM (v20.60.0): o fluxo antigo baixava os arquivos e pedia pra anexar como "Documento" no
+// WhatsApp — muito lento e confuso pra quem não tem prática (não sabiam achar a pasta de downloads
+// nem o que era "Documento"). Agora, no celular, usa o compartilhamento nativo (1 toque no botão
+// "Enviar" já abre direto o WhatsApp escolhendo o contato/grupo, manda como foto mesmo). A imagem
+// já sai em altíssima resolução (SOGI_QUALIDADE.ESCALA_ALVO=8x) bem antes de qualquer compressão do
+// WhatsApp, então mesmo indo "como foto" o texto continua nítido e legível. Só cai pro download
+// manual (com a instrução de anexar como Documento) em computador, onde não existe esse
+// compartilhamento nativo.
 async function compartilharVariasImagens(itens, tituloShare, textoShare){
   // itens: [{blob, nomeArq}, ...] já na ordem certa de leitura (ex.: Dominical, depois semana 1, 2, 3, 4)
-  // Baixa direto (sem tentar o compartilhamento automático do navegador) — o compartilhamento automático
-  // manda pro WhatsApp pelo caminho de "Foto/Galeria", que comprime bastante. Baixando e anexando como
-  // "Documento" manualmente no WhatsApp preserva a qualidade da imagem.
   const files = itens.map(it => new File([it.blob], it.nomeArq, {type:'image/png'}));
+
+  if(navigator.canShare && navigator.canShare({files})){
+    try{
+      await navigator.share({ files, title: tituloShare||'Escala MESCE', text: textoShare||'' });
+      toast('✓ Enviado!','ok');
+      return;
+    }catch(e){
+      if(e.name==='AbortError') return; // usuário cancelou o compartilhamento — não faz nada
+      // qualquer outro erro: cai pro download manual abaixo
+    }
+  }
+
+  // Fallback (computador, ou celular sem suporte a compartilhamento nativo): baixa direto e pede
+  // pra anexar como "Documento" no WhatsApp, que preserva a qualidade da imagem.
   const msg = files.length>1
     ? `${files.length} imagens baixadas. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade, e selecione todas.`
     : `Imagem baixada. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade.`;
@@ -6916,10 +6935,10 @@ window.montarFilaTransmissao = function(){
   const itensSelecionados = marcados.map(i=>window._transmItens[i]).filter(Boolean);
   const acoes = { dom:'compartilharEscalaFinalizada', sem:'transmitirPaginaIndividual', cirio:'transmitirCirioDia', evento:'transmitirEvento' };
   fila.innerHTML = `<p class="ct" style="color:#1ba34d;margin:0 0 4px">📤 Fila de envio</p>
-    <p style="font-size:11.5px;color:#666;margin:0 0 12px">Toque em cada botão abaixo, um de cada vez, na ordem. Cada um baixa a imagem já pronta — no WhatsApp, anexe como 📎 Documento (não Foto) pra manter a qualidade.</p>` +
+    <p style="font-size:11.5px;color:#666;margin:0 0 12px">Toque em "Enviar" em cada item abaixo, um de cada vez — no celular abre direto a tela de compartilhar do WhatsApp, é só escolher o contato/grupo e mandar. Em computador, a imagem é baixada (anexe como 📎 Documento pra manter a qualidade).</p>` +
     itensSelecionados.map((it,i)=>{
       const args = it.tipo==='sem' ? `'${it.chave}',${it.indice}` : `'${it.chave}'`;
-      return `<button onclick="${acoes[it.tipo]}(${args})" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left">${i+1}. 📤 ${it.label}</button>`;
+      return `<button onclick="${acoes[it.tipo]}(${args})" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left">${i+1}. 📤 Enviar — ${it.label}</button>`;
     }).join('');
   fila.style.display='block';
   fila.scrollIntoView({behavior:'smooth', block:'start'});
