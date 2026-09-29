@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.65.0';
+const APP_VERSAO = '20.66.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6412,11 +6412,14 @@ async function _gerarEBaixarPagina(pagina, nomeArqBase){
   await compartilharVariasImagens(itens, 'Escala MESCE', pagina.rotulo);
 }
 
-// BLINDAGEM (v20.62.0): gera os arquivos (File[]) de UM item da Transmissão Central SEM baixar
-// nem compartilhar ainda — usado pela automação da fila de envio, que já prepara tudo sozinha em
-// segundo plano assim que a fila é montada. Assim, quando o usuário toca em "Enviar", o arquivo
-// já está pronto e o compartilhamento nativo dispara na hora, sem nenhum trabalho pesado entre o
-// toque e o WhatsApp abrir (é exatamente esse atraso que fazia o compartilhamento travar).
+// BLINDAGEM (v20.66.0): descoberto em teste real — quando uma escala vira MAIS DE UMA imagem
+// (ex.: Escala Dominical com várias semanas), compartilhar todas juntas numa única chamada
+// navigator.share({files:[...]}) falha em muitos celulares (canShare retorna falso pra array com
+// mais de 1 arquivo), e o app caía pro download manual sem avisar por quê — parecia que "não
+// transmitia". O jeito de sempre (que já funcionava rápido) sempre compartilhou UM ARQUIVO POR
+// VEZ. Por isso _prepararArquivosParaItem agora devolve uma LISTA de entregas avulsas (1 arquivo
+// cada), e cada uma vira seu próprio botão "Enviar" na fila — nunca mais agrupa vários arquivos
+// numa chamada só de compartilhamento.
 async function _prepararArquivosParaItem(it){
   let paginas = [];
   let nomeArqBase = '';
@@ -6445,16 +6448,23 @@ async function _prepararArquivosParaItem(it){
   }
   if(!paginas.length) return null;
 
-  const files = [];
+  // Cada PÁGINA (e cada parte, se uma página precisou ser dividida por tamanho) vira uma entrega
+  // AVULSA — um arquivo, um rótulo, um botão de enviar próprio. Nunca agrupa vários arquivos numa
+  // mesma chamada de compartilhamento (ver BLINDAGEM v20.66.0 acima).
+  const arquivos = [];
   for(let i=0;i<paginas.length;i++){
     const resultados = await capturarPaginaComDivisao(paginas[i].rotulo, paginas[i].tituloFaixa, paginas[i].cards, paginas[i].corBorda);
     resultados.forEach((r,j)=>{
       const sufixoParte = paginas.length>1 ? `_${i+1}` : '';
       const sufixoDivisao = resultados.length>1 ? `_p${j+1}` : '';
-      files.push(new File([r.blob], `${nomeArqBase}${sufixoParte}${sufixoDivisao}.png`, {type:'image/png'}));
+      const nomeArq = `${nomeArqBase}${sufixoParte}${sufixoDivisao}.png`;
+      const file = new File([r.blob], nomeArq, {type:'image/png'});
+      const rotuloParte = (paginas.length>1 ? `${it.label} — ${paginas[i].tituloFaixa||paginas[i].label||('parte '+(i+1))}` : it.label)
+        + (resultados.length>1 ? ` (p.${j+1}/${resultados.length})` : '');
+      arquivos.push({ file, tituloShare: rotuloParte });
     });
   }
-  return { files, tituloShare: it.label };
+  return { arquivos };
 }
 
 window.transmitirCirioDia = async function(colId){
@@ -7031,11 +7041,12 @@ window.renderTransmissaoCentral = async function(){
   }
 };
 
-// BLINDAGEM (v20.62.0): AUTOMAÇÃO — assim que a fila é montada, TODAS as imagens selecionadas já
+// BLINDAGEM (v20.66.0): AUTOMAÇÃO — assim que a fila é montada, TODAS as imagens selecionadas já
 // começam a ser geradas sozinhas, em segundo plano, uma de cada vez (sem precisar tocar em nada).
 // Cada botão passa de "⏳ Preparando" pra "📤 Enviar" automaticamente assim que sua imagem fica
-// pronta. O usuário só precisa dar UM toque por escala — no "Enviar" — e o WhatsApp abre na hora,
-// porque o arquivo já está pronto de antemão (nenhum trabalho pesado entre o toque e o compartilhar).
+// pronta. Quando uma escala vira mais de uma imagem (ex.: Dominical com várias semanas), CADA
+// imagem ganha seu PRÓPRIO botão — nunca agrupa vários arquivos num só compartilhamento (ver
+// BLINDAGEM em _prepararArquivosParaItem: isso é o que fazia "baixar mas não abrir o WhatsApp").
 window.montarFilaTransmissao = function(){
   const marcados = Array.from(document.querySelectorAll('.transm-chk:checked')).map(el=>parseInt(el.dataset.idx,10));
   const fila = document.getElementById('transm-fila');
@@ -7044,50 +7055,68 @@ window.montarFilaTransmissao = function(){
   window._transmArquivosProntos = {};
 
   fila.innerHTML = `<p class="ct" style="color:#1ba34d;margin:0 0 4px">📤 Fila de envio</p>
-    <p style="font-size:11.5px;color:#666;margin:0 0 12px">As imagens já estão sendo preparadas sozinhas — assim que cada uma ficar pronta (fica verde), toque em "Enviar" que abre direto o WhatsApp pra escolher o contato/grupo e mandar como foto.</p>` +
-    itensSelecionados.map((it,i)=>`<button id="transm-btn-${i}" disabled
-      style="width:100%;padding:12px;border:none;border-radius:9px;background:#ccc;color:white;font-size:13px;font-weight:700;cursor:wait;margin-bottom:8px;text-align:left">${i+1}. ⏳ Preparando... — ${it.label}</button>`).join('');
+    <p style="font-size:11.5px;color:#666;margin:0 0 12px">As imagens já estão sendo preparadas sozinhas — assim que cada uma ficar pronta (fica verde), toque em "Enviar" que abre direto o WhatsApp pra escolher o contato/grupo e mandar como foto.</p>
+    <div id="transm-fila-botoes"></div>`;
   fila.style.display='block';
   fila.scrollIntoView({behavior:'smooth', block:'start'});
+  const cont = document.getElementById('transm-fila-botoes');
 
-  // Gera uma de cada vez (em série) — é trabalho pesado de desenho, gerar tudo ao mesmo tempo só
-  // deixaria o aparelho mais lento sem entregar nada mais rápido.
+  let proximoId = 0;
+  const addBotaoPreparando = (label)=>{
+    const id = proximoId++;
+    const btn = document.createElement('button');
+    btn.id = `transm-btn-${id}`;
+    btn.disabled = true;
+    btn.style.cssText = 'width:100%;padding:12px;border:none;border-radius:9px;background:#ccc;color:white;font-size:13px;font-weight:700;cursor:wait;margin-bottom:8px;text-align:left';
+    btn.textContent = `⏳ Preparando... — ${label}`;
+    cont.appendChild(btn);
+    return id;
+  };
+
+  // Gera um ITEM de cada vez (em série) — é trabalho pesado de desenho, gerar tudo ao mesmo tempo
+  // só deixaria o aparelho mais lento sem entregar nada mais rápido.
   (async ()=>{
-    for(let i=0;i<itensSelecionados.length;i++){
-      const it = itensSelecionados[i];
-      const btn = document.getElementById(`transm-btn-${i}`);
+    for(const it of itensSelecionados){
+      const idPreparando = addBotaoPreparando(it.label);
+      const btnPreparando = document.getElementById(`transm-btn-${idPreparando}`);
       try{
         const resultado = await _prepararArquivosParaItem(it);
-        if(!btn) continue; // usuário já saiu da tela de transmissão
-        if(!resultado || !resultado.files.length){
-          btn.textContent = `${i+1}. ⚠️ Nada pra transmitir — ${it.label}`;
-          btn.style.background = '#BA7517';
+        if(!resultado || !resultado.arquivos.length){
+          if(btnPreparando){
+            btnPreparando.textContent = `⚠️ Nada pra transmitir — ${it.label}`;
+            btnPreparando.style.background = '#BA7517';
+          }
           continue;
         }
-        window._transmArquivosProntos[i] = resultado;
-        btn.disabled = false;
-        btn.style.background = '#1ba34d';
-        btn.style.cursor = 'pointer';
-        btn.textContent = `${i+1}. 📤 Enviar — ${it.label}`;
-        btn.onclick = ()=>enviarItemDaFila(i);
+        // Cada arquivo avulso vira SEU PRÓPRIO botão "Enviar", pronto na hora — nunca agrupado.
+        resultado.arquivos.forEach(({file, tituloShare}, j)=>{
+          const btn = (j===0 && btnPreparando) ? btnPreparando : (()=>{ const nid=proximoId++; const b=document.createElement('button'); b.id=`transm-btn-${nid}`; cont.appendChild(b); return b; })();
+          window._transmArquivosProntos[btn.id] = { file, tituloShare };
+          btn.disabled = false;
+          btn.style.cssText = 'width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left';
+          btn.textContent = `📤 Enviar — ${tituloShare}`;
+          btn.onclick = ()=>enviarItemDaFila(btn.id);
+        });
       }catch(e){
-        if(btn){ btn.textContent = `${i+1}. ⚠️ Erro: ${e.message}`; btn.style.background='#A32D2D'; }
+        if(btnPreparando){ btnPreparando.textContent = `⚠️ Erro: ${e.message} — ${it.label}`; btnPreparando.style.background='#A32D2D'; }
       }
     }
   })();
 };
 
-// Chamado só pelo toque no botão "Enviar" — o arquivo já está pronto (gerado em segundo plano),
-// então esse toque É o gesto que o navegador exige, e o compartilhamento dispara imediatamente.
-window.enviarItemDaFila = async function(idx){
-  const resultado = window._transmArquivosProntos?.[idx];
-  const btn = document.getElementById(`transm-btn-${idx}`);
+// Chamado só pelo toque no botão "Enviar" — o arquivo já está pronto (gerado em segundo plano) e é
+// SEMPRE UM ÚNICO ARQUIVO (nunca vários juntos — ver BLINDAGEM v20.66.0), então esse toque É o
+// gesto que o navegador exige, e o compartilhamento dispara imediatamente, do mesmo jeito que
+// sempre funcionou nas outras escalas.
+window.enviarItemDaFila = async function(btnId){
+  const resultado = window._transmArquivosProntos?.[btnId];
+  const btn = document.getElementById(btnId);
   if(!resultado){ toast('Essa imagem ainda não está pronta, aguarde um instante.','warn'); return; }
-  const { files, tituloShare } = resultado;
+  const { file, tituloShare } = resultado;
   if(btn){ btn.disabled = true; btn.textContent = '...'; }
-  if(navigator.canShare && navigator.canShare({files})){
+  if(navigator.canShare && navigator.canShare({files:[file]})){
     try{
-      await navigator.share({ files, title:'Escala MESCE', text: tituloShare||'' });
+      await navigator.share({ files:[file], title:'Escala MESCE', text: tituloShare||'' });
       if(btn){ btn.style.background='#888'; btn.style.cursor='default'; btn.textContent = `✓ Enviado — ${tituloShare}`; }
       return;
     }catch(e){
@@ -7098,19 +7127,12 @@ window.enviarItemDaFila = async function(idx){
   // Fallback (computador, ou celular sem suporte a compartilhamento nativo): baixa e orienta a
   // anexar como Foto/Galeria — a maioria dos ministros não sabe anexar como "Documento" (v20.64.0).
   // Qualidade protegida na origem: a imagem já sai em resolução altíssima antes da compressão.
-  const msg = files.length>1
-    ? `${files.length} imagens baixadas. No WhatsApp, toque em 📎 → Foto/Galeria e selecione todas (em ordem).`
-    : `Imagem baixada. No WhatsApp, toque em 📎 → Foto/Galeria e selecione a imagem.`;
-  toast(msg, 'ok');
-  for(let i=files.length-1;i>=0;i--){
-    const f = files[i];
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(f);
-    a.download=f.name;
-    a.click();
-    await new Promise(r=>setTimeout(r,300));
-    URL.revokeObjectURL(a.href);
-  }
+  toast('Imagem baixada. No WhatsApp, toque em 📎 → Foto/Galeria e selecione a imagem.', 'ok');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(file);
+  a.download=file.name;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
   if(btn){ btn.style.background='#888'; btn.style.cursor='default'; btn.textContent = `✓ Baixado — ${tituloShare}`; }
 };
 
