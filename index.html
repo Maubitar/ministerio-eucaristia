@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.55.0';
+const APP_VERSAO = '20.56.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11722,9 +11722,9 @@ window.imprimirEscalaCirio = async function(){
     body{ font-family: Arial, sans-serif; margin:0; padding:8px; color:#222; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     h1{ text-align:center; font-size:14px; margin:0 0 1px; color:#085041; }
     h2{ text-align:center; font-size:10px; margin:0; color:#666; font-weight:normal; }
-    table{ width:100%; border-collapse:collapse; border:3px solid #C62828; }
+    table{ width:100%; border-collapse:collapse; border:3px solid #000; }
     th, td{ border:1px solid #ccc; border-right:3px solid #C62828; vertical-align:top; padding:3px 5px; font-size:9.5px; line-height:1.25; }
-    th{ background:#f0faf5; color:#000; font-size:11px; font-weight:800; text-align:center; padding:4px 5px; border-top:1.5px solid #085041; border-bottom:1.5px solid #085041; border-right:3px solid #C62828; }
+    th{ background:#f0faf5; color:#000; font-size:11px; font-weight:800; text-align:center; padding:4px 5px; border-top:1.5px solid #000; border-bottom:1.5px solid #000; border-right:3px solid #C62828; }
     .datas{ font-weight:700; font-size:9px; color:#000; opacity:1; }
     .hora-col{ font-weight:700; text-align:center; white-space:nowrap; }
     .lista-nomes{ display:flex; flex-wrap:wrap; }
@@ -11749,7 +11749,10 @@ window.imprimirEscalaCirio = async function(){
        direita, achando que era um nome só.
        BLINDAGEM (v20.55.0): cada horário ganhou sua própria cor (etiqueta + fundo clarinho da
        linha inteira) e as colunas dos dias ganharam divisória vermelha grossa — reclamaram que
-       a tabela toda parecida (verde/branco) ficava confusa pra achar o horário certo. */
+       a tabela toda parecida (verde/branco) ficava confusa pra achar o horário certo.
+       BLINDAGEM (v20.56.0): moldura externa e linhas do cabeçalho voltaram a ser pretas — o
+       vermelho ficou reservado só pra divisória entre as colunas dos dias, pra não competir
+       visualmente com as cores dos horários. */
     thead{ display: table-header-group; } /* repete o cabeçalho (dias/datas) em toda página nova */
     tr{ page-break-inside: avoid; break-inside: avoid; } /* nunca corta um horário no meio */
     .cab-print{ page-break-after: avoid; break-after: avoid; }
