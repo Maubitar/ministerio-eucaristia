@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.58.0';
+const APP_VERSAO = '20.59.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4218,6 +4218,7 @@ function renderBlocosReforcoNaEscala(){
     const lista = r.ministros || [];
     const resp = r.responsavel || '';
     const ord = [...lista].sort((a,b)=>{ if(a===resp)return -1; if(b===resp)return 1; return a.localeCompare(b,'pt-BR'); });
+    const respTelReforco = resp ? buscarMinistroPorNome(resp)?.tel : '';
 
     html += `<div style="background:#f7f2fc;border:1.5px solid #d9c2f0;border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="background:#0A5F5E;color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
@@ -4227,7 +4228,7 @@ function renderBlocosReforcoNaEscala(){
         </div>
         <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.25);padding:2px 9px;border-radius:20px">${lista.length} 👤</span>
       </div>
-      ${resp?`<div style="font-size:11px;background:#e0f2f1;color:#0A5F5E;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${resp}</div>`:''}
+      ${resp?`<div style="font-size:11px;background:#e0f2f1;color:#0A5F5E;padding:4px 10px;border-radius:20px;display:inline-block;margin-bottom:8px">★ Responsável: ${resp}${respTelReforco?` · 📞 ${respTelReforco}`:''}</div>`:''}
       ${ord.length ? ord.map((m,mi)=>{
         const min = buscarMinistroPorNome(m);
         const foto = min?.foto
@@ -9187,7 +9188,7 @@ window.verTodasEscalas = async function(){
         <span style="font-weight:600;font-size:13px">⏰ ${hora}</span>
         ${g.ministros.length?`<span style="font-size:11px;background:#e1f5ee;color:#085041;padding:2px 8px;border-radius:20px">${g.ministros.length} ministros</span>`:`<span style="font-size:11px;color:#ccc">Não escalado</span>`}
       </div>
-      ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}</p>`:''}
+      ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}${buscarMinistroPorNome(g.responsavel)?.tel?` · 📞 ${buscarMinistroPorNome(g.responsavel).tel}`:''}</p>`:''}
       <div style="display:flex;flex-wrap:wrap;gap:4px">
         ${g.ministros.map(m=>`<span style="font-size:11px;padding:2px 8px;background:${m===g.responsavel?'#faeeda':'#f5f5f3'};color:${m===g.responsavel?'#633806':'#555'};border-radius:20px">${m.split(' ').slice(0,2).join(' ')}</span>`).join('')||'<span style="font-size:11px;color:#ccc">—</span>'}
       </div>
@@ -9215,7 +9216,7 @@ window.verTodasEscalas = async function(){
           <span style="font-weight:600;font-size:13px">⏰ ${hora}</span>
           ${g.ministros.length?`<span style="font-size:11px;background:#e6f1fb;color:#185FA5;padding:2px 8px;border-radius:20px">${g.ministros.length} ministros</span>`:`<span style="font-size:11px;color:#ccc">Não escalado</span>`}
         </div>
-        ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}</p>`:''}
+        ${g.responsavel?`<p style="font-size:11px;color:#B8860B;font-weight:600;margin-bottom:4px">★ Responsável: ${g.responsavel}${buscarMinistroPorNome(g.responsavel)?.tel?` · 📞 ${buscarMinistroPorNome(g.responsavel).tel}`:''}</p>`:''}
         <div style="display:flex;flex-wrap:wrap;gap:4px">
           ${g.ministros.map(m=>`<span style="font-size:11px;padding:2px 8px;background:${m===g.responsavel?'#faeeda':'#f5f5f3'};color:${m===g.responsavel?'#633806':'#555'};border-radius:20px">${m.split(' ').slice(0,2).join(' ')}</span>`).join('')||'<span style="font-size:11px;color:#ccc">—</span>'}
         </div>
@@ -11445,6 +11446,7 @@ function renderCardHorarioCirio(colId, hora){
       const isResp = nome===dados.responsavel;
       const n = (window._cirioContagemEscalas||{})[nome]||0;
       const detalheOutros = n>1 ? _cirioDetalheTexto(nome) : '';
+      const respTelBadge = isResp && min?.tel ? ` <span style="font-size:9px;color:#085041;font-weight:700">📞 ${min.tel}</span>` : '';
       const foto = min?.foto
         ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
         : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
@@ -11452,7 +11454,7 @@ function renderCardHorarioCirio(colId, hora){
         <button onclick="cirioEscDefinirResp('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Definir como responsável" style="width:28px;height:26px;border:1px solid ${isResp?'#BA7517':'#ddd'};border-radius:6px;background:${isResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
         ${foto}
         <span style="flex:1;font-size:12px;font-weight:${isResp?'700':'500'};min-width:0">
-          <div>${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</div>
+          <div>${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>'+respTelBadge:''}</div>
           ${detalheOutros?`<div style="font-size:9px;color:${n>=3?'#A32D2D':'#888'};font-weight:600">também em: ${detalheOutros}</div>`:''}
         </span>
         <button onclick="cirioEscRemoverMin('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Remover" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
@@ -11706,8 +11708,10 @@ window.imprimirEscalaCirio = async function(){
       const dadosHora = (dadosPorColuna[c.id]||{})[h] || {ministros:[], responsavel:''};
       const nomes = dadosHora.ministros || [];
       const resp = dadosHora.responsavel || '';
+      const respTelObj = resp ? buscarMinistroPorNome(resp) : null;
+      const respTel = respTelObj?.tel ? `<br><span class="tel-resp">📞 ${respTelObj.tel}</span>` : '';
       const listaHtml = nomes.length
-        ? `<div class="lista-nomes">${nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★':''}</div>`).join('')}</div>`
+        ? `<div class="lista-nomes">${nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★'+respTel:''}</div>`).join('')}</div>`
         : '<div class="vazio">—</div>';
       return `<td style="background:${corH.claro}">${listaHtml}</td>`;
     }).join('');
@@ -11732,6 +11736,7 @@ window.imprimirEscalaCirio = async function(){
     .nome:nth-child(odd){ padding-left:0; }
     .nome:nth-child(even){ border-left:1.5px solid #C62828; }
     .nome.resp{ font-weight:700; color:#a07d2a; }
+    .tel-resp{ font-weight:700; color:#085041; font-size:8.5px; white-space:nowrap; }
     .vazio{ color:#ccc; text-align:center; }
     .sem-missa{ background:#f8d7da; }
     .cab-print{ display:flex; align-items:center; gap:8px; border-bottom:2px solid #085041; padding-bottom:4px; margin-bottom:6px; }
@@ -11756,7 +11761,10 @@ window.imprimirEscalaCirio = async function(){
        BLINDAGEM (v20.57.0): TODAS as linhas do grid (linhas E colunas) ficaram pretas de novo —
        o vermelho isolado só nas colunas não tinha contraste suficiente contra o fundo colorido
        de cada horário. A divisória interna entre as 2 colunas de nomes (dentro da célula), que
-       era azul, virou vermelha, a pedido. */
+       era azul, virou vermelha, a pedido.
+       BLINDAGEM (v20.59.0): telefone do responsável ao lado do nome dele também nesta impressão
+       — igual às escalas Dominical/Semanal e Eventos Especiais, pra sempre ter como recorrer a
+       ele na hora do aperto. */
     thead{ display: table-header-group; } /* repete o cabeçalho (dias/datas) em toda página nova */
     tr{ page-break-inside: avoid; break-inside: avoid; } /* nunca corta um horário no meio */
     .cab-print{ page-break-after: avoid; break-after: avoid; }
@@ -13789,13 +13797,14 @@ function renderEventoDetalhe(){
       ${escala.length ? escala.map(nome=>{
         const ehResp = e.responsavel===nome;
         const min = buscarMinistroPorNome(nome);
+        const respTelBadge = ehResp && min?.tel ? ` <span style="font-size:9px;color:#085041;font-weight:700">📞 ${min.tel}</span>` : '';
         const foto = min?.foto
           ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
           : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
         return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
           <button onclick="setRespEvento('${nome.replace(/'/g,"\\'")}')" title="Responsável" style="width:28px;height:26px;border:1px solid ${ehResp?'#BA7517':'#ddd'};border-radius:6px;background:${ehResp?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
           ${foto}
-          <span style="flex:1;font-size:12px;font-weight:${ehResp?'700':'500'}">${nome}${ehResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</span>
+          <span style="flex:1;font-size:12px;font-weight:${ehResp?'700':'500'}">${nome}${ehResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>'+respTelBadge:''}</span>
           <button onclick="removerMinEvento('${nome.replace(/'/g,"\\'")}')" style="border:none;background:none;color:#ccc;font-size:18px;cursor:pointer;line-height:1">×</button>
         </div>`;
       }).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
