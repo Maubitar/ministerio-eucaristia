@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.67.0';
+const APP_VERSAO = '20.69.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4831,14 +4831,30 @@ window.compartilharEscala = async function(){
 // termo real: mesma qualidade de sempre, mas o tempo de espera é absorvido pela automação em vez
 // de ser somado a cada envio, um atrás do outro.
 const SOGI_QUALIDADE = Object.freeze({
-  ESCALA_ALVO: 8,           // multiplicador de resolução — restaurado ao padrão máximo (v20.63.0): qualidade nunca é reduzida por velocidade
+  ESCALA_ALVO: 8,           // multiplicador de resolução — padrão máximo, USADO SÓ PRA IMPRESSÃO/CÓPIA (papel físico e clipboard): qualidade nunca é reduzida por velocidade
   ESCALA_MINIMA: 3,         // NUNCA gera abaixo disto (blindagem)
-  LADO_MAXIMO: 16000,       // teto físico — restaurado (v20.63.0)
+  LADO_MAXIMO: 16000,       // teto físico da impressão/cópia
   TAMANHO_MINIMO_BYTES: 5000, // abaixo disto = falha, tenta de novo
-  TAMANHO_MAXIMO_BYTES: 15*1024*1024 // 15MB — limite seguro do WhatsApp (16MB), usado para decidir se divide em mais páginas
+  // AJUSTE DE GOVERNANÇA (v20.69.0): "não é pra baixar horário por horário" — com a imagem de
+  // WhatsApp agora saindo em JPEG (v20.68.0), o arquivo fica muito menor do que era em PNG, então
+  // esse limite quase nunca deveria ser atingido mais. Subido de 15MB pra 20MB (folga extra) e o
+  // número de vezes que pode dividir foi travado em NO MÁXIMO 1 vez (nunca mais recursivo virando
+  // 4, 6, 8 pedaços) — o normal agora é 1 imagem só por escala/semana, do jeito que sempre foi.
+  TAMANHO_MAXIMO_BYTES: 20*1024*1024, // 20MB — limite seguro (WhatsApp recomprime Foto de qualquer forma)
+  // AJUSTE DE GOVERNANÇA (v20.68.0): "está lento" — a imagem pra WhatsApp (Foto) sempre foi gerada
+  // na MESMA resolução gigante usada pra imprimir em papel (8x, até 16000px de lado), só pra depois
+  // o próprio WhatsApp recomprimir tudo pra ~1600px em JPEG na hora de mandar como Foto — ou seja,
+  // o tempo (e o peso do arquivo) gerando 8x era jogado fora pelo WhatsApp mesmo. A resolução abaixo
+  // já é muito maior que o que qualquer Foto do WhatsApp preserva, então NADA se perde na prática —
+  // só o desperdício de tempo é cortado. A impressão em papel (ESCALA_ALVO acima) continua intocada.
+  ESCALA_ALVO_FOTO: 4,      // resolução da imagem que vai virar Foto no WhatsApp — nítida, rápida de gerar e leve de baixar
+  QUALIDADE_JPEG_FOTO: 0.93 // JPEG de altíssima qualidade — visualmente idêntico ao PNG depois que o WhatsApp recomprime
 });
 
-async function capturarImagemAlta(elemento){
+// paraFoto=true → saída otimizada pra virar Foto no WhatsApp (JPEG, resolução ESCALA_ALVO_FOTO).
+// paraFoto=false (padrão, NUNCA muda o comportamento de quem já chamava esta função) → PNG na
+// resolução máxima de sempre, usado pra Imprimir e Copiar (clipboard), onde a qualidade bruta importa.
+async function capturarImagemAlta(elemento, paraFoto){
   // 1) BLINDAGEM: garante que TODAS as imagens (fotos dos ministros) carregaram antes de capturar
   const imgs = elemento.querySelectorAll('img');
   await Promise.all([...imgs].map(img=>img.complete?Promise.resolve():new Promise(r=>{img.onload=r;img.onerror=r;})));
@@ -4847,10 +4863,13 @@ async function capturarImagemAlta(elemento){
   // 2) BLINDAGEM DE RESOLUÇÃO: calcula a MAIOR escala possível, nunca abaixo do mínimo
   const larguraEl = elemento.scrollWidth || 1600;
   const alturaEl = elemento.scrollHeight || 1200;
-  let escala = SOGI_QUALIDADE.ESCALA_ALVO;
+  let escala = paraFoto ? SOGI_QUALIDADE.ESCALA_ALVO_FOTO : SOGI_QUALIDADE.ESCALA_ALVO;
   if(larguraEl*escala > SOGI_QUALIDADE.LADO_MAXIMO) escala = SOGI_QUALIDADE.LADO_MAXIMO/larguraEl;
   if(alturaEl*escala > SOGI_QUALIDADE.LADO_MAXIMO) escala = Math.min(escala, SOGI_QUALIDADE.LADO_MAXIMO/alturaEl);
   escala = Math.max(SOGI_QUALIDADE.ESCALA_MINIMA, escala);
+
+  const tipoSaida = paraFoto ? 'image/jpeg' : 'image/png';
+  const qualidadeSaida = paraFoto ? SOGI_QUALIDADE.QUALIDADE_JPEG_FOTO : 1.0;
 
   // 3) Captura de alta fidelidade (snapdom nativo)
   let blob = null;
@@ -4859,21 +4878,26 @@ async function capturarImagemAlta(elemento){
     const snapdom = mod.snapdom || mod.default;
     if(typeof snapdom === 'function'){
       const result = await snapdom(elemento, { scale: escala, backgroundColor: '#ffffff', embedFonts: true });
-      blob = await result.toBlob({ type: 'image/png' });
+      blob = await result.toBlob({ type: tipoSaida, quality: qualidadeSaida });
     }
   }catch(e){ console.warn('[SOGI] snapdom indisponível, usando fallback', e); }
 
   // 4) BLINDAGEM DE INTEGRIDADE: se a captura veio corrompida/pequena, refaz com html2canvas
   if(!blob || blob.size < SOGI_QUALIDADE.TAMANHO_MINIMO_BYTES){
     const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
-    blob = await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
+    blob = await new Promise(res=>canvas.toBlob(res,tipoSaida,qualidadeSaida));
   }
 
   // 5) SELO DE GOVERNANÇA: registra a qualidade entregue (auditoria interna)
   const resFinalW = Math.round(larguraEl*escala), resFinalH = Math.round(alturaEl*escala);
-  console.log(`[SOGI-GOVERNANÇA] Imagem gerada: ${resFinalW}x${resFinalH}px | escala ${escala.toFixed(1)}x | ${(blob.size/1024/1024).toFixed(2)}MB | qualidade PRESERVADA`);
+  console.log(`[SOGI-GOVERNANÇA] Imagem gerada: ${resFinalW}x${resFinalH}px | escala ${escala.toFixed(1)}x | ${tipoSaida} | ${(blob.size/1024/1024).toFixed(2)}MB`);
 
   return blob;
+}
+
+// Extensão de arquivo correta pro tipo real do blob (evita nome ".png" com conteúdo JPEG por dentro)
+function _extParaBlob(blob){
+  return (blob && blob.type === 'image/jpeg') ? 'jpg' : 'png';
 }
 
 let _modoImagem = 'baixar'; // 'baixar' | 'copiar' | 'compartilhar'
@@ -4941,7 +4965,7 @@ async function compartilharOuBaixarImagem(blob, nomeArq){
       toast('Seu navegador não deixou copiar. Vou baixar a imagem.','warn');
     }
   }
-  const file = new File([blob], nomeArq, {type:'image/png'});
+  const file = new File([blob], nomeArq, {type: blob.type || 'image/png'});
   // MODO COMPARTILHAR (celular): abre o WhatsApp com a foto pronta
   if(_modoImagem === 'compartilhar' && navigator.canShare && navigator.canShare({files:[file]})){
     try{
@@ -4983,7 +5007,7 @@ async function compartilharOuBaixarImagem(blob, nomeArq){
 async function compartilharVariasImagens(itens, tituloShare, textoShare){
   // itens: [{blob, nomeArq}, ...] já na ordem certa de leitura (ex.: Dominical, depois semana 1, 2, 3, 4)
   if(!itens || !itens.length){ toast('Nada escalado ainda pra transmitir.','warn'); return; }
-  const files = itens.map(it => new File([it.blob], it.nomeArq, {type:'image/png'}));
+  const files = itens.map(it => new File([it.blob], it.nomeArq, {type: it.blob.type || 'image/png'}));
 
   if(files.length === 1){
     // Caso mais comum: 1 imagem só — tenta abrir o compartilhamento automaticamente (um toque só).
@@ -5221,8 +5245,11 @@ window.gerarImagemEscala = async function(){
       img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
     ));
     // ALTA QUALIDADE NATIVA via snapdom (muito superior ao html2canvas)
-    const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.png`;
-    const blob = await capturarImagemAlta(wrap);
+    // Imprimir/Copiar continuam em PNG na resolução máxima; Compartilhar/Baixar (vai virar Foto
+    // no WhatsApp) usa o modo "foto" — JPEG leve e rápido, sem perda perceptível (v20.68.0).
+    const paraFoto = (_modoImagem === 'compartilhar' || _modoImagem === 'baixar');
+    const blob = await capturarImagemAlta(wrap, paraFoto);
+    const nomeArq = `escala_${tipo==='dom'?'dominical':'semanal_'+(SEMANAS_MES[sem]?.periodo||'').replace(/\//g,'-').replace(/ /g,'')}_${getMesAtual()}.${_extParaBlob(blob)}`;
     await compartilharOuBaixarImagem(blob, nomeArq);
   }catch(e){
     toast('Erro ao gerar imagem: '+e.message,'err');
@@ -6258,13 +6285,17 @@ async function capturarPaginaComDivisao(rotulo, tituloFaixa, cards, corBorda, ni
       img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })
     ));
     await new Promise(r=>setTimeout(r,150));
-    blob = await capturarImagemAlta(wrap);
+    // Esta função só existe pra gerar imagens que viram Foto no WhatsApp (nunca impressão em
+    // papel) — por isso sempre pede o modo "foto" (JPEG, resolução otimizada, v20.68.0).
+    blob = await capturarImagemAlta(wrap, true);
   }finally{
     document.body.removeChild(wrap);
   }
 
-  // Cabe dentro do limite seguro, ou só tem 1 card (não dá mais pra dividir) — retorna como está
-  if(blob.size <= SOGI_QUALIDADE.TAMANHO_MAXIMO_BYTES || cards.length <= 1 || nivel > 4){
+  // Cabe dentro do limite seguro, ou só tem 1 card (não dá mais pra dividir), ou já dividiu 1 vez
+  // — BLINDAGEM (v20.69.0): NUNCA divide mais de uma vez (no máximo 2 pedaços), pra nunca mais
+  // virar "hora por hora" — o de sempre é 1 imagem só por escala/semana.
+  if(blob.size <= SOGI_QUALIDADE.TAMANHO_MAXIMO_BYTES || cards.length <= 1 || nivel > 1){
     return [{ blob, label: tituloFaixa }];
   }
 
@@ -6411,7 +6442,7 @@ async function _gerarEBaixarPagina(pagina, nomeArqBase){
   if(!pagina){ toast('Nada escalado ainda pra transmitir.','warn'); return; }
   toast('Gerando imagem...','ok');
   const resultados = await capturarPaginaComDivisao(pagina.rotulo, pagina.tituloFaixa, pagina.cards, pagina.corBorda);
-  const itens = resultados.map((r,i)=>({ blob:r.blob, nomeArq:`${nomeArqBase}${resultados.length>1?'_p'+(i+1):''}.png` }));
+  const itens = resultados.map((r,i)=>({ blob:r.blob, nomeArq:`${nomeArqBase}${resultados.length>1?'_p'+(i+1):''}.${_extParaBlob(r.blob)}` }));
   await compartilharVariasImagens(itens, 'Escala MESCE', pagina.rotulo);
 }
 
@@ -6460,8 +6491,8 @@ async function _prepararArquivosParaItem(it){
     resultados.forEach((r,j)=>{
       const sufixoParte = paginas.length>1 ? `_${i+1}` : '';
       const sufixoDivisao = resultados.length>1 ? `_p${j+1}` : '';
-      const nomeArq = `${nomeArqBase}${sufixoParte}${sufixoDivisao}.png`;
-      const file = new File([r.blob], nomeArq, {type:'image/png'});
+      const nomeArq = `${nomeArqBase}${sufixoParte}${sufixoDivisao}.${_extParaBlob(r.blob)}`;
+      const file = new File([r.blob], nomeArq, {type: r.blob.type || 'image/png'});
       const rotuloParte = (paginas.length>1 ? `${it.label} — ${paginas[i].tituloFaixa||paginas[i].label||('parte '+(i+1))}` : it.label)
         + (resultados.length>1 ? ` (p.${j+1}/${resultados.length})` : '');
       arquivos.push({ file, tituloShare: rotuloParte });
@@ -6845,7 +6876,7 @@ window.transmitirPaginaIndividual = async function(docId, indice){
     if(!pagina){ toast('Página não encontrada.','warn'); return; }
     toast('Gerando imagem...','ok');
     const resultados = await capturarPaginaComDivisao(pagina.rotulo, pagina.tituloFaixa, pagina.cards, pagina.corBorda);
-    const itens = resultados.map((r,i)=>({ blob: r.blob, nomeArq:`escala_${docId}_${indice+1}${resultados.length>1?'_p'+(i+1):''}.png` }));
+    const itens = resultados.map((r,i)=>({ blob: r.blob, nomeArq:`escala_${docId}_${indice+1}${resultados.length>1?'_p'+(i+1):''}.${_extParaBlob(r.blob)}` }));
     await compartilharVariasImagens(itens, 'Escala MESCE', info.rotulo);
   }catch(e){ toast('Erro ao transmitir: '+e.message,'warn'); }
 };
@@ -6863,7 +6894,7 @@ window.compartilharEscalaFinalizada = async function(docId){
       try{
         const resultados = await capturarPaginaComDivisao(paginas[i].rotulo, paginas[i].tituloFaixa, paginas[i].cards, paginas[i].corBorda);
         resultados.forEach((r,j)=>{
-          itens.push({ blob: r.blob, nomeArq:`escala_finalizada_${docId}_${i+1}${resultados.length>1?'_p'+(j+1):''}.png` });
+          itens.push({ blob: r.blob, nomeArq:`escala_finalizada_${docId}_${i+1}${resultados.length>1?'_p'+(j+1):''}.${_extParaBlob(r.blob)}` });
         });
       }catch(e){
         toast('Erro ao gerar imagem '+(i+1)+': '+e.message,'err');
@@ -6905,7 +6936,7 @@ window.transmitirTudoEscalaWhats = async function(mesKey){
         const resultados = await capturarPaginaComDivisao(paginasComNome[i].rotulo, paginasComNome[i].tituloFaixa, paginasComNome[i].cards, paginasComNome[i].corBorda);
         resultados.forEach((r,j)=>{
           const numero = String(numeroArquivo++).padStart(2,'0');
-          itens.push({ blob: r.blob, nomeArq:`${numero}-escala_${mesKey}_${paginasComNome[i].nome}${resultados.length>1?'_p'+(j+1):''}.png` });
+          itens.push({ blob: r.blob, nomeArq:`${numero}-escala_${mesKey}_${paginasComNome[i].nome}${resultados.length>1?'_p'+(j+1):''}.${_extParaBlob(r.blob)}` });
         });
       }catch(e){
         toast('Erro ao gerar imagem '+(i+1)+': '+e.message,'err');
@@ -7058,7 +7089,8 @@ window.montarFilaTransmissao = function(){
   window._transmArquivosProntos = {};
 
   fila.innerHTML = `<p class="ct" style="color:#1ba34d;margin:0 0 4px">📤 Fila de envio</p>
-    <p style="font-size:11.5px;color:#666;margin:0 0 12px">As imagens já estão sendo preparadas sozinhas — assim que cada uma ficar pronta (fica verde), toque em "Enviar" que abre direto o WhatsApp pra escolher o contato/grupo e mandar como foto.</p>
+    <p style="font-size:11.5px;color:#666;margin:0 0 12px">As imagens já estão sendo preparadas sozinhas — assim que cada uma ficar pronta (fica verde), toque em "Enviar" que abre direto o WhatsApp pra escolher o contato/grupo e mandar como foto. <b>No computador</b> (sem WhatsApp instalado) não existe esse atalho — aí é melhor tocar em "⬇️ Baixar todas prontas" e, no WhatsApp Web, anexar (📎 → Fotos e vídeos) selecionando todas de uma vez.</p>
+    <button id="transm-btn-baixar-todas" onclick="baixarTodasProntas()" style="width:100%;padding:11px;border:2px solid #185FA5;border-radius:9px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">⬇️ Baixar todas prontas (pra computador)</button>
     <div id="transm-fila-botoes"></div>`;
   fila.style.display='block';
   fila.scrollIntoView({behavior:'smooth', block:'start'});
@@ -7137,6 +7169,28 @@ window.enviarItemDaFila = async function(btnId){
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
   if(btn){ btn.style.background='#888'; btn.style.cursor='default'; btn.textContent = `✓ Baixado — ${tituloShare}`; }
+};
+
+// Baixa DE UMA VEZ todas as imagens que já ficaram prontas na fila — pensado pro computador, que
+// não tem o compartilhamento nativo do celular: aí o jeito mais rápido é baixar tudo e anexar todas
+// juntas no WhatsApp Web (📎 → Fotos e vídeos permite selecionar várias fotos de uma vez). O próprio
+// navegador pode perguntar uma vez "permitir vários downloads" — é só permitir (v20.68.0).
+window.baixarTodasProntas = function(){
+  const prontos = Object.entries(window._transmArquivosProntos || {});
+  if(!prontos.length){ toast('Nenhuma imagem pronta ainda, aguarde a preparação.','warn'); return; }
+  toast(`Baixando ${prontos.length} imagem(ns)... se o navegador perguntar, toque em "Permitir".`, 'ok');
+  prontos.forEach(([btnId, resultado], i)=>{
+    setTimeout(()=>{
+      const { file, tituloShare } = resultado;
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(file);
+      a.download=file.name;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+      const btn = document.getElementById(btnId);
+      if(btn && !btn.disabled){ btn.disabled=true; btn.style.background='#888'; btn.style.cursor='default'; btn.textContent = `✓ Baixado — ${tituloShare}`; }
+    }, i*350); // pequeno espaçamento entre cada download — evita o navegador bloquear em lote
+  });
 };
 
 // ===== GERAÇÃO DE PDF REAL (paginação controlada, não depende do navegador) =====
@@ -13322,11 +13376,14 @@ async function gerarImagemTodasSemanas(){
     await new Promise(r=>setTimeout(r,200));
 
     try{
-      const blob = await capturarImagemAlta(wrap);
       if(_modoImagem === 'imprimir'){
+        const blob = await capturarImagemAlta(wrap); // impressão: PNG, resolução máxima, sempre
         _blobsImprimir.push(blob);   // coleta para imprimir todas juntas depois
       } else {
-        await compartilharOuBaixarImagem(blob, `escala_semana${s}_${getMesAtual()}.png`);
+        // Compartilhar/Baixar (vira Foto no WhatsApp) — modo "foto": JPEG leve, rápido (v20.68.0)
+        const paraFoto = (_modoImagem === 'compartilhar' || _modoImagem === 'baixar');
+        const blob = await capturarImagemAlta(wrap, paraFoto);
+        await compartilharOuBaixarImagem(blob, `escala_semana${s}_${getMesAtual()}.${_extParaBlob(blob)}`);
       }
     }catch(e){ toast('Erro na '+s+'ª semana: '+e.message,'err'); }
     finally{ document.body.removeChild(wrap); }
