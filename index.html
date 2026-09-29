@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.72.0';
+const APP_VERSAO = '20.72.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -12003,7 +12003,7 @@ window.imprimirEscalaCirio = async function(){
     }catch(e){ dadosPorColuna[c.id] = {}; }
   }
 
-  const horariosComMissa = (cfg.horarios||[]).filter(h => cfg.colunas.some(c => cfg.grade[c.id] && cfg.grade[c.id][h]));
+  const horariosComMissa = _ordenarPorHora((cfg.horarios||[]).filter(h => cfg.colunas.some(c => cfg.grade[c.id] && cfg.grade[c.id][h])));
 
   // BLINDAGEM (v20.55.0): cada HORÁRIO ganha sua própria cor (igual à Escala Dominical/Semanal
   // já usa) — o coordenador e os ministros reclamaram que a tabela toda em verde/branco ficava
@@ -12026,9 +12026,14 @@ window.imprimirEscalaCirio = async function(){
       const nomes = dadosHora.ministros || [];
       const resp = dadosHora.responsavel || '';
       const respTelObj = resp ? buscarMinistroPorNome(resp) : null;
-      const respTel = respTelObj?.tel ? `<br><span class="tel-resp">📞 ${respTelObj.tel}</span>` : '';
+      // v20.72.0 — layout limpo: faixa do RESPONSÁVEL no topo da célula (nome + telefone, com quebra
+      // de linha segura, nunca ultrapassa a borda) e, abaixo, a lista numerada em coluna única
+      // (1,2,3… uma por linha, sem buracos em branco).
+      const respFaixa = resp
+        ? `<div class="faixa-resp"><span class="resp-nome">★ ${resp}</span>${respTelObj?.tel?`<span class="resp-tel">📞 ${respTelObj.tel}</span>`:''}</div>`
+        : '';
       const listaHtml = nomes.length
-        ? `<div class="lista-nomes">${nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★'+respTel:''}</div>`).join('')}</div>`
+        ? `${respFaixa}<div class="lista-nomes">${nomes.map((n,idx)=>`<div class="nome${n===resp?' resp':''}">${idx+1}. ${n}${n===resp?'&nbsp;★':''}</div>`).join('')}</div>`
         : '<div class="vazio">—</div>';
       return `<td style="background:${corH.claro}">${listaHtml}</td>`;
     }).join('');
@@ -12043,17 +12048,18 @@ window.imprimirEscalaCirio = async function(){
     body{ font-family: Arial, sans-serif; margin:0; padding:8px; color:#222; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     h1{ text-align:center; font-size:14px; margin:0 0 1px; color:#085041; }
     h2{ text-align:center; font-size:10px; margin:0; color:#666; font-weight:normal; }
-    table{ width:100%; border-collapse:collapse; border:3px solid #000; }
-    th, td{ border:1.5px solid #000; vertical-align:top; padding:3px 5px; font-size:9.5px; line-height:1.25; }
+    table{ width:100%; border-collapse:collapse; border:3px solid #000; table-layout:fixed; }
+    th:first-child, td.hora-col{ width:38px; }
+    th, td{ border:1.5px solid #000; vertical-align:top; padding:3px 5px; font-size:9.5px; line-height:1.25; overflow:hidden; }
     th{ background:#f0faf5; color:#000; font-size:11px; font-weight:800; text-align:center; padding:4px 5px; border:1.5px solid #000; }
     .datas{ font-weight:700; font-size:9px; color:#000; opacity:1; }
     .hora-col{ font-weight:700; text-align:center; white-space:nowrap; }
-    .lista-nomes{ display:flex; flex-wrap:wrap; }
-    .nome{ width:50%; box-sizing:border-box; padding:0.5px 4px 0.5px 6px; }
-    .nome:nth-child(odd){ padding-left:0; }
-    .nome:nth-child(even){ border-left:1.5px solid #C62828; }
-    .nome.resp{ font-weight:700; color:#a07d2a; }
-    .tel-resp{ font-weight:700; color:#085041; font-size:8.5px; white-space:nowrap; }
+    .faixa-resp{ border-bottom:1.5px solid #000; margin:-3px -5px 3px; padding:3px 5px; background:rgba(255,255,255,.65); font-weight:700; font-size:9px; line-height:1.3; }
+    .resp-nome{ display:block; color:#7a5c12; overflow-wrap:anywhere; }
+    .resp-tel{ display:block; color:#085041; font-size:9px; }
+    .lista-nomes{ column-count:1; }
+    .nome{ break-inside:avoid; page-break-inside:avoid; padding:1.5px 0; border-bottom:0.5px solid rgba(0,0,0,.15); overflow-wrap:anywhere; }
+    .nome.resp{ font-weight:700; color:#7a5c12; }
     .vazio{ color:#ccc; text-align:center; }
     .sem-missa{ background:#f8d7da; }
     .cab-print{ display:flex; align-items:center; gap:8px; border-bottom:2px solid #085041; padding-bottom:4px; margin-bottom:6px; }
