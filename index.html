@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.60.0';
+const APP_VERSAO = '20.61.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4954,48 +4954,76 @@ async function compartilharOuBaixarImagem(blob, nomeArq){
 // Compartilha VÁRIAS imagens de uma vez, numa ÚNICA chamada ao WhatsApp (evita o problema de só a
 // primeira imagem ir — o navegador só permite abrir a caixinha de compartilhar em resposta direta
 // ao toque; chamando várias vezes seguidas, só a primeira funciona de verdade).
-// BLINDAGEM (v20.60.0): o fluxo antigo baixava os arquivos e pedia pra anexar como "Documento" no
-// WhatsApp — muito lento e confuso pra quem não tem prática (não sabiam achar a pasta de downloads
-// nem o que era "Documento"). Agora, no celular, usa o compartilhamento nativo (1 toque no botão
-// "Enviar" já abre direto o WhatsApp escolhendo o contato/grupo, manda como foto mesmo). A imagem
-// já sai em altíssima resolução (SOGI_QUALIDADE.ESCALA_ALVO=8x) bem antes de qualquer compressão do
-// WhatsApp, então mesmo indo "como foto" o texto continua nítido e legível. Só cai pro download
-// manual (com a instrução de anexar como Documento) em computador, onde não existe esse
-// compartilhamento nativo.
+// BLINDAGEM (v20.61.0): a v20.60.0 tentou chamar navigator.share() automaticamente assim que a
+// imagem terminava de ser gerada — só que gerar a imagem em qualidade máxima (8x) demora vários
+// segundos, e o navegador só permite abrir o compartilhamento numa janela bem curta logo após o
+// toque do usuário. Passado esse tempo, o compartilhamento trava, fica em branco ou simplesmente
+// não abre — foi exatamente o erro relatado ("documento em branco e travando"). A solução: gerar a
+// imagem em segundo plano (sem chamar share ainda) e, quando ficar pronta, mostrar um cartão "✓
+// Pronto — Enviar" flutuando na tela. Só quando o usuário toca NESSE botão (um toque nosso, na
+// hora) é que o compartilhamento nativo é chamado — aí sim dentro da janela válida, funciona
+// sempre. Cada arquivo/escala ganha seu próprio cartão, um "Enviar" por vez, como pedido.
 async function compartilharVariasImagens(itens, tituloShare, textoShare){
   // itens: [{blob, nomeArq}, ...] já na ordem certa de leitura (ex.: Dominical, depois semana 1, 2, 3, 4)
+  if(!itens || !itens.length){ toast('Nada escalado ainda pra transmitir.','warn'); return; }
   const files = itens.map(it => new File([it.blob], it.nomeArq, {type:'image/png'}));
+  _mostrarCartaoEnviarPronto(files, tituloShare, textoShare);
+}
 
-  if(navigator.canShare && navigator.canShare({files})){
-    try{
-      await navigator.share({ files, title: tituloShare||'Escala MESCE', text: textoShare||'' });
-      toast('✓ Enviado!','ok');
-      return;
-    }catch(e){
-      if(e.name==='AbortError') return; // usuário cancelou o compartilhamento — não faz nada
-      // qualquer outro erro: cai pro download manual abaixo
+// Cartão flutuante "✓ Pronto — Enviar", empilhável (várias transmissões em fila mostram vários
+// cartões, um por cima do outro). O toque no botão Enviar é o próprio gesto do usuário que abre o
+// compartilhamento nativo — por isso funciona de forma confiável, mesmo a imagem tendo demorado
+// pra ser gerada.
+function _mostrarCartaoEnviarPronto(files, tituloShare, textoShare){
+  let barra = document.getElementById('transm-pronto-barra');
+  if(!barra){
+    barra = document.createElement('div');
+    barra.id = 'transm-pronto-barra';
+    barra.style.cssText = 'position:fixed;left:12px;right:12px;bottom:78px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:420px;margin:0 auto;pointer-events:none';
+    document.body.appendChild(barra);
+  }
+  const card = document.createElement('div');
+  card.style.cssText = 'background:white;border:2px solid #1ba34d;border-radius:12px;padding:10px 12px;box-shadow:0 4px 18px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px;pointer-events:auto';
+  card.innerHTML = `<span style="flex:1;font-size:12.5px;color:#1a1a1a;font-weight:600">✓ Imagem${files.length>1?'s':''} pronta${files.length>1?'s':''}${files.length>1?` (${files.length})`:''}!</span>
+    <button class="btn-env" style="padding:9px 16px;border:none;border-radius:8px;background:#1ba34d;color:white;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap">📤 Enviar</button>
+    <button class="btn-fch" style="border:none;background:none;color:#999;font-size:18px;cursor:pointer;line-height:1;padding:0 2px" title="Fechar">×</button>`;
+  const btnEnviar = card.querySelector('.btn-env');
+  const btnFechar = card.querySelector('.btn-fch');
+  btnFechar.onclick = ()=> card.remove();
+  btnEnviar.onclick = async ()=>{
+    btnEnviar.disabled = true; btnEnviar.textContent = '...';
+    if(navigator.canShare && navigator.canShare({files})){
+      try{
+        await navigator.share({ files, title: tituloShare||'Escala MESCE', text: textoShare||'' });
+        card.remove();
+        toast('✓ Enviado!','ok');
+        return;
+      }catch(e){
+        if(e.name==='AbortError'){ btnEnviar.disabled=false; btnEnviar.textContent='📤 Enviar'; return; }
+        // qualquer outro erro: cai pro download manual abaixo
+      }
     }
-  }
-
-  // Fallback (computador, ou celular sem suporte a compartilhamento nativo): baixa direto e pede
-  // pra anexar como "Documento" no WhatsApp, que preserva a qualidade da imagem.
-  const msg = files.length>1
-    ? `${files.length} imagens baixadas. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade, e selecione todas.`
-    : `Imagem baixada. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade.`;
-  toast(msg, 'ok');
-  // Baixa em ordem INVERSA de propósito: como as pastas do Windows costumam mostrar por data
-  // (mais recente primeiro), baixar o último item primeiro faz o PRIMEIRO item (ex.: Dominical)
-  // ficar no topo da pasta sem precisar reordenar nada manualmente. Os nomes também vêm numerados
-  // (01-, 02-...), então ordenar por Nome também funciona, caso a pasta não esteja por data.
-  for(let i=files.length-1; i>=0; i--){
-    const f = files[i];
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(f);
-    a.download=f.name;
-    a.click();
-    await new Promise(r=>setTimeout(r,300));
-    URL.revokeObjectURL(a.href);
-  }
+    // Fallback (computador, ou celular sem suporte a compartilhamento nativo): baixa direto e pede
+    // pra anexar como "Documento" no WhatsApp, que preserva a qualidade da imagem.
+    const msg = files.length>1
+      ? `${files.length} imagens baixadas. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade, e selecione todas.`
+      : `Imagem baixada. No WhatsApp, toque em 📎 → Documento (não Galeria/Foto) pra manter a qualidade.`;
+    toast(msg, 'ok');
+    // Baixa em ordem INVERSA de propósito: como as pastas do Windows costumam mostrar por data
+    // (mais recente primeiro), baixar o último item primeiro faz o PRIMEIRO item (ex.: Dominical)
+    // ficar no topo da pasta sem precisar reordenar nada manualmente.
+    for(let i=files.length-1; i>=0; i--){
+      const f = files[i];
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(f);
+      a.download=f.name;
+      a.click();
+      await new Promise(r=>setTimeout(r,300));
+      URL.revokeObjectURL(a.href);
+    }
+    card.remove();
+  };
+  barra.appendChild(card);
 }
 
 
@@ -6935,10 +6963,10 @@ window.montarFilaTransmissao = function(){
   const itensSelecionados = marcados.map(i=>window._transmItens[i]).filter(Boolean);
   const acoes = { dom:'compartilharEscalaFinalizada', sem:'transmitirPaginaIndividual', cirio:'transmitirCirioDia', evento:'transmitirEvento' };
   fila.innerHTML = `<p class="ct" style="color:#1ba34d;margin:0 0 4px">📤 Fila de envio</p>
-    <p style="font-size:11.5px;color:#666;margin:0 0 12px">Toque em "Enviar" em cada item abaixo, um de cada vez — no celular abre direto a tela de compartilhar do WhatsApp, é só escolher o contato/grupo e mandar. Em computador, a imagem é baixada (anexe como 📎 Documento pra manter a qualidade).</p>` +
+    <p style="font-size:11.5px;color:#666;margin:0 0 12px">Toque em cada item abaixo, um de cada vez. A imagem é gerada e, assim que ficar pronta, aparece um cartão verde "✓ Pronto — Enviar" na tela — toque nele que abre direto o WhatsApp pra escolher o contato/grupo e mandar como foto.</p>` +
     itensSelecionados.map((it,i)=>{
       const args = it.tipo==='sem' ? `'${it.chave}',${it.indice}` : `'${it.chave}'`;
-      return `<button onclick="${acoes[it.tipo]}(${args})" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left">${i+1}. 📤 Enviar — ${it.label}</button>`;
+      return `<button onclick="${acoes[it.tipo]}(${args})" style="width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left">${i+1}. 🖼️ Gerar — ${it.label}</button>`;
     }).join('');
   fila.style.display='block';
   fila.scrollIntoView({behavior:'smooth', block:'start'});
