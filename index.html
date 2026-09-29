@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.69.0';
+const APP_VERSAO = '20.70.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7089,22 +7089,21 @@ window.montarFilaTransmissao = function(){
   window._transmArquivosProntos = {};
 
   fila.innerHTML = `<p class="ct" style="color:#1ba34d;margin:0 0 4px">📤 Fila de envio</p>
-    <p style="font-size:11.5px;color:#666;margin:0 0 12px">As imagens já estão sendo preparadas sozinhas — assim que cada uma ficar pronta (fica verde), toque em "Enviar" que abre direto o WhatsApp pra escolher o contato/grupo e mandar como foto. <b>No computador</b> (sem WhatsApp instalado) não existe esse atalho — aí é melhor tocar em "⬇️ Baixar todas prontas" e, no WhatsApp Web, anexar (📎 → Fotos e vídeos) selecionando todas de uma vez.</p>
-    <button id="transm-btn-baixar-todas" onclick="baixarTodasProntas()" style="width:100%;padding:11px;border:2px solid #185FA5;border-radius:9px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">⬇️ Baixar todas prontas (pra computador)</button>
+    <p style="font-size:11.5px;color:#666;margin:0 0 12px">Assim que cada imagem ficar pronta (fica verde), toque em "Enviar" — no <b>celular</b> abre direto o WhatsApp. <b>No computador</b>, o jeito mais rápido e garantido é "📋 Copiar" e depois colar (Ctrl+V) direto na conversa do WhatsApp Web — sem precisar procurar arquivo nenhum na pasta Downloads.</p>
+    <button id="transm-btn-baixar-todas" onclick="baixarTodasProntas()" style="width:100%;padding:11px;border:2px solid #185FA5;border-radius:9px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">⬇️ Baixar todas prontas (alternativa)</button>
     <div id="transm-fila-botoes"></div>`;
   fila.style.display='block';
   fila.scrollIntoView({behavior:'smooth', block:'start'});
   const cont = document.getElementById('transm-fila-botoes');
 
   let proximoId = 0;
-  const addBotaoPreparando = (label)=>{
+  const addItemPreparando = (label)=>{
     const id = proximoId++;
-    const btn = document.createElement('button');
-    btn.id = `transm-btn-${id}`;
-    btn.disabled = true;
-    btn.style.cssText = 'width:100%;padding:12px;border:none;border-radius:9px;background:#ccc;color:white;font-size:13px;font-weight:700;cursor:wait;margin-bottom:8px;text-align:left';
-    btn.textContent = `⏳ Preparando... — ${label}`;
-    cont.appendChild(btn);
+    const wrap = document.createElement('div');
+    wrap.id = `transm-item-${id}`;
+    wrap.style.cssText = 'margin-bottom:8px';
+    wrap.innerHTML = `<button disabled style="width:100%;padding:12px;border:none;border-radius:9px;background:#ccc;color:white;font-size:13px;font-weight:700;cursor:wait;text-align:left">⏳ Preparando... — ${label}</button>`;
+    cont.appendChild(wrap);
     return id;
   };
 
@@ -7112,28 +7111,27 @@ window.montarFilaTransmissao = function(){
   // só deixaria o aparelho mais lento sem entregar nada mais rápido.
   (async ()=>{
     for(const it of itensSelecionados){
-      const idPreparando = addBotaoPreparando(it.label);
-      const btnPreparando = document.getElementById(`transm-btn-${idPreparando}`);
+      const idPreparando = addItemPreparando(it.label);
+      const wrapPreparando = document.getElementById(`transm-item-${idPreparando}`);
       try{
         const resultado = await _prepararArquivosParaItem(it);
         if(!resultado || !resultado.arquivos.length){
-          if(btnPreparando){
-            btnPreparando.textContent = `⚠️ Nada pra transmitir — ${it.label}`;
-            btnPreparando.style.background = '#BA7517';
-          }
+          if(wrapPreparando) wrapPreparando.innerHTML = `<button disabled style="width:100%;padding:12px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:13px;font-weight:700;text-align:left">⚠️ Nada pra transmitir — ${it.label}</button>`;
           continue;
         }
-        // Cada arquivo avulso vira SEU PRÓPRIO botão "Enviar", pronto na hora — nunca agrupado.
+        // Cada arquivo avulso vira SEU PRÓPRIO par de botões (Enviar + Copiar), pronto na hora —
+        // nunca agrupado com outro arquivo (BLINDAGEM v20.66.0/v20.69.0).
         resultado.arquivos.forEach(({file, tituloShare}, j)=>{
-          const btn = (j===0 && btnPreparando) ? btnPreparando : (()=>{ const nid=proximoId++; const b=document.createElement('button'); b.id=`transm-btn-${nid}`; cont.appendChild(b); return b; })();
-          window._transmArquivosProntos[btn.id] = { file, tituloShare };
-          btn.disabled = false;
-          btn.style.cssText = 'width:100%;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left';
-          btn.textContent = `📤 Enviar — ${tituloShare}`;
-          btn.onclick = ()=>enviarItemDaFila(btn.id);
+          const wrapEl = (j===0 && wrapPreparando) ? wrapPreparando : (()=>{ const nid=proximoId++; const w=document.createElement('div'); w.id=`transm-item-${nid}`; w.style.cssText='margin-bottom:8px'; cont.appendChild(w); return w; })();
+          const itemId = wrapEl.id.replace('transm-item-','');
+          window._transmArquivosProntos[itemId] = { file, tituloShare };
+          wrapEl.innerHTML = `<div style="display:flex;gap:6px">
+              <button id="transm-enviar-${itemId}" onclick="enviarItemDaFila('${itemId}')" style="flex:2;padding:12px;border:none;border-radius:9px;background:#1ba34d;color:white;font-size:13px;font-weight:700;cursor:pointer;text-align:left">📤 Enviar — ${tituloShare}</button>
+              <button id="transm-copiar-${itemId}" onclick="copiarItemDaFila('${itemId}')" style="flex:1;padding:12px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:13px;font-weight:700;cursor:pointer">📋 Copiar</button>
+            </div>`;
         });
       }catch(e){
-        if(btnPreparando){ btnPreparando.textContent = `⚠️ Erro: ${e.message} — ${it.label}`; btnPreparando.style.background='#A32D2D'; }
+        if(wrapPreparando) wrapPreparando.innerHTML = `<button disabled style="width:100%;padding:12px;border:none;border-radius:9px;background:#A32D2D;color:white;font-size:13px;font-weight:700;text-align:left">⚠️ Erro: ${e.message} — ${it.label}</button>`;
       }
     }
   })();
@@ -7143,9 +7141,9 @@ window.montarFilaTransmissao = function(){
 // SEMPRE UM ÚNICO ARQUIVO (nunca vários juntos — ver BLINDAGEM v20.66.0), então esse toque É o
 // gesto que o navegador exige, e o compartilhamento dispara imediatamente, do mesmo jeito que
 // sempre funcionou nas outras escalas.
-window.enviarItemDaFila = async function(btnId){
-  const resultado = window._transmArquivosProntos?.[btnId];
-  const btn = document.getElementById(btnId);
+window.enviarItemDaFila = async function(itemId){
+  const resultado = window._transmArquivosProntos?.[itemId];
+  const btn = document.getElementById(`transm-enviar-${itemId}`);
   if(!resultado){ toast('Essa imagem ainda não está pronta, aguarde um instante.','warn'); return; }
   const { file, tituloShare } = resultado;
   if(btn){ btn.disabled = true; btn.textContent = '...'; }
@@ -7161,14 +7159,52 @@ window.enviarItemDaFila = async function(btnId){
   }
   // Fallback (computador, ou celular sem suporte a compartilhamento nativo): baixa e orienta a
   // anexar como Foto/Galeria — a maioria dos ministros não sabe anexar como "Documento" (v20.64.0).
-  // Qualidade protegida na origem: a imagem já sai em resolução altíssima antes da compressão.
-  toast('Imagem baixada. No WhatsApp, toque em 📎 → Foto/Galeria e selecione a imagem.', 'ok');
+  // No computador, o botão "📋 Copiar" ao lado é mais rápido e confiável que procurar na pasta.
+  toast('Imagem baixada. No WhatsApp, toque em 📎 → Foto/Galeria e selecione a imagem (ou use o botão "Copiar" ao lado).', 'ok');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(file);
   a.download=file.name;
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
   if(btn){ btn.style.background='#888'; btn.style.cursor='default'; btn.textContent = `✓ Baixado — ${tituloShare}`; }
+};
+
+// Converte a imagem (JPEG, gerada pra WhatsApp) pra PNG só no momento de copiar — a área de
+// transferência dos navegadores só garante suporte confiável a 'image/png' (v20.70.0).
+async function _blobParaPngClipboard(blob){
+  const bmp = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = bmp.width; canvas.height = bmp.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(bmp,0,0);
+  return await new Promise(res=>canvas.toBlob(res,'image/png',1.0));
+}
+
+// BLINDAGEM (v20.70.0): "não aparece em downloads a opção de anexar em modo foto" — no computador,
+// procurar o arquivo baixado na pasta certa (Downloads) dentro da janela de anexo do WhatsApp Web
+// é um passo a mais que trava usuário não-técnico. "Copiar" resolve de vez: copia a imagem pronta
+// pra área de transferência do Windows, e no WhatsApp Web é só clicar na conversa e apertar Ctrl+V
+// — a imagem já entra colada como Foto, pronta pra enviar, sem abrir pasta nenhuma.
+window.copiarItemDaFila = async function(itemId){
+  const resultado = window._transmArquivosProntos?.[itemId];
+  const btn = document.getElementById(`transm-copiar-${itemId}`);
+  if(!resultado){ toast('Essa imagem ainda não está pronta, aguarde um instante.','warn'); return; }
+  if(typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write){
+    toast('Seu navegador não permite copiar imagem. Use o botão "Enviar" ao lado.','warn');
+    return;
+  }
+  if(btn){ btn.disabled = true; btn.textContent = '...'; }
+  try{
+    const pngBlob = await _blobParaPngClipboard(resultado.file);
+    await navigator.clipboard.write([ new ClipboardItem({ 'image/png': pngBlob }) ]);
+    toast('✓ Imagem copiada! Vá no WhatsApp Web, clique na conversa/grupo e aperte Ctrl+V pra colar e enviar.', 'ok');
+    if(btn){ btn.style.background='#888'; btn.style.cursor='default'; btn.textContent = '✓ Copiado!'; }
+  }catch(e){
+    toast('Não deu pra copiar agora. Use o botão "Enviar" ao lado.','warn');
+    if(btn){ btn.disabled = false; btn.textContent = '📋 Copiar'; }
+  }
 };
 
 // Baixa DE UMA VEZ todas as imagens que já ficaram prontas na fila — pensado pro computador, que
@@ -7179,7 +7215,7 @@ window.baixarTodasProntas = function(){
   const prontos = Object.entries(window._transmArquivosProntos || {});
   if(!prontos.length){ toast('Nenhuma imagem pronta ainda, aguarde a preparação.','warn'); return; }
   toast(`Baixando ${prontos.length} imagem(ns)... se o navegador perguntar, toque em "Permitir".`, 'ok');
-  prontos.forEach(([btnId, resultado], i)=>{
+  prontos.forEach(([itemId, resultado], i)=>{
     setTimeout(()=>{
       const { file, tituloShare } = resultado;
       const a=document.createElement('a');
@@ -7187,7 +7223,7 @@ window.baixarTodasProntas = function(){
       a.download=file.name;
       a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
-      const btn = document.getElementById(btnId);
+      const btn = document.getElementById(`transm-enviar-${itemId}`);
       if(btn && !btn.disabled){ btn.disabled=true; btn.style.background='#888'; btn.style.cursor='default'; btn.textContent = `✓ Baixado — ${tituloShare}`; }
     }, i*350); // pequeno espaçamento entre cada download — evita o navegador bloquear em lote
   });
