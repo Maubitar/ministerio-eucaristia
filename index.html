@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.57.0';
+const APP_VERSAO = '20.58.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -11806,6 +11806,14 @@ window.imprimirEventos = async function(){
     </th>`;
   }).join('');
 
+  // BLINDAGEM (v20.58.0): telefone do responsável ao lado do nome dele nos Eventos — em evento
+  // tem muito ministro escalado e, na hora do aperto, precisa achar rápido pra quem ligar.
+  const telPorEvento = {};
+  eventosOrdenados.forEach(e=>{
+    const respObj = e.responsavel ? buscarMinistroPorNome(e.responsavel) : null;
+    telPorEvento[e.id] = respObj?.tel || '';
+  });
+
   const maxLinhas = Math.max(0, ...eventosOrdenados.map(e=>(e.escala||[]).length));
   let linhasHtml = '';
   for(let i=0;i<maxLinhas;i++){
@@ -11813,7 +11821,8 @@ window.imprimirEventos = async function(){
       const nome = (e.escala||[])[i];
       if(!nome) return '<td></td>';
       const ehResp = e.responsavel===nome;
-      return `<td class="${ehResp?'resp':''}">${i+1} ${nome}${ehResp?'&nbsp;★':''}</td>`;
+      const tel = ehResp && telPorEvento[e.id] ? ` <span class="tel-resp">📞 ${telPorEvento[e.id]}</span>` : '';
+      return `<td class="${ehResp?'resp':''}">${i+1} ${nome}${ehResp?'&nbsp;★':''}${tel}</td>`;
     }).join('') + '</tr>';
   }
 
@@ -11830,13 +11839,17 @@ window.imprimirEventos = async function(){
     th .datahora{ font-size:9.5px; font-weight:700; color:#000; opacity:1; }
     th .nome-evt{ font-size:11px; font-weight:800; margin-top:2px; color:#000; }
     td.resp{ font-weight:700; color:#a07d2a; }
+    .tel-resp{ font-weight:700; color:#085041; white-space:nowrap; }
     td:nth-child(odd){ background:#fafafa; }
     .cab-print{ display:flex; align-items:center; gap:14px; border-bottom:3px solid #085041; padding-bottom:10px; margin-bottom:14px; }
     .cab-print img{ width:56px; height:56px; object-fit:contain; flex-shrink:0; }
     .cab-print .miolo{ flex:1; text-align:center; }
     .cab-print .mesce{ font-size:10px; color:#555; margin:0; text-transform:uppercase; font-weight:700; letter-spacing:1px; }
     /* BLINDAGEM (v20.49.0): organiza a quebra de página — repete o cabeçalho de cada evento em
-       toda página nova e nunca corta uma linha de nomes no meio entre duas páginas. */
+       toda página nova e nunca corta uma linha de nomes no meio entre duas páginas.
+       BLINDAGEM (v20.58.0): telefone do responsável impresso ao lado do nome dele em cada
+       evento — evento tem muita gente escalada, e na hora do aperto precisa achar rápido pra
+       quem ligar, igual já fazemos nas escalas Dominical/Semanal. */
     thead{ display: table-header-group; }
     tr{ page-break-inside: avoid; break-inside: avoid; }
     .cab-print{ page-break-after: avoid; break-after: avoid; }
