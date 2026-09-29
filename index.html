@@ -6348,7 +6348,7 @@ function montarPaginaEscalaFin(rotulo, tituloFaixa, cards, corBorda){
   // Colunas balanceadas por altura. Usa mais colunas quando há muitos horários juntos (ex.: a
   // Dominical, que junta o mês inteiro numa faixa só) — assim a imagem fica mais larga e menos
   // alta, o que ajuda a preservar nitidez sem precisar dividir em várias páginas.
-  const numColunas = cards.length > 4 ? 4 : 2;
+  const numColunas = 3; // PADRÃO ÚNICO (v20.72.0): sempre 3 colunas de mesma largura — igual à Dominical
   const cols = Array(numColunas).fill('');
   // v20.72.0: leitura em ORDEM CRONOLÓGICA (esquerda→direita, de cima p/ baixo): 1º card na coluna 1,
   // 2º na coluna 2... nunca mais "empilha na coluna mais curta" (isso embaralhava os horários).
@@ -6623,7 +6623,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   const logoMesce = await carregarLogo(LOGO_MESCE);
 
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  const pdf = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
   const M = 9;
@@ -6641,7 +6641,7 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
   let y = M + 16;
   const larguraTotal = pageW - 2*M;
   const gapCol = 3;
-  const numColunas = (tipo==='sem') ? 2 : 4;
+  const numColunas = 3; // PADRÃO ÚNICO: A4 paisagem, 3 colunas largas — nomes sem quebrar linha
   const larguraCol = (larguraTotal - gapCol*(numColunas-1)) / numColunas;
 
   function hexRgb(hex){
@@ -6778,13 +6778,15 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     // colunas usado no desenho de verdade — sem desenhar nada ainda. Se não couber, começa
     // página nova ANTES de desenhar qualquer coisa dessa semana, pra nunca cortar ela ao meio.
     const alturaTitulo = tituloFaixa ? 11 : 0;
-    const colYSim = Array(numColunas).fill(y + alturaTitulo);
-    // Usa a MESMA função de distribuição do desenho real logo abaixo — ver aviso de
-    // BLINDAGEM no topo do arquivo, acima de gerarPDFEscala.
-    const bucketsSim = _distribuirHorariosEmColunasCronologico(horariosComGente, numColunas);
-    bucketsSim.forEach((b,col)=>{ b.forEach(h=>{ colYSim[col] += alturaCard(h); }); });
-    const alturaEstimada = Math.max(...colYSim) - y;
-    if(y > M+16 && y + alturaEstimada > rodapePagina){
+    // v20.72.0 — GRADE ALINHADA em ORDEM CRONOLÓGICA: linhas de 3 horários (mais cedo → mais tarde,
+    // esquerda → direita), cada linha com os cartões alinhados pelo topo. A linha só vai pra
+    // página nova inteira (nunca separa horários da mesma linha).
+    const ordenadosPDF = [...horariosComGente].sort((a,b)=>_horaParaMin(a.hora)-_horaParaMin(b.hora));
+    const linhasGrade = [];
+    for(let i=0;i<ordenadosPDF.length;i+=numColunas) linhasGrade.push(ordenadosPDF.slice(i,i+numColunas));
+    const gapLinha = 4;
+    const alturaEstimada = alturaTitulo + linhasGrade.reduce((a,l)=>a+Math.max(...l.map(alturaCard))+gapLinha,0);
+    if(y > M+16 && y + alturaEstimada > rodapePagina && alturaEstimada <= rodapePagina-(M+16)){
       pdf.addPage(); cabecalho(); y = M+16;
     }
 
@@ -6796,33 +6798,19 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
       y += 8 + 3;
     }
 
-    // Ver aviso de BLINDAGEM no topo do arquivo, acima de gerarPDFEscala: esta é a ÚNICA
-    // função que decide em qual coluna cada horário entra — sempre em ordem cronológica.
-    const buckets = _distribuirHorariosEmColunasCronologico(horariosComGente, numColunas);
-
-    // Todas as colunas compartilham a MESMA noção de página — se uma obriga a virar página, todas viram juntas.
-    // Desenha intercalado (uma de cada coluna por vez) — mantém o mesmo comportamento de quebra
-    // de página de antes, só que agora respeitando a ordem crescente dentro de cada coluna.
-    const colY = Array(numColunas).fill(y);
-    const ponteiros = Array(numColunas).fill(0);
-    let sobrouAlgo = true;
-    while(sobrouAlgo){
-      sobrouAlgo = false;
-      for(let col=0; col<numColunas; col++){
-        if(ponteiros[col] >= buckets[col].length) continue;
-        sobrouAlgo = true;
-        const h = buckets[col][ponteiros[col]++];
-        const alt = alturaCard(h);
-        // Não cabe na coluna mais vazia desta página? Vira página e reinicia todas as colunas do zero.
-        if(colY[col] + alt > rodapePagina && colY[col] > M+16){
-          pdf.addPage(); cabecalho();
-          for(let i=0;i<numColunas;i++) colY[i] = M+16;
-        }
-        const xCard = M + col*(larguraCol+gapCol);
-        colY[col] = desenharCard(xCard, colY[col], h);
+    linhasGrade.forEach(linha=>{
+      const altLinha = Math.max(...linha.map(alturaCard));
+      if(y + altLinha > rodapePagina && y > M+16){
+        pdf.addPage(); cabecalho(); y = M+16;
       }
-    }
-    y = Math.max(...colY) + 1;
+      let yFim = y;
+      linha.forEach((h,col)=>{
+        const xCard = M + col*(larguraCol+gapCol);
+        yFim = Math.max(yFim, desenharCard(xCard, y, h));
+      });
+      y = Math.max(yFim, y + altLinha + 4) ;
+    });
+    y += 1;
   });
 
   function _paginaVazia(k){
@@ -13394,14 +13382,14 @@ async function gerarImagemTodasSemanas(){
     }
     if(!horasCards.length) continue;
     // 2 COLUNAS balanceadas por ALTURA (largura 1900px = mesmo tamanho da dominical no zap)
-    const cols2s = ['',''];
+    const cols2s = ['','',''];
     const alturas2 = [0,0];
     // preserva ordem cronológica, mas escolhe a coluna mais curta a cada card
     // v20.72.0: ordem cronológica de leitura (coluna 1, coluna 2, coluna 1...) — sem "coluna mais curta"
     _ordenarPorHora(horasCards, c=>c.hora).forEach((card,i)=>{
-      cols2s[i % 2] += card.html;
+      cols2s[i % 3] += card.html;
     });
-    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:50px">${s}ª SEMANA</div><div style="font-size:32px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols2s[0]}</div><div style="flex:1;min-width:0">${cols2s[1]}</div></div>`;
+    const corpoSemana = `<div style="background:${corImgSemana};color:white;padding:18px 26px;text-align:center;border-radius:8px;margin-bottom:14px"><div style="font-weight:900;font-size:50px">${s}ª SEMANA</div><div style="font-size:32px;font-weight:700;margin-top:4px">${info?.periodo||''}</div></div><div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box"><div style="flex:1;min-width:0">${cols2s[0]}</div><div style="flex:1;min-width:0">${cols2s[1]}</div><div style="flex:1;min-width:0">${cols2s[2]}</div></div>`;
     semanasParaGerar.push({ s, corpo: corpoSemana });
   }
 
