@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.75.1';
+const APP_VERSAO = '20.75.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -16246,10 +16246,10 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <!-- REFORÇOS DE DATAS ESPECIAIS (cadastro genérico) -->
       <div style="background:#fffdf0;border:1.5px solid #f0d53a;border-radius:12px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <p style="font-size:13px;font-weight:700;color:#8a6d0c;margin:0">⭐ Reforços de datas especiais</p>
+          <p style="font-size:13px;font-weight:700;color:#8a6d0c;margin:0">⭐ Reforços por missa e evento</p>
           <button onclick="abrirModalReforcosEspeciais()" style="font-size:11px;padding:5px 12px;border:1.5px solid #f0c000;border-radius:16px;background:white;color:#8a6d0c;cursor:pointer;font-weight:700">✏️ Gerenciar</button>
         </div>
-        <p style="font-size:11px;color:#8a6d0c;margin:6px 0 0">Cadastre aqui uma missa com reforço extra numa data específica (ex: Trasladação, Chegada do Círio) — usa a mesma equipe já escalada na semana, só aumenta o reforço naquele dia e horário. Some sozinho quando você apagar.</p>
+        <p style="font-size:11px;color:#8a6d0c;margin:6px 0 0">Marque reforço em QUALQUER missa (qualquer dia da semana e horário): Manual para um dia só, ou Automático para valer o mês todo. Cada evento aparece no seu quadrado na escala.</p>
       </div>
 
       <!-- Select oculto — usado internamente para compatibilidade com renderEscala -->
@@ -17453,10 +17453,10 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
 <div id="modal-reforcos-especiais" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-reforcos-especiais')">
   <div class="modal-box" style="max-height:92vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <p style="font-size:16px;font-weight:800;color:#8a6d0c;margin:0">⭐ Reforços de datas especiais</p>
+      <p style="font-size:16px;font-weight:800;color:#8a6d0c;margin:0">⭐ Reforços por missa e evento</p>
       <button onclick="fecharModal('modal-reforcos-especiais')" style="border:none;background:none;font-size:24px;cursor:pointer;color:#aaa;line-height:1">×</button>
     </div>
-    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Cadastre datas com missa especial que vão precisar de reforço extra (ex: Trasladação, Chegada do Círio). O sistema usa a mesma equipe já escalada na semana daquela data — só aumenta o reforço no horário indicado. Some sozinho quando você apagar aqui.</p>
+    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Marque reforço em qualquer missa: escolha Manual (um dia e horário) ou Automático (um dia da semana e horário, vale o mês todo, com chave para desligar semanas). Dê um nome ao reforço (ex: Missa Quarta 7h, Trasladação).</p>
 
     <div id="lista-reforcos-especiais" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
 
@@ -17486,7 +17486,7 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
           <option value="18:00h">18:00h</option>
         </select>
       </div>
-      <input type="text" id="re-novo-label" placeholder="Nome da missa (ex: Trasladação)" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
+      <input type="text" id="re-novo-label" placeholder="Nome do reforço (ex: Missa Quarta 7h, Trasladação)" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
       <button onclick="adicionarReforcoEspecial()" style="width:100%;padding:11px;border:none;border-radius:10px;background:#f0c000;color:#5a4500;font-size:13.5px;font-weight:800;cursor:pointer">+ Adicionar</button>
     </div>
   </div>
