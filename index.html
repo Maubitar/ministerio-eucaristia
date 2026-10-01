@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.75.0';
+const APP_VERSAO = '20.75.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6221,7 +6221,9 @@ window.finalizarEscalaSemanal = async function(){
           // A etiqueta de reforço é sempre válida (é uma informação sobre a pessoa, não sobre
           // se ela "só" está reforçando) — alguém pode ser normal numa missa E reforço de outra
           // ao mesmo tempo. As duas coisas são verdade juntas.
-          mapa.set(nome, label);
+          // A mesma pessoa pode ser reforço de VÁRIOS eventos no mesmo horário: guarda todos os rótulos
+          if(!mapa.has(nome)) mapa.set(nome, []);
+          if(!mapa.get(nome).includes(label)) mapa.get(nome).push(label);
           if(!esc[hora].ministros.includes(nome)) esc[hora].ministros.push(nome);
         });
         mapaReforcoPorHora[hora] = mapa;
@@ -6248,10 +6250,15 @@ window.finalizarEscalaSemanal = async function(){
         return {
           hora, responsavel, respTel,
           dias: dias.map(d=>`${d.dia.slice(0,3).toLowerCase()} ${d.data}`),
-          ministros: ordenados.map((nome,i)=>{
+          ministros: _organizarReforcosHorario(ordenados.flatMap(nome=>{
             const eraNormalNestaSemana = (escOriginal[hora]?.ministros||[]).includes(nome);
-            return { num:i+1, nome, isResp: nome===responsavel, isReforco: mapaReforco.has(nome), isSoReforco: mapaReforco.has(nome) && !eraNormalNestaSemana, reforcoLabel: mapaReforco.get(nome)||'' };
-          })
+            const labels = mapaReforco.get(nome)||[];
+            if(!labels.length || eraNormalNestaSemana){
+              return [{ nome, isResp: nome===responsavel, isReforco: labels.length>0, isSoReforco:false, reforcoLabel: labels.join(' + ') }];
+            }
+            // só-reforço: uma linha em CADA evento em que a pessoa é reforço (nenhum nome some)
+            return labels.map(lb=>({ nome, isResp: nome===responsavel, isReforco:true, isSoReforco:true, reforcoLabel: lb }));
+          }))
         };
       });
       return { label:(info.label||s+'ª semana'), periodo:(info.periodo||''), horarios };
