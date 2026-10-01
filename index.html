@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.73.1';
+const APP_VERSAO = '20.74.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3203,6 +3203,20 @@ function _semanaContemDataISO(sem, dataISOAlvo){
   return dataISOAlvo >= datasISO[0] && dataISOAlvo <= datasISO[datasISO.length-1];
 }
 
+// ===== v20.74.0 — TODO REFORÇO MOSTRA: qual missa · data · horário =====
+// Reforço de missa especial: "Nome da missa (08/10 · 18:00h)".
+// Reforço fixo da semana: "Missa Quinta 18h (09/10)" — a data é a do dia da semana dentro da semana.
+function _rotuloReforcoEspecial(item){
+  const hora = item?.hora ? ` · ${item.hora}` : '';
+  return `${item?.label||'Missa especial'} (${isoParaDDMM(item?.data)}${hora})`;
+}
+function _comDataReforcoFixo(label, sem){
+  const dia = /Quinta/.test(label) ? 'Quinta' : (/Sábado/.test(label) ? 'Sábado' : '');
+  if(!dia || /\(\d{1,2}\/\d{1,2}/.test(label)) return label;
+  const d = (SEMANAS_MES[sem]?.dias||[]).find(x=>x.dia===dia);
+  return d?.data ? `${label} (${d.data})` : label;
+}
+
 // ===== REFORÇOS DE DATAS ESPECIAIS (cadastro genérico, sem precisar mexer no código) =====
 // Cada mês tem uma listinha { id, data:'YYYY-MM-DD', hora:'07:00h', label:'Trasladação' }
 // guardada em config/reforcos_especiais_${mesKey}. Usa-se a MESMA equipe já escalada na
@@ -3232,7 +3246,7 @@ function _reforcosEspeciaisDaSemana(lista, sem){
     if(!item?.data || !item?.hora) return;
     if(_semanaContemDataISO(sem, item.data)){
       if(!porHora[item.hora]) porHora[item.hora] = [];
-      porHora[item.hora].push({ id:item.id, label: `${item.label||'Missa especial'} (${isoParaDDMM(item.data)})` });
+      porHora[item.hora].push({ id:item.id, label: _rotuloReforcoEspecial(item) });
     }
   });
   return porHora;
@@ -4015,8 +4029,8 @@ window.renderEscala = async function(){
   // 12h -> reforço Sábado 12h
   // 18h -> reforço Quinta 18h + reforço Sábado 17h (equipe das 18h atende a missa de sábado 17h)
   const reforcosDoHorario = {
-    '12:00h': [{id:'sab12', label:'Missa Sábado 12h'}],
-    '18:00h': [{id:'qui18', label:'Missa Quinta 18h'}, {id:'sab17', label:'Missa Sábado 17h'}]
+    '12:00h': [{id:'sab12', label:_comDataReforcoFixo('Missa Sábado 12h', sem)}],
+    '18:00h': [{id:'qui18', label:_comDataReforcoFixo('Missa Quinta 18h', sem)}, {id:'sab17', label:_comDataReforcoFixo('Missa Sábado 17h', sem)}]
   };
   // Reforços de datas especiais cadastrados pelo coordenador (⭐ Reforços de datas especiais)
   // — usam a MESMA equipe já escalada na semana normal, só aumentando com reforço extra
@@ -6089,13 +6103,14 @@ window.finalizarEscalaSemanal = async function(){
       Object.keys(escOriginal).forEach(h=>{ esc[h] = { ...escOriginal[h], ministros: [...(escOriginal[h].ministros||[])] }; });
       // Reforços que valem só para ESTA semana (datas especiais cadastradas) — checagem
       // robusta por ISO, só entra na semana que realmente contém aquele dia
-      const reforcosPorHoraSemana = { ...reforcosPorHora };
+      const reforcosPorHoraSemana = {};
+      Object.entries(reforcosPorHora).forEach(([h,arr])=>{ reforcosPorHoraSemana[h] = arr.map(r=>({ ...r, label:_comDataReforcoFixo(r.label, s) })); });
       listaReforcosEsp.forEach(item=>{
         if(!item?.id || !item?.hora) return;
         const nomes = reforcosEspMinistros[item.id]||[];
         if(!nomes.length) return;
         if(_semanaContemDataISO(s, item.data)){
-          const labelData = `${item.label||'Missa especial'} (${isoParaDDMM(item.data)})`;
+          const labelData = _rotuloReforcoEspecial(item);
           reforcosPorHoraSemana[item.hora] = [...(reforcosPorHoraSemana[item.hora]||[]), ...nomes.map(n=>({nome:n, label:labelData}))];
         }
       });
@@ -6629,101 +6644,91 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
     pdf.setFont('helvetica','normal'); pdf.setFontSize(8); pdf.setTextColor(90,90,90);
     pdf.text('Basílica Santuário de Nossa Senhora de Nazaré · Ministério Extraordinário da Sagrada Comunhão Eucarística', pageW/2, M+10, {align:'center'});
   }
-  cabecalho();
-  let y = M + 16;
+  // ===== MOTOR DE LAYOUT DO PDF (v20.74.1) =====
+  // Em vez de um desenho fixo, o PDF PLANEJA antes de desenhar: testa várias configurações
+  // (nº de colunas e tamanho de letra), simula quantas páginas cada uma gera e escolhe a que
+  // usa MENOS páginas mantendo a letra o mais legível possível. Nenhum cartão é cortado ao
+  // meio entre páginas, e a mesma configuração vale para o documento inteiro (padrão único).
+  const topoCorpo = M + 16;
   const larguraTotal = pageW - 2*M;
   const gapCol = 3;
-  const numColunas = 3; // PADRÃO ÚNICO: A4 paisagem, 3 colunas largas — nomes sem quebrar linha
-  const larguraCol = (larguraTotal - gapCol*(numColunas-1)) / numColunas;
+  const rodapePagina = pageH - M - 4;
+  const gapLinha = 4;
+  let numColunas = 3, E = 1, larguraCol = 0, alturaLinha = 6;
+  function aplicarLayout(cfg){
+    numColunas = cfg.cols; E = cfg.esc;
+    larguraCol = (larguraTotal - gapCol*(numColunas-1)) / numColunas;
+    alturaLinha = 6.0*E;
+  }
 
   function hexRgb(hex){
     hex = (hex||'#085041').replace('#','');
     return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
   }
-  const alturaLinha = 6.0;
-  const rodapePagina = pageH - M - 4;
 
-  // Calcula de verdade quantas linhas o "Responsável" precisa (nome pode quebrar sozinho, telefone sempre fica numa linha própria)
+  // Responsável: o nome pode quebrar em mais de uma linha; o telefone fica sempre em linha própria
   function linhasHeaderResp(h){
-    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.0);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.0*E);
     const nomeLinhas = pdf.splitTextToSize('Resp.: '+(h.responsavel||'—'), larguraCol-5);
     const telLinha = h.respTel ? h.respTel.replace(/^\s*—\s*/,'') : '';
     return { nomeLinhas, telLinha };
   }
   function alturaHeaderParaCard(h){
     const { nomeLinhas, telLinha } = linhasHeaderResp(h);
-    const totalLinhasTexto = nomeLinhas.length + (telLinha ? 1 : 0);
-    return 4.5 + totalLinhasTexto*3.2 + 1;
+    return (4.5 + (nomeLinhas.length + (telLinha ? 1 : 0))*3.2 + 1) * E;
   }
-
-  // Calcula de verdade quantas linhas o nome do ministro precisa nesta largura de coluna —
-  // mesma técnica já usada pro nome do responsável. Sem isso, nomes longos que quebram em
-  // 2 linhas faziam a próxima pessoa começar cedo demais, sobrepondo o texto.
   function linhasNomeMinistro(nome, isResp){
-    pdf.setFont('helvetica', isResp?'bold':'normal'); pdf.setFontSize(8.3);
-    return pdf.splitTextToSize(nome||'', larguraCol-18);
+    pdf.setFont('helvetica', isResp?'bold':'normal'); pdf.setFontSize(8.3*E);
+    return pdf.splitTextToSize(nome||'', larguraCol - 16*E - 2);
   }
-
   function alturaCard(h){
     const temReforco = h.ministros.some(m=>m.isSoReforco);
     const alturaMinistros = h.ministros.reduce((acc,m)=>{
-      const nLinhas = linhasNomeMinistro(m.nome, m.isResp).length;
-      return acc + nLinhas*alturaLinha + (m.isReforco ? 3 : 0);
+      return acc + linhasNomeMinistro(m.nome, m.isResp).length*alturaLinha + (m.isReforco ? 3*E : 0);
     }, 0);
-    return alturaHeaderParaCard(h) + alturaMinistros + 3 + (temReforco ? 5 : 0);
+    return alturaHeaderParaCard(h) + alturaMinistros + 3*E + (temReforco ? 5*E : 0);
   }
 
-  // Desenha um card (horário + responsável + ministros) numa coluna; devolve o Y final usado (pode ter quebrado página)
+  // Desenha UM cartão (horário + responsável + ministros) na posição já planejada
   function desenharCard(xCard, yCard, h){
-    const cor = CORES_HORARIO_FIN[h.hora] || {escuro:'#085041',claro:'#eef5f2'};
+    const cor = CORES_HORARIO_FIN[h.hora] || (typeof _corDoHorario==='function' ? _corDoHorario(h.hora) : {escuro:'#085041',claro:'#eef5f2'});
     const [er,eg,eb] = hexRgb(cor.escuro);
     const [cr,cg,cb] = hexRgb(cor.claro);
     let yy = yCard;
     const headerH = alturaHeaderParaCard(h);
-    if(yy + Math.min(alturaCard(h), headerH+4*alturaLinha) > rodapePagina){
-      pdf.addPage(); cabecalho(); yy = M+16;
-    }
     const alt = alturaCard(h);
 
     pdf.setFillColor(cr,cg,cb); pdf.rect(xCard, yy, larguraCol, alt, 'F');
     pdf.setDrawColor(er,eg,eb); pdf.setLineWidth(0.6); pdf.rect(xCard, yy, larguraCol, alt, 'S');
     pdf.setFillColor(er,eg,eb); pdf.rect(xCard, yy, larguraCol, headerH, 'F');
-    pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5);
-    pdf.text('Horário: '+h.hora, xCard+3, yy+4.5);
-    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.0);
+    pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5*E);
+    pdf.text('Horário: '+h.hora, xCard+3, yy+4.5*E);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.0*E);
     const { nomeLinhas, telLinha } = linhasHeaderResp(h);
-    let yTexto = yy + 7.8;
-    nomeLinhas.forEach(linha=>{ pdf.text(linha, xCard+3, yTexto); yTexto += 3.2; });
+    let yTexto = yy + 7.8*E;
+    nomeLinhas.forEach(linha=>{ pdf.text(linha, xCard+3, yTexto); yTexto += 3.2*E; });
     if(telLinha){ pdf.text(telLinha, xCard+3, yTexto); }
 
-    let yl = yy + headerH + 4.5;
+    let yl = yy + headerH + 4.5*E;
     let jaMostrouDivisorReforco = false;
     h.ministros.forEach((m)=>{
       const linhasNome = linhasNomeMinistro(m.nome, m.isResp);
-      const alturaEstaLinha = linhasNome.length*alturaLinha + (m.isReforco ? 3 : 0);
-      if(yl + 4 > rodapePagina){
-        pdf.addPage(); cabecalho(); yy = M+16;
-        pdf.setFillColor(cr,cg,cb); pdf.rect(xCard, yy, larguraCol, rodapePagina-yy, 'F');
-        pdf.setDrawColor(er,eg,eb); pdf.rect(xCard, yy, larguraCol, rodapePagina-yy, 'S');
-        yl = yy + 3;
-      }
-      // Divisória + legenda antes do primeiro reforço puro — separa visualmente da escala normal.
-      // Quem é normal E reforço ao mesmo tempo fica na posição normal, sem disparar o divisor.
+      const alturaEstaLinha = linhasNome.length*alturaLinha + (m.isReforco ? 3*E : 0);
       if(m.isSoReforco && !jaMostrouDivisorReforco){
         jaMostrouDivisorReforco = true;
         pdf.setDrawColor(220,180,60); pdf.setLineWidth(0.3);
-        pdf.line(xCard+3, yl-2, xCard+larguraCol-3, yl-2);
-        pdf.setFont('helvetica','italic'); pdf.setFontSize(6); pdf.setTextColor(150,120,20);
-        pdf.text('Reforço', xCard+3, yl+1.2);
-        yl += 5;
+        pdf.line(xCard+3, yl-2*E, xCard+larguraCol-3, yl-2*E);
+        pdf.setFont('helvetica','italic'); pdf.setFontSize(6*E); pdf.setTextColor(150,120,20);
+        pdf.text('Reforço', xCard+3, yl+1.2*E);
+        yl += 5*E;
       }
-      pdf.setTextColor(130,130,130); pdf.setFont('helvetica','normal'); pdf.setFontSize(8);
+      pdf.setTextColor(130,130,130); pdf.setFont('helvetica','normal'); pdf.setFontSize(8*E);
       if(m.isReforco){
-        pdf.setFillColor(255,243,205); // amarelo claro, igual ao destaque da tela de montar escala
-        pdf.rect(xCard+0.8, yl-3.1, larguraCol-1.6, alturaEstaLinha-0.6, 'F');
+        pdf.setFillColor(255,243,205);
+        pdf.rect(xCard+0.8, yl-3.1*E, larguraCol-1.6, alturaEstaLinha-0.6*E, 'F');
       }
-      pdf.text(String(m.num), xCard+4, yl+1.3, {align:'center'});
-      const cx = xCard+11, cy = yl, d = 6.2;
+      pdf.text(String(m.num), xCard+4*E, yl+1.3*E, {align:'center'});
+      const cx = xCard+11*E, cy = yl, d = 6.2*E;
       const foto = m.foto ? fotoCache[m.nome] : null;
       if(foto){
         try{
@@ -6733,76 +6738,96 @@ async function gerarPDFEscala(semanas, tipoLabel, acao, tipo){
       } else {
         const ini = (m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
         pdf.setFillColor(255,255,255); pdf.circle(cx,cy,d/2,'F');
-        pdf.setTextColor(er,eg,eb); pdf.setFontSize(6); pdf.setFont('helvetica','bold');
-        pdf.text(ini, cx, cy+0.9, {align:'center'});
+        pdf.setTextColor(er,eg,eb); pdf.setFontSize(6*E); pdf.setFont('helvetica','bold');
+        pdf.text(ini, cx, cy+0.9*E, {align:'center'});
       }
-      pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(8.3);
-      linhasNome.forEach((linha,i)=>{ pdf.text(linha, xCard+16, yl+1+i*alturaLinha); });
+      pdf.setTextColor(26,26,26); pdf.setFont('helvetica', m.isResp?'bold':'normal'); pdf.setFontSize(8.3*E);
+      linhasNome.forEach((linha,i)=>{ pdf.text(linha, xCard+16*E, yl+1*E+i*alturaLinha); });
       const ultimaLinhaIdx = linhasNome.length-1;
       if(m.isResp){
         const tw = pdf.getTextWidth(linhasNome[ultimaLinhaIdx]||'');
-        desenharEstrela(pdf, xCard+16+tw+2.5, yl+0.2+ultimaLinhaIdx*alturaLinha, 1.4);
+        desenharEstrela(pdf, xCard+16*E+tw+2.5*E, yl+0.2*E+ultimaLinhaIdx*alturaLinha, 1.4*E);
       }
       if(m.isReforco){
-        // Etiqueta numa linha própria, embaixo da ÚLTIMA linha do nome — nunca sobrepõe o texto
         const textoBadge = 'REFORÇO' + (m.reforcoLabel?' '+m.reforcoLabel:'');
-        pdf.setFont('helvetica','bold'); pdf.setFontSize(5.5);
+        let fb = 5.5*E;
+        pdf.setFont('helvetica','bold'); pdf.setFontSize(fb);
+        const maxW = larguraCol - 16*E - 5;
+        while(pdf.getTextWidth(textoBadge)+3 > maxW && fb > 3.6){ fb -= 0.3; pdf.setFontSize(fb); }
         const textW = pdf.getTextWidth(textoBadge);
         const badgeW = textW + 3;
-        const badgeY = yl + 2.6 + ultimaLinhaIdx*alturaLinha;
+        const badgeY = yl + 2.6*E + ultimaLinhaIdx*alturaLinha;
         pdf.setFillColor(240,192,0);
-        pdf.roundedRect(xCard+16, badgeY, badgeW, 3.4, 0.9, 0.9, 'F');
+        pdf.roundedRect(xCard+16*E, badgeY, badgeW, 3.4*E, 0.9, 0.9, 'F');
         pdf.setTextColor(90,60,0);
-        pdf.text(textoBadge, xCard+16+badgeW/2, badgeY+2.4, {align:'center'});
+        pdf.text(textoBadge, xCard+16*E+badgeW/2, badgeY+2.4*E, {align:'center'});
       }
       yl += alturaEstaLinha;
     });
-    return yl + 4;
   }
 
-  semanas.forEach(sem=>{
-    const horariosComGente = sem.horarios.filter(h=>h.ministros.length);
-    if(!horariosComGente.length) return;
+  // Faixas (semanas/domingos) já com os horários em ORDEM CRONOLÓGICA
+  const faixas = semanas.map(sem=>({
+    titulo: sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||''),
+    horarios: [...sem.horarios.filter(h=>h.ministros.length)].sort((a,b)=>_horaParaMin(a.hora)-_horaParaMin(b.hora))
+  })).filter(f=>f.horarios.length);
 
-    const tituloFaixa = sem.label ? sem.label + (sem.periodo?' — '+sem.periodo:'') : (sem.periodo||'');
-
-    // Estima se a semana INTEIRA cabe a partir da posição atual, simulando o mesmo fluxo por
-    // colunas usado no desenho de verdade — sem desenhar nada ainda. Se não couber, começa
-    // página nova ANTES de desenhar qualquer coisa dessa semana, pra nunca cortar ela ao meio.
-    const alturaTitulo = tituloFaixa ? 11 : 0;
-    // v20.72.0 — GRADE ALINHADA em ORDEM CRONOLÓGICA: linhas de 3 horários (mais cedo → mais tarde,
-    // esquerda → direita), cada linha com os cartões alinhados pelo topo. A linha só vai pra
-    // página nova inteira (nunca separa horários da mesma linha).
-    const ordenadosPDF = [...horariosComGente].sort((a,b)=>_horaParaMin(a.hora)-_horaParaMin(b.hora));
-    const linhasGrade = [];
-    for(let i=0;i<ordenadosPDF.length;i+=numColunas) linhasGrade.push(ordenadosPDF.slice(i,i+numColunas));
-    const gapLinha = 4;
-    const alturaEstimada = alturaTitulo + linhasGrade.reduce((a,l)=>a+Math.max(...l.map(alturaCard))+gapLinha,0);
-    if(y > M+16 && y + alturaEstimada > rodapePagina && alturaEstimada <= rodapePagina-(M+16)){
-      pdf.addPage(); cabecalho(); y = M+16;
-    }
-
-    if(tituloFaixa){
-      if(y + 10 > rodapePagina){ pdf.addPage(); cabecalho(); y = M+16; }
-      pdf.setFillColor(8,80,65); pdf.rect(M, y, larguraTotal, 8, 'F');
-      pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(255,255,255);
-      pdf.text(tituloFaixa, pageW/2, y+5.5, {align:'center'});
-      y += 8 + 3;
-    }
-
-    linhasGrade.forEach(linha=>{
-      const altLinha = Math.max(...linha.map(alturaCard));
-      if(y + altLinha > rodapePagina && y > M+16){
-        pdf.addPage(); cabecalho(); y = M+16;
+  // PLANEJA (sem desenhar): devolve as posições de tudo e quantas páginas o layout atual gera
+  function planejarFluxo(){
+    const ops = []; let pag = 0, yy = topoCorpo, estoura = false;
+    const nova = ()=>{ pag++; yy = topoCorpo; };
+    faixas.forEach(f=>{
+      const linhas = [];
+      for(let i=0;i<f.horarios.length;i+=numColunas) linhas.push(f.horarios.slice(i,i+numColunas));
+      const altTitulo = f.titulo ? 11 : 0;
+      const alturas = linhas.map(l=>Math.max(...l.map(alturaCard)));
+      const altFaixa = altTitulo + alturas.reduce((a,x)=>a+x+gapLinha,0);
+      // faixa inteira cabe numa página nova? então não começa no meio dela
+      if(yy > topoCorpo && yy + altFaixa > rodapePagina && altFaixa <= rodapePagina-topoCorpo) nova();
+      if(f.titulo){
+        if(yy + 11 > rodapePagina && yy > topoCorpo) nova();
+        ops.push({t:'titulo', pag, y:yy, texto:f.titulo}); yy += 11;
       }
-      let yFim = y;
-      linha.forEach((h,col)=>{
-        const xCard = M + col*(larguraCol+gapCol);
-        yFim = Math.max(yFim, desenharCard(xCard, y, h));
+      linhas.forEach((l,i)=>{
+        const alt = alturas[i];
+        if(alt > rodapePagina-topoCorpo) estoura = true;
+        if(yy + alt > rodapePagina && yy > topoCorpo) nova();
+        l.forEach((h,c)=> ops.push({t:'card', pag, x: M + c*(larguraCol+gapCol), y:yy, h}));
+        yy += alt + gapLinha;
       });
-      y = Math.max(yFim, y + altLinha + 4) ;
+      yy += 1;
     });
-    y += 1;
+    return { paginas: pag+1, ops, estoura };
+  }
+
+  // ESCOLHE a melhor configuração: menos páginas; empate → letra maior e menos colunas
+  const candidatos = [
+    {cols:3, esc:1.00}, {cols:3, esc:0.92}, {cols:3, esc:0.85},
+    {cols:4, esc:0.90}, {cols:4, esc:0.84}, {cols:4, esc:0.78}
+  ];
+  let melhor = null;
+  candidatos.forEach(cfg=>{
+    aplicarLayout(cfg);
+    const plano = planejarFluxo();
+    const pontos = (plano.estoura ? 1e6 : 0) + plano.paginas*1000 + (1-cfg.esc)*300 + (cfg.cols-3)*40;
+    if(!melhor || pontos < melhor.pontos) melhor = { cfg, plano, pontos };
+  });
+  aplicarLayout(melhor.cfg);
+  const planoFinal = planejarFluxo();
+  console.log('[SOGI-PDF] layout escolhido', melhor.cfg, planoFinal.paginas+' página(s)');
+
+  // DESENHA o plano
+  let paginaAtual = 0;
+  cabecalho();
+  planoFinal.ops.forEach(op=>{
+    while(paginaAtual < op.pag){ pdf.addPage(); cabecalho(); paginaAtual++; }
+    if(op.t==='titulo'){
+      pdf.setFillColor(8,80,65); pdf.rect(M, op.y, larguraTotal, 8, 'F');
+      pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(255,255,255);
+      pdf.text(op.texto, pageW/2, op.y+5.5, {align:'center'});
+    } else {
+      desenharCard(op.x, op.y, op.h);
+    }
   });
 
   function _paginaVazia(k){
@@ -8961,7 +8986,7 @@ async function calcularDisponibilidadeEscala(){
   try{
     const listaReforcosEsp = await carregarReforcosEspeciais(mesKey);
     listaReforcosEsp.forEach(item=>{
-      if(item?.id) reforcoTipos.push({ id:item.id, label:`Reforço — ${item.label||'Missa especial'} (${isoParaDDMM(item.data)})` });
+      if(item?.id) reforcoTipos.push({ id:item.id, label:`Reforço — ${_rotuloReforcoEspecial(item)}` });
     });
   }catch(e){}
   const docsReforco = {};
@@ -13310,8 +13335,8 @@ async function gerarImagemTodasSemanas(){
 
     // Reforços do mês (para mesclar nos horários certos)
     const refDoHorario = {
-      '12:00h':[{id:'sab12',label:'Missa Sábado 12h'}],
-      '18:00h':[{id:'qui18',label:'Missa Quinta 18h'},{id:'sab17',label:'Missa Sábado 17h'}]
+      '12:00h':[{id:'sab12',label:_comDataReforcoFixo('Missa Sábado 12h', s)}],
+      '18:00h':[{id:'qui18',label:_comDataReforcoFixo('Missa Quinta 18h', s)},{id:'sab17',label:_comDataReforcoFixo('Missa Sábado 17h', s)}]
     };
     // Reforços de datas especiais cadastrados — só entram na semana que realmente contém
     // aquele dia (checagem robusta por ISO via ini/fim salvos, não pelo array de dias)
