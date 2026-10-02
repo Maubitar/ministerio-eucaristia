@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.76.0';
+const APP_VERSAO = '20.77.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3267,12 +3267,67 @@ async function salvarReforcosEspeciaisLista(mesKey, lista){
   await setDoc(doc(db,'config',`reforcos_especiais_${mesKey}`), {lista});
 }
 
+// Reforço é DOMINICAL quando é Automático em "Domingo" ou Manual numa data que cai num domingo
+function _reforcoEhDominical(item){
+  if(!item) return false;
+  if(item.modo === 'auto') return item.diaSemana === 'Domingo';
+  return !!item.data && new Date(item.data+'T12:00:00').getDay() === 0;
+}
+// Reforços da ESCALA DOMINICAL: hora -> [{id,label}] (automático = todos os domingos do mês)
+function _reforcosEspeciaisDominical(lista){
+  const porHora = {};
+  (lista||[]).forEach(item=>{
+    if(!item?.hora || !_reforcoEhDominical(item)) return;
+    if(item.modo === 'manual'){
+      const dm = isoParaDDMM(item.data);
+      if(!DOMINGOS_MES.includes(dm)) return;
+    }
+    if(!porHora[item.hora]) porHora[item.hora] = [];
+    porHora[item.hora].push({ id:item.id, label:_rotuloReforcoEspecial(item) });
+  });
+  Object.keys(porHora).forEach(h=>porHora[h].sort((x,y)=>_chaveOrdemReforco(x.label)-_chaveOrdemReforco(y.label)));
+  return porHora;
+}
+// Junta a equipe normal + reforços (várias linhas se a pessoa reforça mais de um evento) — usado na finalizada
+function _ministrosComReforco(normaisOrdenados, responsavel, refsPorLabel){
+  const mapa = new Map();
+  refsPorLabel.forEach(({label, nomes})=>nomes.forEach(n=>{
+    if(!mapa.has(n)) mapa.set(n, []);
+    if(!mapa.get(n).includes(label)) mapa.get(n).push(label);
+  }));
+  const normaisSet = new Set(normaisOrdenados);
+  const todos = [...normaisOrdenados, ...[...mapa.keys()].filter(n=>!normaisSet.has(n)).sort((a,b)=>a.localeCompare(b,'pt-BR'))];
+  return _organizarReforcosHorario(todos.flatMap(nome=>{
+    const labels = mapa.get(nome)||[];
+    if(!labels.length || normaisSet.has(nome)) return [{ nome, isResp: nome===responsavel, isReforco: labels.length>0, isSoReforco:false, reforcoLabel: labels.join(' + ') }];
+    return labels.map(lb=>({ nome, isResp:false, isReforco:true, isSoReforco:true, reforcoLabel: lb }));
+  }));
+}
+// Lê os ministros de reforço de cada evento dominical: hora -> [{label, nomes}]
+async function _lerReforcosDominicais(mesKey){
+  const lista = await carregarReforcosEspeciais(mesKey);
+  const mapa = _reforcosEspeciaisDominical(lista);
+  const out = {};
+  for(const [hora, itens] of Object.entries(mapa)){
+    for(const it of itens){
+      const rk = `reforco_${it.id}_${mesKey}`;
+      if(!reforcos[rk]){
+        try{ const rd = await getDoc(doc(db,'reforcos',rk)); reforcos[rk] = rd.exists()?rd.data():{ministros:[]}; }
+        catch(e){ reforcos[rk] = {ministros:[]}; }
+      }
+      const nomes = [...(reforcos[rk].ministros||[])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+      if(nomes.length){ if(!out[hora]) out[hora] = []; out[hora].push({ label: it.label, nomes }); }
+    }
+  }
+  return out;
+}
+
 // Monta, para UMA semana (pelo número "sem"), o mapa hora -> [{id,label}] com os reforços
 // de datas especiais cadastrados que caem dentro do período daquela semana.
 function _reforcosEspeciaisDaSemana(lista, sem){
   const porHora = {};
   (lista||[]).forEach(item=>{
-    if(!item?.hora) return;
+    if(!item?.hora || _reforcoEhDominical(item)) return;
     if(item.modo === 'auto'){
       // AUTOMÁTICO: vale em TODAS as semanas do mês que têm esse dia da semana (menos as desligadas)
       if((item.semanasOff||[]).map(String).includes(String(sem))) return;
@@ -3322,9 +3377,11 @@ async function renderListaReforcosEspeciais(){
   const chavesSem = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((x,y)=>parseInt(x)-parseInt(y));
   cont.innerHTML = ordenada.map(item=>{
     const auto = item.modo === 'auto';
-    const titulo = auto ? `🔁 Toda ${item.diaSemana} — ${item.hora} <span style="font-size:10px;background:#e1f5ee;color:#085041;padding:1px 7px;border-radius:10px;margin-left:4px">AUTOMÁTICO · mês todo</span>`
+    const ehDom = _reforcoEhDominical(item);
+    const tagEsc = ehDom ? `<span style="font-size:10px;background:#e1f5ee;color:#085041;padding:1px 7px;border-radius:10px;margin-left:4px">DOMINICAL</span>` : '';
+    const titulo = auto ? `🔁 ${/^(Sábado|Domingo)/.test(item.diaSemana||'')?'Todo':'Toda'} ${item.diaSemana} — ${item.hora} <span style="font-size:10px;background:#e1f5ee;color:#085041;padding:1px 7px;border-radius:10px;margin-left:4px">AUTOMÁTICO · mês todo</span>`
                         : `📌 ${isoParaDDMM(item.data)} — ${item.hora} <span style="font-size:10px;background:#fff3cd;color:#8a6d0c;padding:1px 7px;border-radius:10px;margin-left:4px">MANUAL · só esta missa</span>`;
-    const chips = auto ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;align-items:center"><span style="font-size:10.5px;color:#777">Semanas:</span>${chavesSem.map(k=>{
+    const chips = (auto && !ehDom) ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;align-items:center"><span style="font-size:10.5px;color:#777">Semanas:</span>${chavesSem.map(k=>{
         const off = (item.semanasOff||[]).map(String).includes(String(k));
         return `<button onclick="alternarSemanaReforcoAuto('${item.id}','${k}')" style="border:none;border-radius:12px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;${off?'background:#eee;color:#999;text-decoration:line-through':'background:#085041;color:#fff'}">${k}ª</button>`;
       }).join('')}<span style="font-size:10px;color:#999">toque para ligar/desligar</span></div>` : '';
@@ -3332,7 +3389,7 @@ async function renderListaReforcosEspeciais(){
     <div style="padding:9px 12px;background:#f5f5f3;border-radius:9px">
       <div style="display:flex;align-items:center;gap:10px">
         <div style="flex:1;min-width:0">
-          <p style="font-size:13px;font-weight:700;color:#222;margin:0">${titulo}</p>
+          <p style="font-size:13px;font-weight:700;color:#222;margin:0">${titulo}${tagEsc}</p>
           <p style="font-size:11.5px;color:#888;margin:2px 0 0">${item.label||'Missa especial'}</p>
         </div>
         <button onclick="removerReforcoEspecial('${item.id}')" style="border:none;background:#fbeaea;color:#A32D2D;font-size:11px;font-weight:700;padding:6px 10px;border-radius:14px;cursor:pointer;flex-shrink:0">Apagar</button>
@@ -3354,8 +3411,23 @@ window.alternarSemanaReforcoAuto = async function(id, sem){
   try{
     await salvarReforcosEspeciaisLista(mesKey, novaLista);
     await renderListaReforcosEspeciais();
-    if(document.getElementById('esc-tipo')?.value==='sem') renderEscala();
+    renderEscala();
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); }
+};
+
+// Atualiza a lista de horários do formulário conforme o tipo de missa (domingo = horários dominicais)
+window.reAtualizarHoras = function(){
+  const modo = window._reModo || 'manual';
+  let dom = false;
+  if(modo === 'auto') dom = document.getElementById('re-auto-dia')?.value === 'Domingo';
+  else { const v = document.getElementById('re-nova-data')?.value; dom = !!v && new Date(v+'T12:00:00').getDay() === 0; }
+  const horas = dom ? MISSAS_DOM : MISSAS_SEM;
+  ['re-nova-hora','re-auto-hora'].forEach(id=>{
+    const sel = document.getElementById(id); if(!sel) return;
+    const atual = sel.value;
+    sel.innerHTML = horas.map(h=>`<option value="${h}">${h}</option>`).join('');
+    if(horas.includes(atual)) sel.value = atual;
+  });
 };
 
 // Alterna o formulário entre MANUAL (uma missa específica) e AUTOMÁTICO (o mês todo)
@@ -3368,6 +3440,7 @@ window.reModo = function(modo){
   const on = 'background:#085041;color:#fff;border-color:#085041', off = 'background:#fff;color:#085041;border-color:#9fd3c1';
   if(bm) bm.setAttribute('style', `flex:1;padding:10px 6px;border:2px solid;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;line-height:1.3;${modo==='manual'?on:off}`);
   if(ba) ba.setAttribute('style', `flex:1;padding:10px 6px;border:2px solid;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;line-height:1.3;${modo==='auto'?on:off}`);
+  reAtualizarHoras();
 };
 
 window.adicionarReforcoEspecial = async function(){
@@ -3400,7 +3473,7 @@ window.adicionarReforcoEspecial = async function(){
     toast(modo==='auto' ? '✓ Reforço automático cadastrado! Já vale para o mês todo.' : '✓ Reforço cadastrado! Já aparece na semana correspondente.','ok');
     document.getElementById('re-novo-label').value = '';
     await renderListaReforcosEspeciais();
-    if(document.getElementById('esc-tipo')?.value==='sem') renderEscala();
+    renderEscala();
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); }
 };
 
@@ -3415,7 +3488,7 @@ window.removerReforcoEspecial = async function(id){
     try{ await setDoc(doc(db,'reforcos',`reforco_${id}_${mesKey}`), {ministros:[],responsavel:''}); delete reforcos[`reforco_${id}_${mesKey}`]; }catch(e){}
     toast('✓ Removido.','ok');
     await renderListaReforcosEspeciais();
-    if(document.getElementById('esc-tipo')?.value==='sem') renderEscala();
+    renderEscala();
   }catch(e){ toast('Erro ao remover: '+e.message,'warn'); }
 };
 
@@ -4139,6 +4212,11 @@ window.renderEscala = async function(){
     });
   
   }
+  if(tipo==='dom'){
+    Object.keys(reforcosDoHorario).forEach(k=>delete reforcosDoHorario[k]);
+    const _mapaDom = _reforcosEspeciaisDominical(await carregarReforcosEspeciais(getMesAtual()));
+    Object.entries(_mapaDom).forEach(([hora, itens])=>{ reforcosDoHorario[hora] = itens; });
+  }
   Object.keys(reforcosDoHorario).forEach(h=>{ reforcosDoHorario[h].sort((x,y)=>_chaveOrdemReforco(x.label)-_chaveOrdemReforco(y.label)); });
 
   document.getElementById('esc-body').innerHTML = horasRender.map(hora=>{
@@ -4208,7 +4286,7 @@ window.renderEscala = async function(){
           <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
         </div>`;
       }).join('')}
-      ${tipo==='sem' ? renderReforcoNoQuadrante(hora, reforcosDoHorario[hora]) : ''}
+      ${renderReforcoNoQuadrante(hora, reforcosDoHorario[hora])}
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
         <div style="position:relative;flex:1">
           <input type="text" id="inp-${key}-${hora.replace(':','')}"
@@ -4238,7 +4316,7 @@ function renderReforcoNoQuadrante(hora, refArray){
     if(!reforcos[key]){
       getDoc(doc(db,'reforcos',key)).then(d=>{
         reforcos[key] = d.exists()?d.data():{ministros:[],responsavel:''};
-        if(document.getElementById('esc-tipo')?.value==='sem') renderEscala();
+        renderEscala();
       }).catch(()=>{ reforcos[key]={ministros:[],responsavel:''}; });
       reforcos[key] = {ministros:[], responsavel:''};
     }
@@ -4261,7 +4339,10 @@ function renderReforcoNoQuadrante(hora, refArray){
     const acId = `acrefq-${refInfo.id}`;
     const inpId = `inprefq-${refInfo.id}`;
     // Aviso específico deste tipo de reforço (data fixa avulsa vs. recorrente toda semana)
-    const avisoTipo = ehDataFixa(refInfo.id)
+    const ehAutoEsp = /\((todo|toda) /.test(refInfo.label||'');
+    const avisoTipo = (ehDataFixa(refInfo.id) && ehAutoEsp)
+      ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">🔁 Automático — ${refInfo.label} — vale o mês todo</p>`
+      : ehDataFixa(refInfo.id)
       ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Só para esta missa especial (${refInfo.label}) — não se repete nas demais semanas</p>`
       : (lista.length ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço de ${refInfo.label} — vale toda semana do mês</p>` : '');
     return `${avisoTipo}${linhas}
@@ -5284,16 +5365,21 @@ window.gerarImagemEscala = async function(){
   if(tipo==='dom'){ periodoLabel='Escala Dominical'; subLabel=`Domingos: ${DOMINGOS_MES.join(' · ')}`; }
   else { periodoLabel='Escala Semanal'; subLabel=`Semana de ${SEMANAS_MES[sem]?.periodo||''}`; }
 
+  // Reforços cadastrados para domingos (mesma regra da escala finalizada)
+  const _refsDomImg = tipo==='dom' ? await _lerReforcosDominicais(getMesAtual()) : {};
   // Monta os horários (mesmo cartão e mesmo padrão de slide 16:9 de TODAS as escalas do app)
-  const hObjs = _ordenarPorHora(horas, h=>h).map(h=>{
+  const hObjs = _ordenarPorHora([...new Set([...horas, ...Object.keys(_refsDomImg)])], h=>h).map(h=>{
     const g = esc[h]||{ministros:[],responsavel:''};
-    if(!g.ministros.length) return null;
+    if(!g.ministros.length && !(_refsDomImg[h]||[]).length) return null;
     const responsavel = g.responsavel;
     const respObj = buscarMinistroPorNome(responsavel);
     const ord = [...g.ministros].sort((a,b)=>{ if(a===responsavel)return -1; if(b===responsavel)return 1; return a.localeCompare(b,'pt-BR'); });
+    const minis = _refsDomImg[h]
+      ? _ministrosComReforco(ord, responsavel, _refsDomImg[h])
+      : ord.map((m,i)=>({ num:i+1, nome:m, isResp:m===responsavel, isReforco:false }));
     return {
       hora:h, responsavel: responsavel||'', respTel: respObj?.tel ? ` — ${respObj.tel}` : '',
-      ministros: ord.map((m,i)=>({ num:i+1, nome:m, isResp:m===responsavel, isReforco:false, foto: buscarMinistroPorNome(m)?.foto||null }))
+      ministros: minis.map(m=>({ ...m, foto: buscarMinistroPorNome(m.nome)?.foto||null }))
     };
   }).filter(Boolean);
   if(!hObjs.length){ toast('Nenhum ministro escalado para gerar imagem.','warn'); return; }
@@ -6147,6 +6233,18 @@ window.finalizarEscalaDominical = async function(){
         })
       };
     });
+    // Reforços cadastrados para domingos (cada evento no seu quadrado; nenhum nome some)
+    const refsDom = await _lerReforcosDominicais(mesKey);
+    const horasRef = Object.keys(refsDom);
+    horasRef.forEach(hora=>{ if(!horarios.some(h=>h.hora===hora)){
+      horarios.push({ hora, responsavel:'', respTel:'', dias: DOMINGOS_MES.map(d=>`dom ${d}`), ministros:[] });
+    }});
+    horarios.forEach(h=>{
+      if(!refsDom[h.hora]) return;
+      const normais = (h.ministros||[]).map(m=>m.nome);
+      h.ministros = _ministrosComReforco(normais, h.responsavel, refsDom[h.hora]);
+    });
+    horarios.sort((a,b)=>_horaParaMin(a.hora)-_horaParaMin(b.hora));
     const semanas = [{ label:'', periodo:`Domingos: ${DOMINGOS_MES.join(' · ')}`, horarios }];
     await setDoc(doc(db,'escalas_finalizadas',`${mesKey}_dom`), {
       tipo:'dom', mesKey, mesNome:CAL.mesNome, ano:CAL.ano, semanas, finalizadoEm: serverTimestamp()
@@ -16255,6 +16353,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         </div>
         <div id="domingos-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
       </div>
+
+      <!-- REFORÇOS (mesmo cadastro da escala semanal — vale para qualquer missa) -->
+      <div style="background:#fffdf0;border:1.5px solid #f0d53a;border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <p style="font-size:13px;font-weight:700;color:#8a6d0c;margin:0">⭐ Reforços por missa e evento</p>
+          <button onclick="abrirModalReforcosEspeciais()" style="font-size:11px;padding:5px 12px;border:1.5px solid #f0c000;border-radius:16px;background:white;color:#8a6d0c;cursor:pointer;font-weight:700">✏️ Gerenciar</button>
+        </div>
+        <p style="font-size:11px;color:#8a6d0c;margin:6px 0 0">Marque reforço em qualquer missa de domingo: Manual (um domingo) ou Automático (todo domingo do mês). Cada evento aparece no seu quadrado.</p>
+      </div>
     </div>
 
     <!-- ===== PAINEL SEMANAL ===== -->
@@ -17482,7 +17589,7 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
       <p style="font-size:16px;font-weight:800;color:#8a6d0c;margin:0">⭐ Reforços por missa e evento</p>
       <button onclick="fecharModal('modal-reforcos-especiais')" style="border:none;background:none;font-size:24px;cursor:pointer;color:#aaa;line-height:1">×</button>
     </div>
-    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Marque reforço em qualquer missa: escolha Manual (um dia e horário) ou Automático (um dia da semana e horário, vale o mês todo, com chave para desligar semanas). Dê um nome ao reforço (ex: Missa Quarta 7h, Trasladação).</p>
+    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Marque reforço em QUALQUER missa, de domingo ou de semana: escolha Manual (um dia e horário) ou Automático (um dia da semana e horário, vale o mês todo; nos dias de semana há chave para desligar semanas). Para missa de domingo escolha Domingo — os horários mudam para os da escala dominical. Dê um nome ao reforço (ex: Missa Quarta 7h, Trasladação).</p>
 
     <div id="lista-reforcos-especiais" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
 
@@ -17493,7 +17600,7 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
         <button id="re-btn-auto" onclick="reModo('auto')" style="flex:1;padding:10px 6px;border:2px solid #9fd3c1;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;line-height:1.3;background:#fff;color:#085041">🔁 Automático<br><span style="font-weight:600;font-size:10.5px">marco uma vez e vale o mês todo</span></button>
       </div>
       <div id="re-box-manual" style="display:flex;gap:8px;margin-bottom:8px">
-        <input type="date" id="re-nova-data" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+        <input type="date" id="re-nova-data" onchange="reAtualizarHoras()" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
         <select id="re-nova-hora" style="flex:0 0 100px;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
           <option value="07:00h">07:00h</option>
           <option value="09:00h">09:00h</option>
@@ -17502,8 +17609,8 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
         </select>
       </div>
       <div id="re-box-auto" style="display:none;gap:8px;margin-bottom:8px">
-        <select id="re-auto-dia" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
-          <option>Segunda</option><option>Terça</option><option>Quarta</option><option>Quinta</option><option>Sexta</option><option>Sábado</option>
+        <select id="re-auto-dia" onchange="reAtualizarHoras()" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+          <option>Domingo</option><option>Segunda</option><option>Terça</option><option>Quarta</option><option>Quinta</option><option>Sexta</option><option>Sábado</option>
         </select>
         <select id="re-auto-hora" style="flex:0 0 100px;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
           <option value="07:00h">07:00h</option>
