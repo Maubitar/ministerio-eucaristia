@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.79.2';
+const APP_VERSAO = '20.79.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5120,6 +5120,23 @@ const SOGI_QUALIDADE = Object.freeze({
   LADO_MAXIMO_FOTO: 6000
 });
 
+// Confere se a imagem gerada está toda branca (captura falha). Reduz para 96px e procura pixels com conteúdo.
+async function _imagemEmBranco(blob){
+  try{
+    const bmp = await createImageBitmap(blob);
+    const w = 96, h = Math.max(1, Math.round(96*bmp.height/bmp.width));
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d', { willReadFrequently:true });
+    cx.fillStyle = '#fff'; cx.fillRect(0,0,w,h);
+    cx.drawImage(bmp,0,0,w,h);
+    if(bmp.close) bmp.close();
+    const d = cx.getImageData(0,0,w,h).data;
+    let ativos = 0;
+    for(let i=0;i<d.length;i+=4){ if(d[i]<245 || d[i+1]<245 || d[i+2]<245) ativos++; }
+    return ativos < (w*h)*0.01;
+  }catch(e){ return false; }
+}
+
 // paraFoto=true → saída otimizada pra virar Foto no WhatsApp (JPEG, resolução ESCALA_ALVO_FOTO).
 // paraFoto=false (padrão, NUNCA muda o comportamento de quem já chamava esta função) → PNG na
 // resolução máxima de sempre, usado pra Imprimir e Copiar (clipboard), onde a qualidade bruta importa.
@@ -5160,10 +5177,20 @@ async function capturarImagemAlta(elemento, paraFoto){
     }
   }catch(e){ console.warn('[SOGI] snapdom indisponível, usando fallback', e); }
 
-  // 4) BLINDAGEM DE INTEGRIDADE: se a captura veio corrompida/pequena, refaz com html2canvas
+  // 3b) BLINDAGEM ANTI-BRANCO (v20.79.3): às vezes a captura sai como uma imagem toda BRANCA (e
+  // com tamanho "normal", então passava despercebida). Confere o conteúdo de verdade.
+  if(blob && await _imagemEmBranco(blob)){ console.warn('[SOGI] captura saiu em branco — refazendo'); blob = null; }
+
+  // 4) BLINDAGEM DE INTEGRIDADE: se a captura veio corrompida/pequena/em branco, refaz com html2canvas
   if(!blob || blob.size < SOGI_QUALIDADE.TAMANHO_MINIMO_BYTES){
     const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
     blob = await new Promise(res=>canvas.toBlob(res,tipoSaida,qualidadeSaida));
+    // Ainda em branco? Última tentativa: espera, e refaz em escala menor (mais leve para a memória)
+    if(!blob || await _imagemEmBranco(blob)){
+      await new Promise(r=>setTimeout(r,500));
+      const c2 = await html2canvas(elemento,{scale:Math.max(1,escala*0.6),backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+      blob = await new Promise(res=>c2.toBlob(res,tipoSaida,qualidadeSaida));
+    }
   }
 
   // 5) SELO DE GOVERNANÇA: registra a qualidade entregue (auditoria interna)
