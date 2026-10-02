@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.79.0';
+const APP_VERSAO = '20.79.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3239,6 +3239,16 @@ function _dataDoDiaNaSemana(sem, nomeDia){
   const d = (SEMANAS_MES[sem]?.dias||[]).find(x=>x.dia===nomeDia && x.mesRef!==false);
   return d?.data || '';
 }
+// Reforços fixos (Qui 18h / Sáb 12h / Sáb 17h): a lista do mês (ministros) vale em todas as
+// semanas, MAS o lançamento manual é por semana: 'add' = incluídos só naquela semana,
+// 'off' = retirados só daquela semana. Assim tirar/pôr alguém numa missa não mexe nas outras.
+function _nomesRefFixo(d, sem){
+  const base = (d && d.ministros) || [];
+  if(sem===undefined || sem===null || sem==='') return [...base];
+  const off = ((d.off||{})[String(sem)])||[];
+  const add = ((d.add||{})[String(sem)])||[];
+  return [...new Set([...base.filter(n=>!off.includes(n)), ...add])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+}
 function _comDataReforcoFixo(label, sem){
   const dia = /Quinta/.test(label) ? 'Quinta' : (/Sábado/.test(label) ? 'Sábado' : '');
   if(!dia || /\(\d{1,2}\/\d{1,2}/.test(label)) return label;
@@ -4351,7 +4361,8 @@ function renderReforcoNoQuadrante(hora, refArray){
       }).catch(()=>{ reforcos[key]={ministros:[],responsavel:''}; });
       reforcos[key] = {ministros:[], responsavel:''};
     }
-    const lista = reforcos[key].ministros || [];
+    const _semQ = ehDataFixa(refInfo.id) ? '' : (document.getElementById('esc-sem')?.value||'');
+    const lista = ehDataFixa(refInfo.id) ? (reforcos[key].ministros || []) : _nomesRefFixo(reforcos[key], _semQ);
 
     const linhas = lista.map((m,ri)=>{
       const min = buscarMinistroPorNome(m);
@@ -4363,7 +4374,7 @@ function renderReforcoNoQuadrante(hora, refArray){
         <span style="flex:1;font-size:12px;font-weight:600">${m}
           <span style="font-size:9px;background:#f5c518;color:#5a4500;padding:1px 7px;border-radius:10px;font-weight:800;margin-left:4px">⭐ REFORÇO ${refInfo.label}</span>
         </span>
-        <button onclick="remMinReforcoQuad('${key}',${ri})" style="border:none;background:none;cursor:pointer;color:#c0a020;font-size:18px;line-height:1">×</button>
+        <button onclick="remMinReforcoQuad('${key}',${ri},'${_semQ}')" style="border:none;background:none;cursor:pointer;color:#c0a020;font-size:18px;line-height:1">×</button>
       </div>`;
     }).join('');
 
@@ -4375,12 +4386,12 @@ function renderReforcoNoQuadrante(hora, refArray){
       ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">🔁 Automático — ${refInfo.label} — vale o mês todo</p>`
       : ehDataFixa(refInfo.id)
       ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Só para esta missa especial (${refInfo.label}) — não se repete nas demais semanas</p>`
-      : (lista.length ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço de ${refInfo.label} — vale toda semana do mês</p>` : '');
+      : (lista.length ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço de ${refInfo.label} — lançamento manual: vale só para esta missa</p>` : '');
     return `${avisoTipo}${linhas}
       <div style="position:relative">
         <input type="text" id="${inpId}" placeholder="⭐ + Adicionar reforço (${refInfo.label})..."
           autocomplete="off"
-          oninput="acReforcoQuad(this,'${acId}','${key}','${refInfo.id}')"
+          oninput="acReforcoQuad(this,'${acId}','${key}','${refInfo.id}','${_semQ}')"
           style="width:100%;padding:6px 10px;border:1px dashed #f0c000;border-radius:6px;font-size:12px;margin:0 0 6px;background:#fffdf0">
         <div id="${acId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:200px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
       </div>`;
@@ -4389,34 +4400,59 @@ function renderReforcoNoQuadrante(hora, refArray){
   return `<div style="margin-top:6px">${blocos}</div>`;
 }
 
-window.acReforcoQuad = function(inp, acId, key, tipoRef){
+window.acReforcoQuad = function(inp, acId, key, tipoRef, semQ){
   const v = normalizarBusca(inp.value);
   const ac = document.getElementById(acId);
   if(v.length<2){ ac.style.display='none'; return; }
-  const jaEsc = new Set(reforcos[key]?.ministros||[]);
+  const jaEsc = new Set(semQ ? _nomesRefFixo(reforcos[key], semQ) : (reforcos[key]?.ministros||[]));
   const ms = ministros.filter(m=>normalizarBusca(m.nome).includes(v) && !jaEsc.has(m.nome)).slice(0,8);
   if(!ms.length){ ac.style.display='none'; return; }
   ac.style.display='block';
-  ac.innerHTML = ms.map(m=>`<div onmousedown="addMinReforcoQuad('${key}','${m.nome.replace(/'/g,"\'")}','${acId}')"
+  ac.innerHTML = ms.map(m=>`<div onmousedown="addMinReforcoQuad('${key}','${m.nome.replace(/'/g,"\'")}','${acId}','${semQ||''}')"
     style="padding:9px 12px;cursor:pointer;font-size:13px" onmouseover="this.style.background='#fffdf0'" onmouseout="this.style.background='white'">${m.nome}</div>`).join('');
 };
 
-window.addMinReforcoQuad = function(key, nome, acId){
+window.addMinReforcoQuad = function(key, nome, acId, semQ){
   if(!reforcos[key]) reforcos[key]={ministros:[],responsavel:''};
   if(!reforcos[key].ministros) reforcos[key].ministros=[];
-  if(!reforcos[key].ministros.includes(nome)){
-    reforcos[key].ministros.push(nome);
-    reforcos[key].ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const r = reforcos[key];
+  if(semQ){
+    // Manual: vale só para esta semana
+    const sk = String(semQ);
+    r.off = r.off||{}; r.add = r.add||{};
+    r.off[sk] = (r.off[sk]||[]).filter(n=>n!==nome);
+    if(!r.ministros.includes(nome)){
+      r.add[sk] = r.add[sk]||[];
+      if(!r.add[sk].includes(nome)) r.add[sk].push(nome);
+    }
+  } else if(!r.ministros.includes(nome)){
+    r.ministros.push(nome);
+    r.ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
   }
   const ac=document.getElementById(acId); if(ac) ac.style.display='none';
-  setDoc(doc(db,'reforcos',key), reforcos[key]).catch(()=>{});
+  setDoc(doc(db,'reforcos',key), r).catch(()=>{});
   renderEscala();
 };
 
-window.remMinReforcoQuad = function(key, idx){
-  if(reforcos[key]?.ministros){
-    reforcos[key].ministros.splice(idx,1);
-    setDoc(doc(db,'reforcos',key), reforcos[key]).catch(()=>{});
+window.remMinReforcoQuad = function(key, idx, semQ){
+  const r = reforcos[key];
+  if(r?.ministros){
+    if(semQ){
+      // Manual: tira só desta semana
+      const nome = _nomesRefFixo(r, semQ)[idx];
+      if(nome){
+        const sk = String(semQ);
+        r.off = r.off||{}; r.add = r.add||{};
+        r.add[sk] = (r.add[sk]||[]).filter(n=>n!==nome);
+        if(r.ministros.includes(nome)){
+          r.off[sk] = r.off[sk]||[];
+          if(!r.off[sk].includes(nome)) r.off[sk].push(nome);
+        }
+      }
+    } else {
+      r.ministros.splice(idx,1);
+    }
+    setDoc(doc(db,'reforcos',key), r).catch(()=>{});
   }
   renderEscala();
 };
@@ -5739,7 +5775,7 @@ async function buscarEscalaDoDia(info){
         try{ const rd = await getDoc(doc(db,'reforcos',refKey)); refData = rd.exists()?rd.data():{ministros:[]}; reforcos[refKey]=refData; }
         catch(e){ refData = {ministros:[]}; }
       }
-      const refMinistros = refData.ministros || [];
+      const refMinistros = String(tipoRef).startsWith('esp') ? (refData.ministros || []) : _nomesRefFixo(refData, semanaAlvo);
       if(refMinistros.length){
         if(!escalaBase[hora]) escalaBase[hora] = {ministros:[], responsavel:''};
         if(!escalaBase[hora]._reforco) escalaBase[hora]._reforco = [];
@@ -6303,9 +6339,7 @@ window.finalizarEscalaSemanal = async function(){
       }
       return reforcos[refKey].ministros || [];
     }
-    const reforcoQui18 = await lerReforco('qui18');
-    const reforcoSab12 = await lerReforco('sab12');
-    const reforcoSab17 = await lerReforco('sab17');
+    await lerReforco('qui18'); await lerReforco('sab12'); await lerReforco('sab17');
     // Reforços de datas especiais cadastrados (⭐ Reforços de datas especiais) — pré-carrega
     // a lista de ministros de cada um antes do loop de semanas (que é síncrono)
     const listaReforcosEsp = await carregarReforcosEspeciais(mesKey);
@@ -6315,10 +6349,10 @@ window.finalizarEscalaSemanal = async function(){
     }
     // Mesmo mapeamento já usado na tela ao vivo: sábado 17h entra junto com os das 18h
     // Cada nome guarda o rótulo exato do reforço (pra mostrar "REFORÇO Missa Quinta 18h" etc — igual à tela de montar escala)
-    const reforcosPorHora = {
-      '18:00h': [...reforcoQui18.map(n=>({nome:n, label:'Missa Quinta 18h'})), ...reforcoSab17.map(n=>({nome:n, label:'Missa Sábado 17h'}))],
-      '12:00h': [...reforcoSab12.map(n=>({nome:n, label:'Missa Sábado 12h'}))]
-    };
+    const reforcosPorHoraDe = (sm)=>({
+      '18:00h': [..._nomesRefFixo(reforcos[`reforco_qui18_${mesKey}`], sm).map(n=>({nome:n, label:'Missa Quinta 18h'})), ..._nomesRefFixo(reforcos[`reforco_sab17_${mesKey}`], sm).map(n=>({nome:n, label:'Missa Sábado 17h'}))],
+      '12:00h': [..._nomesRefFixo(reforcos[`reforco_sab12_${mesKey}`], sm).map(n=>({nome:n, label:'Missa Sábado 12h'}))]
+    });
 
     function dadosDaSemanaFinal(s){
       const info = SEMANAS_MES[s];
@@ -6332,7 +6366,7 @@ window.finalizarEscalaSemanal = async function(){
       // Reforços que valem só para ESTA semana (datas especiais cadastradas) — checagem
       // robusta por ISO, só entra na semana que realmente contém aquele dia
       const reforcosPorHoraSemana = {};
-      Object.entries(reforcosPorHora).forEach(([h,arr])=>{ reforcosPorHoraSemana[h] = arr.map(r=>({ ...r, label:_comDataReforcoFixo(r.label, s) })); });
+      Object.entries(reforcosPorHoraDe(s)).forEach(([h,arr])=>{ reforcosPorHoraSemana[h] = arr.map(r=>({ ...r, label:_comDataReforcoFixo(r.label, s) })); });
       const _espSem = _reforcosEspeciaisDaSemana(listaReforcosEsp, s);
       Object.entries(_espSem).forEach(([hEsp, arrEsp])=>{
         arrEsp.forEach(({id, label})=>{
@@ -12644,7 +12678,7 @@ async function modoPresencaResponsavel(codigo){
         try{
           const refKey = `reforco_${refInfo.id}_${mesKey}`;
           const dRef = await getDoc(doc(db,'reforcos',refKey));
-          const listaRef = dRef.exists() ? (dRef.data().ministros||[]) : [];
+          const listaRef = dRef.exists() ? _nomesRefFixo(dRef.data(), semana) : [];
           listaRef.forEach(nome=>{
             if(reforcoNomesJaVistos.has(nome)) return; // evita duplicar quem já está na escala normal
             const obj = porNome[nome];
@@ -13747,7 +13781,7 @@ async function gerarImagemTodasSemanas(){
           const rk = `reforco_${rm.id}_${mesKey}`;
           let rd = reforcos[rk];
           if(!rd){ try{ const dd=await getDoc(doc(db,'reforcos',rk)); rd=dd.exists()?dd.data():{ministros:[]}; reforcos[rk]=rd; }catch(e){ rd={ministros:[]}; } }
-          const ml=(rd.ministros||[]).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+          const ml=(String(rm.id).startsWith('esp') ? [...(rd.ministros||[])] : _nomesRefFixo(rd, s)).sort((a,b)=>a.localeCompare(b,'pt-BR'));
           if(ml.length) refsHora.push({label:rm.label,ministros:ml});
         }
       }
