@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.77.1';
+const APP_VERSAO = '20.78.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -12058,6 +12058,7 @@ function renderCardHorarioCirio(colId, hora){
           <div>${nome}${isResp?' <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>'+respTelBadge:''}</div>
           ${detalheOutros?`<div style="font-size:9px;color:${n>=3?'#A32D2D':'#888'};font-weight:600">também em: ${detalheOutros}</div>`:''}
         </span>
+        ${isResp ? `<button onclick="enviarLinkPresenca('${nome.replace(/'/g,"")}','${APP_URL}/?presresp=cir-${colId}-${_horarioParaCodigo(hora+'h')}')" title="Enviar link de presença deste horário" style="border:1.5px solid #185FA5;background:#eef5fb;color:#185FA5;font-size:10px;font-weight:700;padding:4px 8px;border-radius:14px;cursor:pointer;flex-shrink:0;white-space:nowrap">📤 Link</button>` : ''}
         <button onclick="cirioEscRemoverMin('${colId}','${hora}','${nome.replace(/'/g,"\\'")}')" title="Remover" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
       </div>`;
     }).join('') : '<p style="font-size:12px;color:#bbb;padding:4px 0">Ninguém escalado ainda.</p>'}
@@ -12504,6 +12505,7 @@ async function modoPresencaResponsavel(codigo){
   try{
     const partes = (codigo||'').split('-');
     const tipo = partes[0];
+    if(tipo==='cir'){ await modoPresencaCirio(partes); return; }
     let semana=null, horarioEnc, mesKey;
     if(tipo==='sem'){ semana=partes[1]; horarioEnc=partes[2]; mesKey=partes[3]; }
     else if(tipo==='dom'){ horarioEnc=partes[1]; mesKey=partes[2]; }
@@ -12613,10 +12615,48 @@ async function modoPresencaResponsavel(codigo){
       }
     }
 
-    renderPainelPresencaResponsavel({ tipo, horario, mesKey, semana, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros, mesIdx, anoMesKey:ano });
+    // Reforços cadastrados em "⭐ Reforços por missa e evento" (qualquer missa, domingo ou semana)
+    const reforcosEsp = [];
+    try{
+      const dl = await getDoc(doc(db,'config',`reforcos_especiais_${mesKey}`));
+      const lista = dl.exists() ? (dl.data().lista||[]) : [];
+      for(const item of lista){
+        if(item.hora !== horario) continue;
+        if(_reforcoEhDominical(item) !== (tipo==='dom')) continue;
+        const dRef = await getDoc(doc(db,'reforcos',`reforco_${item.id}_${mesKey}`));
+        const objs = (dRef.exists() ? (dRef.data().ministros||[]) : []).map(n=>porNome[n]).filter(Boolean);
+        if(objs.length) reforcosEsp.push({ item, label:_rotuloReforcoEspecial(item), objs });
+      }
+    }catch(e){}
+    renderPainelPresencaResponsavel({ tipo, horario, mesKey, semana, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros, mesIdx, anoMesKey:ano, reforcosEsp });
   }catch(e){
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: '+e.message+'</div>';
   }
+}
+
+// Presença da QUINZENA DO CÍRIO: link do responsável de um horário de uma coluna (dia) da grade
+async function modoPresencaCirio(partes){
+  const invalido = msg => { document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">'+msg+'</div>'; };
+  const horarioEnc = partes[partes.length-1];
+  const colId = partes.slice(1,-1).join('-');
+  const horario = (horarioEnc||'').replace(/^(\d\d)(\d\d)h$/, '$1:$2h');
+  let cfg = null;
+  try{ const d = await getDoc(doc(db,'config','cirio')); cfg = d.exists()?d.data():null; }catch(e){}
+  const coluna = (cfg?.colunas||[]).find(c=>c.id===colId);
+  if(!coluna || !/^\d\d:\d\dh$/.test(horario)){ invalido('Link inválido ou expirado. Peça um novo ao coordenador.'); return; }
+  let esc = {};
+  try{ const d = await getDoc(doc(db,'escalas',`escala_cirio_${colId}`)); esc = d.exists()?d.data():{}; }catch(e){}
+  const grupo = esc[horario.replace(/h$/,'')] || esc[horario] || {ministros:[], responsavel:''};
+  const ano = parseInt(cfg.ano) || new Date().getFullYear();
+  let brutas = (coluna.datas && coluna.datas.length) ? coluna.datas : ((coluna.data||'').match(/\d{1,2}\/\d{1,2}/g) || []);
+  const datas = brutas.map(x=>{ const [d,m] = String(x).split('/'); const dd = String(d).padStart(2,'0'), mm = String(m).padStart(2,'0'); return { data:`${dd}/${mm}`, label:`${coluna.label} ${dd}/${mm}` }; });
+  if(!datas.length){ invalido('Não encontrei datas para este dia da Quinzena.'); return; }
+  let todosMinistros = [];
+  try{ const snap = await getDocs(collection(db,'ministros')); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
+  const porNome = {}; todosMinistros.forEach(mm=>{ porNome[mm.nome]=mm; });
+  const escaladosObjs = (grupo.ministros||[]).map(n=>porNome[n]).filter(Boolean);
+  const mesIdx = parseInt(datas[0].data.split('/')[1]) - 1;
+  renderPainelPresencaResponsavel({ tipo:'cir', colLabel:coluna.label, horario, mesKey:`cir${ano}`, semana:null, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros, mesIdx, anoMesKey:ano, reforcosEsp:[] });
 }
 
 let _presRespCtx = null; // guarda o contexto atual (tipo, horario, mesKey, datas, escalados) pra reaproveitar nos cliques
@@ -12624,7 +12664,7 @@ let _presRespCtx = null; // guarda o contexto atual (tipo, horario, mesKey, data
 function renderPainelPresencaResponsavel(ctx){
   _presRespCtx = ctx;
   const registranteSalvo = localStorage.getItem('sogi_registrante_nome') || '';
-  const tituloHorario = `${ctx.horario}${ctx.tipo==='sem' ? ' — '+ctx.semana+'ª semana' : ' — Dominical'}`;
+  const tituloHorario = `${ctx.horario}${ctx.tipo==='sem' ? ' — '+ctx.semana+'ª semana' : (ctx.tipo==='cir' ? ' — Quinzena do Círio · '+(ctx.colLabel||'') : ' — Dominical')}`;
   const avisoSabado18 = (ctx.tipo==='sem' && ctx.horario==='18:00h')
     ? `<p style="font-size:11px;color:#BA7517;font-weight:600;margin:4px 0 0">⚠️ No Sábado, esta missa é celebrada às 17h (não 18h).</p>` : '';
 
@@ -12737,13 +12777,21 @@ function renderCorpoDataPresenca(i, docId, registrosSalvos){
   corpo.dataset.carregado='1';
   corpo.dataset.docid=docId;
 
+  // Reforços cadastrados que valem NESTA data (manual = só a data dele; automático = todo dia da semana igual)
+  const dtAtual = ctx.datas[i] || {};
+  const baseEscalados = [...ctx.escaladosObjs];
+  (ctx.reforcosEsp||[]).forEach(r=>{
+    const vale = r.item.modo==='auto' ? (dtAtual.label||'').startsWith(r.item.diaSemana) : isoParaDDMM(r.item.data)===dtAtual.data;
+    if(!vale) return;
+    r.objs.forEach(o=>{ if(!baseEscalados.some(b=>b.id===o.id)) baseEscalados.push({ ...o, ehReforco:true, reforcoLabel:r.label }); });
+  });
   // Junta escalados originais + qualquer substituto ou reforço extra já adicionado antes
   // (registrado mas não fazia parte da escala nem do reforço planejado do mês)
-  const idsEscalados = new Set(ctx.escaladosObjs.map(m=>m.id));
+  const idsEscalados = new Set(baseEscalados.map(m=>m.id));
   const substitutosSalvos = Object.keys(registrosSalvos).filter(id=>!idsEscalados.has(id) && registrosSalvos[id]?.substituto);
   const reforcosExtraSalvos = Object.keys(registrosSalvos).filter(id=>!idsEscalados.has(id) && registrosSalvos[id]?.reforcoExtra);
   const listaCompleta = [
-    ...ctx.escaladosObjs.map(m=>({m, original:true})),
+    ...baseEscalados.map(m=>({m, original:true})),
     ...substitutosSalvos.map(id=>({m:ctx.todosMinistros.find(x=>x.id===id), original:false})).filter(x=>x.m),
     ...reforcosExtraSalvos.map(id=>{ const m=ctx.todosMinistros.find(x=>x.id===id); return m ? {m:{...m, ehReforcoExtra:true}, original:false} : null; }).filter(Boolean)
   ];
@@ -13161,14 +13209,51 @@ window.renderEnvioLinksPresenca = async function(){
     }
     contSem.innerHTML = html.trim() ? html : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum horário com responsável definido ainda.</p>';
   }
+
+  // QUINZENA DO CÍRIO — um link por horário de cada dia da grade
+  const contCir = document.getElementById('ep-lista-cirio');
+  if(contCir){
+    contCir.innerHTML = '<p style="font-size:12px;color:#888">Carregando...</p>';
+    try{
+      const cfg = await carregarCirioConfig();
+      let html = '';
+      for(const col of (cfg.colunas||[])){
+        const dados = await _lerEscalaDocRaw(`escala_cirio_${col.id}`);
+        const linhas = (cfg.horarios||[]).filter(h=>cfg.grade?.[col.id]?.[h]).map(h=>{
+          const g = dados[h] || {};
+          if(!g.responsavel) return '';
+          const hh = `${h}h`;
+          return _linhaEnvioPresenca(hh, g.responsavel, `${APP_URL}/?presresp=cir-${col.id}-${_horarioParaCodigo(hh)}`, col.label);
+        }).join('');
+        if(linhas.trim()) html += `<p style="font-size:12px;font-weight:700;color:#BA7517;margin:10px 0 4px">${col.label} — ${_cirioLabelDatas(col)}</p>${linhas}`;
+      }
+      contCir.innerHTML = html.trim() ? html : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum horário do Círio com responsável definido ainda.</p>';
+    }catch(e){ contCir.innerHTML = '<p style="font-size:12px;color:#A32D2D">Erro ao carregar o Círio.</p>'; }
+  }
+
+  // EVENTOS ESPECIAIS — um link por evento (vai pro responsável definido no evento)
+  const contEvt = document.getElementById('ep-lista-eventos');
+  if(contEvt){
+    contEvt.innerHTML = '<p style="font-size:12px;color:#888">Carregando...</p>';
+    try{
+      const evs = await carregarEventos();
+      const html = evs.map(e=>{
+        const dataFmt = (e.data||'').split('-').reverse().join('/');
+        const rotulo = `📌 ${e.nome||'Evento'} <span style="font-size:10px;color:#888;font-weight:400">(${dataFmt}${e.hora?' · '+e.hora:''})</span>`;
+        if(!e.responsavel) return `<div style="padding:8px 0;border-bottom:1px solid #eee"><p style="font-size:13px;font-weight:600;margin:0">${rotulo}</p><p style="font-size:11px;color:#A32D2D;margin:1px 0 0">⚠️ Sem responsável — defina no evento (★ ao lado do nome)</p></div>`;
+        return _linhaEnvioPresenca('', e.responsavel, `${APP_URL}/?presresp=evt-${e.id}`, '', rotulo);
+      }).join('');
+      contEvt.innerHTML = html.trim() ? html : '<p style="font-size:12px;color:#888;padding:8px 0">Nenhum evento cadastrado.</p>';
+    }catch(e){ contEvt.innerHTML = '<p style="font-size:12px;color:#A32D2D">Erro ao carregar eventos.</p>'; }
+  }
 };
 
-function _linhaEnvioPresenca(hora, responsavelNome, link, tagExtra){
+function _linhaEnvioPresenca(hora, responsavelNome, link, tagExtra, rotuloCustom){
   const m = buscarMinistroPorNome(responsavelNome);
   const semTel = !m || !_telValido(m);
   return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
     <div style="flex:1;min-width:0">
-      <p style="font-size:13px;font-weight:600;margin:0">⏰ ${hora} ${tagExtra?`<span style="font-size:10px;color:#888;font-weight:400">(${tagExtra})</span>`:''}</p>
+      <p style="font-size:13px;font-weight:600;margin:0">${rotuloCustom || '⏰ '+hora} ${tagExtra?`<span style="font-size:10px;color:#888;font-weight:400">(${tagExtra})</span>`:''}</p>
       <p style="font-size:11px;color:${semTel?'#A32D2D':'#888'};margin:1px 0 0">${responsavelNome}${semTel?' ⚠️ '+(m?_motivoTelInvalido(m):'não cadastrado'):''}</p>
     </div>
     <button onclick="enviarLinkPresenca('${responsavelNome.replace(/'/g,"")}','${link}')" ${semTel?'disabled':''} style="font-size:11px;padding:7px 12px;border:1.5px solid ${semTel?'#ccc':'#185FA5'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#185FA5'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600;flex-shrink:0">📤 Enviar</button>
@@ -16688,6 +16773,14 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <div class="card">
     <p class="ct">📆 Escala Semanal</p>
     <div id="ep-lista-sem"></div>
+  </div>
+  <div class="card">
+    <p class="ct">🕯️ Quinzena do Círio</p>
+    <div id="ep-lista-cirio"></div>
+  </div>
+  <div class="card">
+    <p class="ct">⭐ Eventos especiais</p>
+    <div id="ep-lista-eventos"></div>
   </div>
 </div>
 
