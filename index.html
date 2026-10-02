@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.79.3';
+const APP_VERSAO = '20.79.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5110,7 +5110,7 @@ const SOGI_QUALIDADE = Object.freeze({
   // o tempo (e o peso do arquivo) gerando 8x era jogado fora pelo WhatsApp mesmo. A resolução abaixo
   // já é muito maior que o que qualquer Foto do WhatsApp preserva, então NADA se perde na prática —
   // só o desperdício de tempo é cortado. A impressão em papel (ESCALA_ALVO acima) continua intocada.
-  ESCALA_ALVO_FOTO: 4,      // resolução da imagem que vai virar Foto no WhatsApp — nítida, rápida de gerar e leve de baixar
+  ESCALA_ALVO_FOTO: 2.5,      // resolução da imagem que vai virar Foto no WhatsApp — nítida, rápida de gerar e leve de baixar
   QUALIDADE_JPEG_FOTO: 0.93, // JPEG de altíssima qualidade — visualmente idêntico ao PNG depois que o WhatsApp recomprime
   // BLINDAGEM (v20.71.0): "Memória insuficiente" / navegador travou — a Escala Dominical inteira
   // (todos os domingos do mês, com foto de cada ministro) é um elemento gigante; gerando a 4x com
@@ -5131,8 +5131,10 @@ async function _imagemEmBranco(blob){
     cx.drawImage(bmp,0,0,w,h);
     if(bmp.close) bmp.close();
     const d = cx.getImageData(0,0,w,h).data;
+    // cor predominante (canto superior esquerdo + centro); "ativo" = pixel bem diferente dela
+    const c0=[d[0],d[1],d[2]];
     let ativos = 0;
-    for(let i=0;i<d.length;i+=4){ if(d[i]<245 || d[i+1]<245 || d[i+2]<245) ativos++; }
+    for(let i=0;i<d.length;i+=4){ if(Math.abs(d[i]-c0[0])+Math.abs(d[i+1]-c0[1])+Math.abs(d[i+2]-c0[2]) > 40) ativos++; }
     return ativos < (w*h)*0.01;
   }catch(e){ return false; }
 }
@@ -5160,38 +5162,35 @@ async function capturarImagemAlta(elemento, paraFoto){
   const escalaMinimaSegura = Math.min(SOGI_QUALIDADE.ESCALA_MINIMA, ladoMaximo/larguraEl, ladoMaximo/alturaEl);
   escala = Math.max(escalaMinimaSegura, escala);
   // BLINDAGEM (v20.73.0): teto de PIXELS totais (memória) — vale pra impressão (PNG) e Foto
-  const _maxPx = paraFoto ? 36e6 : 70e6;
+  const _maxPx = paraFoto ? 20e6 : 70e6;
   if(larguraEl*alturaEl*escala*escala > _maxPx) escala = Math.sqrt(_maxPx/(larguraEl*alturaEl));
 
   const tipoSaida = paraFoto ? 'image/jpeg' : 'image/png';
   const qualidadeSaida = paraFoto ? SOGI_QUALIDADE.QUALIDADE_JPEG_FOTO : 1.0;
 
-  // 3) Captura de alta fidelidade (snapdom nativo)
-  let blob = null;
-  try{
-    const mod = await import('https://cdn.jsdelivr.net/npm/@zumer/snapdom@2.12.9/dist/snapdom.mjs');
-    const snapdom = mod.snapdom || mod.default;
-    if(typeof snapdom === 'function'){
-      const result = await snapdom(elemento, { scale: escala, backgroundColor: '#ffffff', embedFonts: true });
-      blob = await result.toBlob({ type: tipoSaida, quality: qualidadeSaida });
-    }
-  }catch(e){ console.warn('[SOGI] snapdom indisponível, usando fallback', e); }
-
-  // 3b) BLINDAGEM ANTI-BRANCO (v20.79.3): às vezes a captura sai como uma imagem toda BRANCA (e
-  // com tamanho "normal", então passava despercebida). Confere o conteúdo de verdade.
-  if(blob && await _imagemEmBranco(blob)){ console.warn('[SOGI] captura saiu em branco — refazendo'); blob = null; }
-
-  // 4) BLINDAGEM DE INTEGRIDADE: se a captura veio corrompida/pequena/em branco, refaz com html2canvas
-  if(!blob || blob.size < SOGI_QUALIDADE.TAMANHO_MINIMO_BYTES){
-    const canvas = await html2canvas(elemento,{scale:escala,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
-    blob = await new Promise(res=>canvas.toBlob(res,tipoSaida,qualidadeSaida));
-    // Ainda em branco? Última tentativa: espera, e refaz em escala menor (mais leve para a memória)
-    if(!blob || await _imagemEmBranco(blob)){
-      await new Promise(r=>setTimeout(r,500));
-      const c2 = await html2canvas(elemento,{scale:Math.max(1,escala*0.6),backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
-      blob = await new Promise(res=>c2.toBlob(res,tipoSaida,qualidadeSaida));
-    }
-  }
+  // 3) Captura de alta fidelidade (snapdom nativo) — com escada de segurança:
+  //    snapdom → (se vier branca/falhar) snapdom em escala menor → html2canvas → html2canvas menor
+  const _ok = async bl => !!bl && bl.size >= SOGI_QUALIDADE.TAMANHO_MINIMO_BYTES && !(await _imagemEmBranco(bl));
+  const _snap = async (esc)=>{
+    try{
+      const mod = await import('https://cdn.jsdelivr.net/npm/@zumer/snapdom@2.12.9/dist/snapdom.mjs');
+      const snapdom = mod.snapdom || mod.default;
+      if(typeof snapdom !== 'function') return null;
+      const result = await snapdom(elemento, { scale: esc, backgroundColor: '#ffffff', embedFonts: true, cache: 'disabled' });
+      return await result.toBlob({ type: tipoSaida, quality: qualidadeSaida });
+    }catch(e){ console.warn('[SOGI] snapdom falhou', e); return null; }
+  };
+  const _h2c = async (esc)=>{
+    try{
+      const canvas = await html2canvas(elemento,{scale:esc,backgroundColor:'#ffffff',useCORS:true,logging:false,imageTimeout:0});
+      return await new Promise(res=>canvas.toBlob(res,tipoSaida,qualidadeSaida));
+    }catch(e){ console.warn('[SOGI] html2canvas falhou', e); return null; }
+  };
+  let blob = await _snap(escala);
+  if(!(await _ok(blob))){ await new Promise(r=>setTimeout(r,400)); blob = await _snap(Math.max(1, escala*0.6)); }
+  if(!(await _ok(blob))){ await new Promise(r=>setTimeout(r,400)); blob = await _h2c(escala); }
+  if(!(await _ok(blob))){ await new Promise(r=>setTimeout(r,500)); blob = await _h2c(Math.max(1, escala*0.6)); }
+  if(!blob) throw new Error('Não foi possível gerar a imagem da escala. Feche abas do navegador e tente de novo.');
 
   // 5) SELO DE GOVERNANÇA: registra a qualidade entregue (auditoria interna)
   const resFinalW = Math.round(larguraEl*escala), resFinalH = Math.round(alturaEl*escala);
