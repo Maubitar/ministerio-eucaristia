@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.79.4';
+const APP_VERSAO = '20.80.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6600,7 +6600,7 @@ function _planejarLinhas(n){
   return Array.from({length:numLinhas}, (_,i)=> base + (i<extra ? 1 : 0));
 }
 
-function _montarSlideEscala(rotulo, tituloFaixa, linhas, corBorda, k){
+function _montarSlideEscala(rotulo, tituloFaixa, linhas, corBorda, k, gradeCustom){
   const ban = _infoBannerEscala(rotulo);
   corBorda = ban.cor; // cada tipo de escala tem a sua cor (moldura e faixa)
   const tam = ban.titulo.length > 52 ? 32 : (ban.titulo.length > 36 ? 40 : 48);
@@ -6610,7 +6610,7 @@ function _montarSlideEscala(rotulo, tituloFaixa, linhas, corBorda, k){
       <div style="font-size:${tam}px;font-weight:900;letter-spacing:2px;line-height:1.1">${ban.icone} ${ban.titulo}</div>
       ${subtitulo?`<div style="font-size:25px;font-weight:700;margin-top:1px;line-height:1.2">${subtitulo}</div>`:''}
     </div>`;
-  const grade = linhas.map(l=>`<div class="slide-linha" style="display:flex;gap:${SLIDE_GAP_H}px;justify-content:center;align-items:flex-start">${l.map(h=>`<div style="width:${SLIDE_CARD_W}px;flex:none">${cardHorarioFin(h,k)}</div>`).join('')}</div>`).join('');
+  const grade = (gradeCustom!==undefined && gradeCustom!==null) ? gradeCustom : linhas.map(l=>`<div class="slide-linha" style="display:flex;gap:${SLIDE_GAP_H}px;justify-content:center;align-items:flex-start">${l.map(h=>`<div style="width:${SLIDE_CARD_W}px;flex:none">${cardHorarioFin(h,k)}</div>`).join('')}</div>`).join('');
   return `<div style="width:${SLIDE_W}px;height:${SLIDE_H}px;box-sizing:border-box;overflow:hidden;background:white;border:4px solid ${corBorda};border-radius:14px;padding:8px 24px 8px;display:flex;flex-direction:column;font-family:Arial,sans-serif;color:#1a1a1a">
     <div style="flex:none;display:flex;align-items:center;gap:22px">
       <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:50px;height:50px;object-fit:contain">
@@ -6738,6 +6738,110 @@ async function capturarPaginaComDivisao(rotulo, tituloFaixa, cards, corBorda, op
   return resultados;
 }
 
+
+// ===== GRADE DA QUINZENA DO CÍRIO EM IMAGENS (v20.80.0) =====
+// A Quinzena do Círio sai como UMA grade só (horários nas linhas, dias nas colunas — igual à
+// impressão), dividida em poucas páginas IGUAIS (mesmo tamanho 1900x1343, mesmo cabeçalho, mesma
+// letra), nunca uma página por dia. Os horários nunca são cortados no meio.
+const _CORES_HORARIO_CIRIO_IMG = {
+  '05:45':{escuro:'#455A64',claro:'#eceff1'}, '06:00':{escuro:'#1565C0',claro:'#e8f1fc'},
+  '07:00':{escuro:'#00897B',claro:'#e6f5f3'}, '08:00':{escuro:'#2E7D32',claro:'#eaf5ea'},
+  '09:00':{escuro:'#9E9D24',claro:'#f7f7e6'}, '10:00':{escuro:'#B8860B',claro:'#fbf3e0'},
+  '12:00':{escuro:'#8E24AA',claro:'#f6ecf9'}, '16:00':{escuro:'#3949AB',claro:'#ecedf9'},
+  '18:00':{escuro:'#D84315',claro:'#fdece5'}, '20:00':{escuro:'#6D4C41',claro:'#efeae8'}
+};
+async function _dadosGradeCirio(){
+  await carregarCirioConfig();
+  const cfg = _cirioConfig;
+  if(!cfg || !cfg.colunas || !cfg.colunas.length) return null;
+  const dadosPorColuna = {};
+  for(const c of cfg.colunas){ dadosPorColuna[c.id] = await _lerEscalaDocRaw(_cirioEscalaKey(c.id)); }
+  const horarios = _ordenarPorHora((cfg.horarios||[]).filter(h => cfg.colunas.some(c => cfg.grade[c.id] && cfg.grade[c.id][h])));
+  const temGente = cfg.colunas.some(c=>horarios.some(h=>((dadosPorColuna[c.id]||{})[h]?.ministros||[]).length));
+  if(!temGente) return null;
+  return { cfg, dadosPorColuna, horarios };
+}
+function _htmlLinhaGradeCirio(h, d){
+  const { cfg, dadosPorColuna } = d;
+  const corH = _CORES_HORARIO_CIRIO_IMG[h.replace('h','')] || {escuro:'#085041',claro:'#eef5f2'};
+  const B = '2px solid #000';
+  const celulas = cfg.colunas.map(c=>{
+    const temMissa = cfg.grade[c.id] && cfg.grade[c.id][h];
+    if(!temMissa) return `<td style="border:${B};background:#f8d7da"></td>`;
+    const g = (dadosPorColuna[c.id]||{})[h] || {ministros:[], responsavel:''};
+    const nomes = g.ministros||[], resp = g.responsavel||'';
+    const tel = resp ? (buscarMinistroPorNome(resp)?.tel||'') : '';
+    const faixa = resp ? `<div style="border-bottom:${B};margin:-3px -5px 3px;padding:3px 5px;background:rgba(255,255,255,.7);font-weight:700;font-size:14px;line-height:1.2"><span style="display:block;color:#7a5c12;overflow-wrap:anywhere">★ ${resp}</span>${tel?`<span style="display:block;color:#085041;font-size:14px">📞 ${tel}</span>`:''}</div>` : '';
+    const lista = nomes.length
+      ? `${faixa}${nomes.map((n,i)=>`<div style="padding:1px 0;border-bottom:0.5px solid rgba(0,0,0,.18);overflow-wrap:anywhere;${n===resp?'font-weight:700;color:#7a5c12':''}">${i+1}. ${n}${n===resp?'&nbsp;★':''}</div>`).join('')}`
+      : `<div style="color:#bbb;text-align:center">—</div>`;
+    return `<td style="border:${B};background:${corH.claro};vertical-align:top;padding:3px 5px;font-size:15px;line-height:1.2;overflow:hidden">${lista}</td>`;
+  }).join('');
+  return `<tr><td style="border:${B};background:${corH.escuro};color:#fff;font-weight:800;font-size:20px;text-align:center;vertical-align:top;padding:6px 2px;width:84px">${h}</td>${celulas}</tr>`;
+}
+function _htmlTabelaGradeCirio(d, horariosPagina){
+  const { cfg } = d;
+  const B = '2px solid #000';
+  const ths = cfg.colunas.map(c=>`<th style="border:${B};background:#f0faf5;color:#000;font-size:19px;font-weight:800;text-align:center;padding:5px 4px;line-height:1.2">${c.label}<br><span style="font-size:15px;font-weight:700">${_cirioLabelDatas(c)}</span></th>`).join('');
+  return `<table style="width:100%;border-collapse:collapse;table-layout:fixed;border:3px solid #000;font-family:Arial,sans-serif;color:#222"><thead><tr><th style="border:${B};width:84px;background:#f0faf5"></th>${ths}</tr></thead><tbody>${horariosPagina.map(h=>_htmlLinhaGradeCirio(h,d)).join('')}</tbody></table>`;
+}
+async function capturarGradeCirio(opcoes){
+  const paraFoto = !(opcoes && opcoes.paraFoto === false);
+  const d = await _dadosGradeCirio();
+  if(!d) return [];
+  const rotulo = `ESCALA QUINZENA DO CÍRIO${d.cfg.ano?' '+d.cfg.ano:''}`;
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `position:fixed;left:-9999px;top:0;width:${SLIDE_W}px;height:${SLIDE_H}px;overflow:hidden;background:white`;
+  document.body.appendChild(wrap);
+  const esperarImgs = async ()=>{
+    await Promise.all(Array.from(wrap.querySelectorAll('img')).map(img=> img.complete ? Promise.resolve() : new Promise(res=>{ img.onload=res; img.onerror=res; })));
+    await new Promise(r=>setTimeout(r,60));
+  };
+  const montar = async (titulo, grade)=>{
+    wrap.innerHTML = _montarSlideEscala(rotulo, titulo, [], '#B45309', 1, grade);
+    await esperarImgs();
+    return wrap.querySelector('.slide-grade');
+  };
+  const resultados = [];
+  try{
+    // altura útil da página e altura real de cada horário (linha) já com a largura exata da página
+    const gVazia = await montar('', '');
+    const util = gVazia.clientHeight, larg = gVazia.clientWidth;
+    const medidor = document.createElement('div');
+    medidor.style.cssText = `position:fixed;left:-9999px;top:0;width:${larg}px`;
+    document.body.appendChild(medidor);
+    let altCab = 0, alt = [];
+    try{
+      medidor.innerHTML = _htmlTabelaGradeCirio(d, d.horarios);
+      altCab = medidor.querySelector('thead').offsetHeight;
+      alt = Array.from(medidor.querySelectorAll('tbody tr')).map(tr=>tr.offsetHeight);
+    } finally { document.body.removeChild(medidor); }
+    const alturaDe = (i,j)=> altCab + alt.slice(i,j).reduce((a,x)=>a+x,0) + 4;
+    // menor nº de páginas (guloso) e depois partição equilibrada (DP) — páginas parecidas entre si
+    let n = 1, soma = altCab + 4, qtd = 0;
+    alt.forEach(h=>{ if(qtd>0 && soma + h > util){ n++; soma = altCab + 4 + h; qtd = 1; } else { soma += h; qtd++; } });
+    const R = alt.length, INF = 1e9;
+    const dp = Array.from({length:n+1}, ()=>Array(R+1).fill(INF));
+    const corte = Array.from({length:n+1}, ()=>Array(R+1).fill(0));
+    dp[0][0] = 0;
+    for(let c=1;c<=n;c++) for(let j=c;j<=R;j++) for(let i=c-1;i<j;i++){
+      const v = Math.max(dp[c-1][i], alturaDe(i,j));
+      if(v < dp[c][j]){ dp[c][j] = v; corte[c][j] = i; }
+    }
+    const limites = []; let j = R;
+    for(let c=n;c>=1;c--){ const i = corte[c][j]; limites.unshift([i,j]); j = i; }
+    for(let p=0;p<limites.length;p++){
+      const [i,jj] = limites[p];
+      const titulo = limites.length>1 ? `Todos os dias da quinzena — página ${p+1} de ${limites.length}` : 'Todos os dias da quinzena';
+      await montar(titulo, _htmlTabelaGradeCirio(d, d.horarios.slice(i,jj)));
+      const blob = await capturarImagemAlta(wrap, paraFoto);
+      resultados.push({ blob, label: titulo });
+      await new Promise(r=>setTimeout(r,120));
+    }
+  } finally { document.body.removeChild(wrap); }
+  return resultados;
+}
+
 // Retorna um ARRAY de páginas — SEMPRE uma por semana/domingo, nunca dividida em partes.
 // Escalas com muitos horários juntos (Dominical) usam mais colunas em vez de mais páginas.
 // limite físico do navegador e a resolução cai sozinha pra caber).
@@ -6838,6 +6942,14 @@ async function _prepararArquivosParaItem(it){
   let paginas = [];
   let nomeArqBase = '';
 
+  if(it.tipo==='cirio-grade'){
+    const resultados = await capturarGradeCirio();
+    if(!resultados.length) return null;
+    return { arquivos: resultados.map((r,j)=>({
+      file: new File([r.blob], `escala_quinzena_cirio_p${j+1}.${_extParaBlob(r.blob)}`, {type: r.blob.type || 'image/png'}),
+      tituloShare: `${it.label} (p.${j+1}/${resultados.length})`
+    })) };
+  }
   if(it.tipo==='cirio'){
     const pagina = await _montarCardsCirioDia(it.chave);
     if(!pagina) return null;
@@ -7431,18 +7543,10 @@ window.renderTransmissaoCentral = async function(){
       itens.push({ tipo:'sem', chave: docSem.id, indice:i, label:`📆 Escala Semanal — ${s.label||('Semana '+(i+1))}${s.periodo?' ('+s.periodo+')':''}` });
     });
 
-    // Escala do Círio — uma entrada por dia (coluna) que já tem pelo menos 1 ministro escalado
-    await carregarCirioConfig();
-    const cfg = _cirioConfig;
-    if(cfg?.colunas?.length){
-      for(const c of cfg.colunas){
-        const horariosAtivos = (cfg.horarios||[]).filter(h=>cfg.grade[c.id]&&cfg.grade[c.id][h]);
-        if(!horariosAtivos.length) continue;
-        const dados = await _lerEscalaDocRaw(_cirioEscalaKey(c.id));
-        const temGente = horariosAtivos.some(h=>(dados[h]?.ministros||[]).length);
-        if(temGente) itens.push({ tipo:'cirio', chave: c.id, label:`🕯️ Círio — ${c.label} (${_cirioLabelDatas(c)})` });
-      }
-    }
+    // Escala do Círio — UMA entrada só: a grade completa da quinzena (todos os dias), em poucas páginas iguais
+    try{
+      if(await _dadosGradeCirio()) itens.push({ tipo:'cirio-grade', chave:'grade', label:'🕯️ Quinzena do Círio — grade completa (todos os dias)' });
+    }catch(e){}
 
     // Eventos Especiais — um por evento que já tem pelo menos 1 ministro escalado
     await carregarEventos();
