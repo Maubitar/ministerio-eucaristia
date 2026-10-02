@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.77.0';
+const APP_VERSAO = '20.77.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3350,13 +3350,7 @@ function _reforcosEspeciaisDaSemana(lista, sem){
 window.abrirModalReforcosEspeciais = async function(){
   document.getElementById('modal-reforcos-especiais').style.display = 'flex';
   document.getElementById('lista-reforcos-especiais').innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:14px 0">Carregando...</p>';
-  // Sugere já a data de hoje (dentro do mês/ano da Escala) no campo de nova data
-  try{
-    const mes = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
-    const ano = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
-    const inp = document.getElementById('re-nova-data');
-    if(inp) inp.value = `${ano}-${String(mes+1).padStart(2,'0')}-01`;
-  }catch(e){}
+  const tp = document.getElementById('re-tipo'); if(tp) tp.value = (document.getElementById('esc-tipo')?.value==='sem') ? 'sem' : 'dom';
   reModo(window._reModo || 'manual');
   await renderListaReforcosEspeciais();
 };
@@ -3415,20 +3409,52 @@ window.alternarSemanaReforcoAuto = async function(id, sem){
   }catch(e){ toast('Erro ao salvar: '+e.message,'warn'); }
 };
 
-// Atualiza a lista de horários do formulário conforme o tipo de missa (domingo = horários dominicais)
-window.reAtualizarHoras = function(){
-  const modo = window._reModo || 'manual';
-  let dom = false;
-  if(modo === 'auto') dom = document.getElementById('re-auto-dia')?.value === 'Domingo';
-  else { const v = document.getElementById('re-nova-data')?.value; dom = !!v && new Date(v+'T12:00:00').getDay() === 0; }
-  const horas = dom ? MISSAS_DOM : MISSAS_SEM;
+// Monta o formulário de reforço com as missas REAIS do mês (domingos ou dias da semana + horários)
+window.reAtualizarForm = function(){
+  const tipo = document.getElementById('re-tipo')?.value || 'dom';
+  const horas = tipo==='dom' ? MISSAS_DOM : MISSAS_SEM;
   ['re-nova-hora','re-auto-hora'].forEach(id=>{
     const sel = document.getElementById(id); if(!sel) return;
     const atual = sel.value;
     sel.innerHTML = horas.map(h=>`<option value="${h}">${h}</option>`).join('');
     if(horas.includes(atual)) sel.value = atual;
   });
+  const mesSel = parseInt(document.getElementById('esc-mes')?.value ?? CONFIG_MES.mes);
+  const anoSel = parseInt(document.getElementById('esc-ano')?.value ?? CONFIG_MES.ano);
+  const toISO = dm => {
+    const [dd,mm] = dm.split('/').map(Number);
+    let ano = anoSel;
+    if(mm===1 && mesSel===11) ano++;
+    if(mm===12 && mesSel===0) ano--;
+    return `${ano}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+  };
+  let datas = [];
+  if(tipo==='dom'){
+    datas = DOMINGOS_MES.map(d=>({ iso:toISO(d), txt:`Domingo ${d}` }));
+  } else {
+    const chaves = Object.keys(SEMANAS_MES).filter(k=>!isNaN(parseInt(k))).sort((x,y)=>parseInt(x)-parseInt(y));
+    chaves.forEach(k=>{
+      (SEMANAS_MES[k]?.dias||[]).forEach(d=>{
+        if(d.dia==='Domingo' || !MISSAS_SEM_DIAS[d.dia]) return;
+        datas.push({ iso:toISO(d.data), txt:`${d.dia} ${d.data}  (${k}ª semana)` });
+      });
+    });
+  }
+  const sd = document.getElementById('re-nova-data');
+  if(sd){
+    const atual = sd.value;
+    sd.innerHTML = datas.length ? datas.map(x=>`<option value="${x.iso}">${x.txt}</option>`).join('') : '<option value="">(sem datas no mês)</option>';
+    if(datas.some(x=>x.iso===atual)) sd.value = atual;
+  }
+  const sa = document.getElementById('re-auto-dia');
+  if(sa){
+    const atual = sa.value;
+    const dias = tipo==='dom' ? ['Domingo'] : ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+    sa.innerHTML = dias.map(d=>`<option>${d}</option>`).join('');
+    if(dias.includes(atual)) sa.value = atual;
+  }
 };
+window.reAtualizarHoras = window.reAtualizarForm;
 
 // Alterna o formulário entre MANUAL (uma missa específica) e AUTOMÁTICO (o mês todo)
 window.reModo = function(modo){
@@ -3440,13 +3466,13 @@ window.reModo = function(modo){
   const on = 'background:#085041;color:#fff;border-color:#085041', off = 'background:#fff;color:#085041;border-color:#9fd3c1';
   if(bm) bm.setAttribute('style', `flex:1;padding:10px 6px;border:2px solid;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;line-height:1.3;${modo==='manual'?on:off}`);
   if(ba) ba.setAttribute('style', `flex:1;padding:10px 6px;border:2px solid;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;line-height:1.3;${modo==='auto'?on:off}`);
-  reAtualizarHoras();
+  reAtualizarForm();
 };
 
 window.adicionarReforcoEspecial = async function(){
   const modo = window._reModo || 'manual';
-  const label = document.getElementById('re-novo-label')?.value?.trim();
-  if(!label){ toast('Dê um nome pra essa missa (ex: Trasladação).','warn'); return; }
+  let label = document.getElementById('re-novo-label')?.value?.trim();
+  const _hAbrev = h => String(h||'').replace(/^0/,'').replace(':00h','h');
   const mesKey = getMesAtualEscala();
   const lista = await carregarReforcosEspeciais(mesKey);
   let novoItem;
@@ -3457,6 +3483,7 @@ window.adicionarReforcoEspecial = async function(){
     if(lista.some(i=>i.modo==='auto' && i.diaSemana===diaSemana && i.hora===hora)){
       toast('Já existe um reforço automático nesse dia e horário.','warn'); return;
     }
+    if(!label) label = `Missa ${diaSemana} ${_hAbrev(hora)}`;
     novoItem = { id: `esp_${Date.now()}_${Math.floor(Math.random()*1000)}`, modo:'auto', diaSemana, hora, label, semanasOff:[] };
   } else {
     const dataInp = document.getElementById('re-nova-data')?.value;
@@ -3464,6 +3491,10 @@ window.adicionarReforcoEspecial = async function(){
     if(!dataInp){ toast('Escolha uma data.','warn'); return; }
     if(lista.some(i=>i.data===dataInp && i.hora===hora)){
       toast('Já existe um reforço cadastrado nessa data e horário.','warn'); return;
+    }
+    if(!label){
+      const _dn = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'][new Date(dataInp+'T12:00:00').getDay()];
+      label = `Missa ${_dn} ${_hAbrev(hora)}`;
     }
     novoItem = { id: `esp_${Date.now()}_${Math.floor(Math.random()*1000)}`, modo:'manual', data: dataInp, hora, label };
   }
@@ -17589,7 +17620,7 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
       <p style="font-size:16px;font-weight:800;color:#8a6d0c;margin:0">⭐ Reforços por missa e evento</p>
       <button onclick="fecharModal('modal-reforcos-especiais')" style="border:none;background:none;font-size:24px;cursor:pointer;color:#aaa;line-height:1">×</button>
     </div>
-    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Marque reforço em QUALQUER missa, de domingo ou de semana: escolha Manual (um dia e horário) ou Automático (um dia da semana e horário, vale o mês todo; nos dias de semana há chave para desligar semanas). Para missa de domingo escolha Domingo — os horários mudam para os da escala dominical. Dê um nome ao reforço (ex: Missa Quarta 7h, Trasladação).</p>
+    <p style="font-size:12px;color:#666;margin:0 0 14px;line-height:1.5">Escolha a missa (Domingo ou Semana), o dia e o horário. Manual = só aquela missa. Automático = vale o mês todo (nos dias de semana dá para desligar semanas). Dê um nome ao reforço (ex: Missa Quarta 7h, Trasladação).</p>
 
     <div id="lista-reforcos-especiais" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
 
@@ -17599,27 +17630,21 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
         <button id="re-btn-manual" onclick="reModo('manual')" style="flex:1;padding:10px 6px;border:2px solid #085041;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;line-height:1.3;background:#085041;color:#fff">📌 Manual<br><span style="font-weight:600;font-size:10.5px">escolho a missa e o horário</span></button>
         <button id="re-btn-auto" onclick="reModo('auto')" style="flex:1;padding:10px 6px;border:2px solid #9fd3c1;border-radius:10px;font-size:12.5px;font-weight:800;cursor:pointer;line-height:1.3;background:#fff;color:#085041">🔁 Automático<br><span style="font-weight:600;font-size:10.5px">marco uma vez e vale o mês todo</span></button>
       </div>
-      <div id="re-box-manual" style="display:flex;gap:8px;margin-bottom:8px">
-        <input type="date" id="re-nova-data" onchange="reAtualizarHoras()" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
-        <select id="re-nova-hora" style="flex:0 0 100px;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
-          <option value="07:00h">07:00h</option>
-          <option value="09:00h">09:00h</option>
-          <option value="12:00h">12:00h</option>
-          <option value="18:00h">18:00h</option>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <select id="re-tipo" onchange="reAtualizarForm()" style="flex:1;padding:10px;border:2px solid #085041;border-radius:8px;font-size:14px;font-weight:700;color:#085041">
+          <option value="dom">⛪ Missa de DOMINGO</option>
+          <option value="sem">⛪ Missa de SEMANA</option>
         </select>
+      </div>
+      <div id="re-box-manual" style="display:flex;gap:8px;margin-bottom:8px">
+        <select id="re-nova-data" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px"></select>
+        <select id="re-nova-hora" style="flex:0 0 105px;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px"></select>
       </div>
       <div id="re-box-auto" style="display:none;gap:8px;margin-bottom:8px">
-        <select id="re-auto-dia" onchange="reAtualizarHoras()" style="flex:1;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
-          <option>Domingo</option><option>Segunda</option><option>Terça</option><option>Quarta</option><option>Quinta</option><option>Sexta</option><option>Sábado</option>
-        </select>
-        <select id="re-auto-hora" style="flex:0 0 100px;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px">
-          <option value="07:00h">07:00h</option>
-          <option value="09:00h">09:00h</option>
-          <option value="12:00h">12:00h</option>
-          <option value="18:00h">18:00h</option>
-        </select>
+        <select id="re-auto-dia" onchange="reAtualizarForm()" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px"></select>
+        <select id="re-auto-hora" style="flex:0 0 105px;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:14px"></select>
       </div>
-      <input type="text" id="re-novo-label" placeholder="Nome do reforço (ex: Missa Quarta 7h, Trasladação)" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
+      <input type="text" id="re-novo-label" placeholder="Nome (opcional — se vazio, uso o nome da missa)" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
       <button onclick="adicionarReforcoEspecial()" style="width:100%;padding:11px;border:none;border-radius:10px;background:#f0c000;color:#5a4500;font-size:13.5px;font-weight:800;cursor:pointer">+ Adicionar</button>
     </div>
   </div>
