@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.80.2';
+const APP_VERSAO = '20.80.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1087,8 +1087,8 @@ async function modoIdentificacao(id){
         <!-- Foto / placeholder -->
         <div style="flex-shrink:0;text-align:center">
           ${m.foto
-            ? `<img src="${m.foto}" style="width:96px;height:120px;object-fit:cover;border-radius:10px;border:2px solid #e1f5ee">`
-            : `<div style="width:96px;height:120px;border-radius:10px;background:linear-gradient(135deg,#e1f5ee,#d0ebe2);border:2px dashed #9cc9bb;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#085041">
+            ? `<img src="${m.foto}" style="width:112px;height:140px;object-fit:cover;object-position:center 20%;border-radius:10px;border:2px solid #085041;image-rendering:auto;display:block">`
+            : `<div style="width:112px;height:140px;border-radius:10px;background:linear-gradient(135deg,#e1f5ee,#d0ebe2);border:2px dashed #085041;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#085041">
                  <span style="font-size:30px;font-weight:700">${iniciais}</span>
                  <span style="font-size:9px;font-weight:800;color:#085041;margin-top:4px">SEM FOTO</span>
                </div>`}
