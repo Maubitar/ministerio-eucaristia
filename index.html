@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.80.0';
+const APP_VERSAO = '20.80.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1049,11 +1049,27 @@ async function modoIdentificacao(id){
   const iniciais = (m.nome||'').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
 
   document.body.style.background = '#eef1f0';
+  // IMPRESSÃO (v20.80.1): o app tem uma regra global de impressão que ESCONDE tudo que não é a
+  // "área de impressão" — por isso a carteirinha saía em BRANCO. Aqui liberamos só esta página.
+  document.body.classList.add('modo-carteirinha');
+  if(!document.getElementById('css-carteirinha-print')){
+    const st = document.createElement('style'); st.id = 'css-carteirinha-print';
+    st.textContent = `@page{size:A4 portrait;margin:12mm}
+      @media print{
+        body.modo-carteirinha > *:not(#print-area){display:block!important}
+        body.modo-carteirinha{background:white!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        body.modo-carteirinha *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        .cart-wrap{max-width:105mm!important;min-height:0!important;margin:0 auto!important;padding:0!important;background:white!important}
+        .cart-wrap .no-print{display:none!important}
+        .cart-card{box-shadow:none!important;break-inside:avoid;page-break-inside:avoid}
+      }`;
+    document.head.appendChild(st);
+  }
   document.body.innerHTML = `
-  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:0 auto;padding:20px 16px 36px;background:#eef1f0;min-height:100vh">
+  <div class="cart-wrap" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:0 auto;padding:20px 16px 36px;background:#eef1f0;min-height:100vh">
 
     <!-- CARTEIRINHA -->
-    <div style="background:white;border-radius:18px;overflow:hidden;box-shadow:0 6px 24px rgba(8,80,65,.18);border:1px solid #e0e6e3">
+    <div class="cart-card" style="background:white;border-radius:18px;overflow:hidden;box-shadow:0 6px 24px rgba(8,80,65,.18);border:1px solid #e0e6e3">
 
       <!-- Cabeçalho institucional -->
       <div style="background:linear-gradient(135deg,#085041 0%,#0a6e57 100%);padding:16px 18px;display:flex;align-items:center;gap:12px;position:relative">
@@ -1134,8 +1150,10 @@ async function modoIdentificacao(id){
       </div>
     </div>
 
+    <button class="no-print" onclick="window.print()" style="width:100%;margin-top:14px;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:15px;font-weight:700;cursor:pointer">🖨️ Imprimir carteirinha</button>
+
     <!-- Instruções de uso -->
-    <div style="background:white;border-radius:14px;padding:14px 16px;margin-top:14px;box-shadow:0 2px 8px rgba(0,0,0,.05)">
+    <div class="no-print" style="background:white;border-radius:14px;padding:14px 16px;margin-top:14px;box-shadow:0 2px 8px rgba(0,0,0,.05)">
       <p style="font-size:12px;font-weight:700;color:#085041;margin:0 0 8px">📱 Como usar sua carteirinha</p>
       <p style="font-size:11px;color:#666;line-height:1.6;margin:0">
         • <strong>Presença</strong>: apresente o QR Code à Coordenação nas missas, reuniões e adorações.<br>
@@ -1143,7 +1161,7 @@ async function modoIdentificacao(id){
         • <strong>Guarde este link</strong> ou adicione à tela inicial do celular para acesso rápido.
       </p>
     </div>
-    <p style="font-size:10px;color:#aaa;text-align:center;margin-top:14px;line-height:1.5">Carteira digital emitida pela Coordenação MESCE.<br>Basílica Santuário de Nossa Senhora de Nazaré 🙏</p>
+    <p class="no-print" style="font-size:10px;color:#aaa;text-align:center;margin-top:14px;line-height:1.5">Carteira digital emitida pela Coordenação MESCE.<br>Basílica Santuário de Nossa Senhora de Nazaré 🙏</p>
   </div>`;
 
   // Gera o QR Code (mesma identificação usada no scanner de presença)
