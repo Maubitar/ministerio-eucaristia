@@ -36,7 +36,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.80.1';
+const APP_VERSAO = '20.80.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1077,7 +1077,7 @@ async function modoIdentificacao(id){
         <div style="flex:1;text-align:center;color:white;line-height:1.25">
           <p style="font-size:11px;font-weight:700;margin:0;letter-spacing:.3px">MINISTÉRIO EXTRAORDINÁRIO</p>
           <p style="font-size:11px;font-weight:700;margin:0;letter-spacing:.3px">DA SAGRADA COMUNHÃO EUCARÍSTICA</p>
-          <p style="font-size:9px;opacity:.85;margin:3px 0 0">Carteira de Identificação</p>
+          <p style="font-size:10px;font-weight:700;margin:3px 0 0;letter-spacing:.5px">CARTEIRA DE IDENTIFICAÇÃO</p>
         </div>
         <img src="${APP_URL}/${LOGO_MESCE}" style="width:46px;height:46px;border-radius:8px;background:white;padding:2px;object-fit:contain;flex-shrink:0">
       </div>
@@ -1090,24 +1090,24 @@ async function modoIdentificacao(id){
             ? `<img src="${m.foto}" style="width:96px;height:120px;object-fit:cover;border-radius:10px;border:2px solid #e1f5ee">`
             : `<div style="width:96px;height:120px;border-radius:10px;background:linear-gradient(135deg,#e1f5ee,#d0ebe2);border:2px dashed #9cc9bb;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#085041">
                  <span style="font-size:30px;font-weight:700">${iniciais}</span>
-                 <span style="font-size:8px;color:#5a9080;margin-top:4px">SEM FOTO</span>
+                 <span style="font-size:9px;font-weight:800;color:#085041;margin-top:4px">SEM FOTO</span>
                </div>`}
         </div>
         <!-- Dados -->
         <div style="flex:1;min-width:0">
-          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Nome</p>
-          <p style="font-size:15px;font-weight:700;color:#1a1a1a;margin:1px 0 8px;line-height:1.2">${m.nome}</p>
+          <p style="font-size:10px;font-weight:800;color:#222;text-transform:uppercase;letter-spacing:.5px;margin:0">Nome</p>
+          <p style="font-size:16px;font-weight:800;color:#000;margin:1px 0 8px;line-height:1.2">${m.nome}</p>
 
-          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Função</p>
-          <p style="font-size:11px;font-weight:600;color:#085041;margin:1px 0 8px;line-height:1.3">Ministro(a) Extraordinário(a) da Sagrada Comunhão Eucarística</p>
+          <p style="font-size:10px;font-weight:800;color:#222;text-transform:uppercase;letter-spacing:.5px;margin:0">Função</p>
+          <p style="font-size:11.5px;font-weight:800;color:#085041;margin:1px 0 8px;line-height:1.3">Ministro(a) Extraordinário(a) da Sagrada Comunhão Eucarística</p>
 
-          <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Paróquia</p>
-          <p style="font-size:11px;color:#333;margin:1px 0 8px;line-height:1.3">Basílica Santuário de Nossa Senhora de Nazaré</p>
+          <p style="font-size:10px;font-weight:800;color:#222;text-transform:uppercase;letter-spacing:.5px;margin:0">Paróquia</p>
+          <p style="font-size:11.5px;font-weight:800;color:#000;margin:1px 0 8px;line-height:1.3">Basílica Santuário de Nossa Senhora de Nazaré</p>
 
           <div style="display:flex;gap:14px">
             <div>
-              <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Registro</p>
-              <p style="font-size:13px;font-weight:700;color:#085041;margin:1px 0 0">Nº ${registro}</p>
+              <p style="font-size:10px;font-weight:800;color:#222;text-transform:uppercase;letter-spacing:.5px;margin:0">Registro</p>
+              <p style="font-size:14px;font-weight:800;color:#085041;margin:1px 0 0">Nº ${registro}</p>
             </div>
           </div>
         </div>
@@ -1116,32 +1116,32 @@ async function modoIdentificacao(id){
       <!-- Validade + QR + selo -->
       <div style="padding:0 18px 14px">
         <div style="display:flex;gap:14px;align-items:center">
-          <div style="flex:1">
-            <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Emissão</p>
-            <p style="font-size:12px;font-weight:600;color:#333;margin:1px 0 6px">${fmtData(emissao)}</p>
-            <p style="font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin:0">Validade</p>
-            <p style="font-size:12px;font-weight:700;color:${vencida?'#A32D2D':'#1D9E75'};margin:1px 0 0">${fmtData(validade)} ${vencida?'⚠️ VENCIDA':'✓'}</p>
-          </div>
+          <div style="flex:1;display:flex;gap:34px;align-items:flex-start"><div>
+            <p style="font-size:10px;font-weight:800;color:#222;text-transform:uppercase;letter-spacing:.5px;margin:0">Emissão</p>
+            <p style="font-size:13px;font-weight:800;color:#000;margin:1px 0 0">${fmtData(emissao)}</p>
+            </div><div><p style="font-size:10px;font-weight:800;color:#222;text-transform:uppercase;letter-spacing:.5px;margin:0">Validade</p>
+            <p style="font-size:13px;font-weight:800;color:${vencida?'#A32D2D':'#085041'};margin:1px 0 0">${fmtData(validade)} ${vencida?'⚠️ VENCIDA':'✓'}</p>
+          </div></div>
         </div>
         <!-- QR Code grande e centralizado (fácil de escanear no quiosque) -->
-        <div style="display:flex;flex-direction:column;align-items:center;margin-top:14px;padding:14px;background:white;border-radius:12px;border:1px solid #eee">
-          <div id="ident-qr" style="background:white;padding:6px;border-radius:8px"></div>
-          <p style="font-size:10px;color:#888;margin:8px 0 0;text-align:center">Apresente este QR Code à Coordenação<br>para registrar sua presença</p>
+        <div style="display:flex;flex-direction:column;align-items:center;margin-top:10px;padding:8px;background:white;border-radius:12px;border:1.5px solid #085041">
+          <div id="ident-qr" style="background:white;padding:4px;border-radius:8px"></div>
+          <p style="font-size:10.5px;font-weight:800;color:#000;margin:5px 0 0;text-align:center">Apresente este QR Code à Coordenação<br>para registrar sua presença</p>
         </div>
       </div>
 
       <!-- Coordenação MESCE -->
       <div style="padding:10px 18px;border-top:1px solid #eef2f0;text-align:center">
-        <p style="font-size:11px;font-weight:700;color:#085041;margin:0">Coordenação MESCE 2026</p>
-        <p style="font-size:9px;color:#999;margin:2px 0 0">Basílica Santuário de Nossa Senhora de Nazaré</p>
+        <p style="font-size:12px;font-weight:800;color:#085041;margin:0">Coordenação MESCE 2026</p>
+        <p style="font-size:10px;font-weight:700;color:#000;margin:2px 0 0">Basílica Santuário de Nossa Senhora de Nazaré</p>
       </div>
 
       <!-- Rodapé: selo de autenticidade -->
       <div style="background:#f0faf5;padding:12px 18px;border-top:1px solid #e1f5ee;display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div style="flex:1">
-          <p style="font-size:9px;color:#085041;font-weight:700;margin:0 0 1px">✓ DOCUMENTO AUTÊNTICO</p>
-          <p style="font-size:9px;color:#888;margin:0">Coordenação MESCE 2026 · Cód: ${selo}</p>
-          <p style="font-size:8px;color:#aaa;margin:2px 0 0">Validação pelo QR Code acima</p>
+          <p style="font-size:10px;color:#085041;font-weight:800;margin:0 0 1px">✓ DOCUMENTO AUTÊNTICO</p>
+          <p style="font-size:10px;font-weight:700;color:#000;margin:0">Coordenação MESCE 2026 · Cód: ${selo}</p>
+          <p style="font-size:9px;font-weight:700;color:#222;margin:2px 0 0">Validação pelo QR Code acima</p>
         </div>
         <!-- SELO OFICIAL DE AUTENTICIDADE -->
         <div style="flex-shrink:0">
@@ -1169,7 +1169,7 @@ async function modoIdentificacao(id){
   try{
     const url = `${APP_URL}/?ministro=${id}`;
     new QRCode(document.getElementById('ident-qr'), {
-      text: url, width: 180, height: 180,
+      text: url, width: 112, height: 112,
       colorDark: '#000000', colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M
     });
