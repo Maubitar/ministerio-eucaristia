@@ -7,6 +7,11 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Ministério da Eucaristia — Basílica de Nazaré</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -14,7 +19,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = {
   apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
@@ -36,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.80.3';
+const APP_VERSAO = '20.81.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -162,6 +167,24 @@ const MISSAS_SEM_DIAS = {
   'Sábado':   ['07:00h','09:00h','12:00h','18:00h'],
 };
 
+// DESEMPENHO (v20.81.0): guarda os dados em cache no próprio aparelho (IndexedDB). Na 2ª abertura em
+// diante o app e os links de presença abrem na hora com o cache e só baixam o que MUDOU.
+function _abrirDb(app){
+  try{ return initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+  catch(e){ return getFirestore(app); }
+}
+// Lê os ministros priorizando o cache local (instantâneo) e atualiza só as mudanças em segundo plano.
+// 1ª vez (cache vazio) baixa tudo normalmente.
+async function _lerMinistrosDocs(){
+  try{
+    const c = await getDocsFromCache(collection(db,'ministros'));
+    if(c && !c.empty){
+      try{ const un = onSnapshot(collection(db,'ministros'), sn=>{ if(!sn.metadata.fromCache){ try{un();}catch(e){} } }, ()=>{}); }catch(e){}
+      return c;
+    }
+  }catch(e){}
+  return await getDocs(collection(db,'ministros'));
+}
 let db, ministros=[], presAtual={}, _presAtualOriginal={}, presReuniao=new Set(), escalas={}, reforcos={}, substitutosPorTitular={};
 let _presencaChaveCarregada = null;
 
@@ -325,7 +348,7 @@ window.addEventListener('load', async()=>{
   const ministroId = params.get('ministro');
   if(ministroId){
     const app2 = initializeApp(FB);
-    db = getFirestore(app2);
+    db = _abrirDb(app2);
     modoIdentificacao(ministroId);
     if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
@@ -333,7 +356,7 @@ window.addEventListener('load', async()=>{
   const dispId = params.get('disp');
   if(dispId){
     const app = initializeApp(FB);
-    db = getFirestore(app);
+    db = _abrirDb(app);
     modoDisponibilidade(dispId);
     if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
@@ -342,7 +365,7 @@ window.addEventListener('load', async()=>{
   const dispCirioId = params.get('dispcirio');
   if(dispCirioId){
     const app = initializeApp(FB);
-    db = getFirestore(app);
+    db = _abrirDb(app);
     modoDisponibilidadeCirio(dispCirioId);
     if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
@@ -351,7 +374,7 @@ window.addEventListener('load', async()=>{
   const presRespCodigo = params.get('presresp');
   if(presRespCodigo){
     const app = initializeApp(FB);
-    db = getFirestore(app);
+    db = _abrirDb(app);
     // Código "evt-<id>" é presença de um Evento Especial (Círio etc.) — painel próprio,
     // mais simples, sem navegação de datas (o evento já é uma data fixa).
     if(presRespCodigo.startsWith('evt-')){
@@ -369,7 +392,7 @@ window.addEventListener('load', async()=>{
   const cadastroNovo = params.get('cadastro');
   if(cadastroNovo === 'novo'){
     const app = initializeApp(FB);
-    db = getFirestore(app);
+    db = _abrirDb(app);
     modoAutoCadastro();
     if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
@@ -416,11 +439,11 @@ window.addEventListener('load', async()=>{
 
   try {
     const app = initializeApp(FB);
-    db = getFirestore(app);
+    db = _abrirDb(app);
     window._db = db;
-    await carregarMinistros();
+    const _pConfigAcesso = carregarConfigAcesso(); // em paralelo com os ministros
+    await iniciarMinistrosRapido(); // UM só download (ou cache) + tempo real
     migracaoInicioControleSetembro2026();
-    escutarMinistrosTempoReal();
     if(typeof carregarAusencias==='function') carregarAusencias();
     setTimeout(()=>{
       if(typeof carregarNumSemanas==='function') carregarNumSemanas();
@@ -430,7 +453,7 @@ window.addEventListener('load', async()=>{
         if(typeof renderEscala==='function') renderEscala();
       }
     },500);
-    await carregarConfigAcesso();
+    await _pConfigAcesso;
     carregarGeoConfig();
     document.getElementById('loading').style.display='none';
     // Mostra a tela de login (o app só abre após autenticar)
@@ -2124,10 +2147,29 @@ window.copiarLinkCadastro = async function(){
 // Escuta mudanças nos ministros em TEMPO REAL — quando um ministro marca disponibilidade
 // pelo link, ou você edita dados, o app atualiza sozinho sem precisar recarregar.
 let _unsubMinistros = null;
+let _primeiraSnapMin = false, _resolverPrimeiraMin = null;
+// Carga inicial + tempo real num só passo: a 1ª resposta do listener JÁ É a lista completa (antes o app
+// baixava todos os ministros com foto duas vezes: uma no getDocs e outra no listener).
+function iniciarMinistrosRapido(){
+  return new Promise(resolve=>{
+    if(_unsubMinistros){ resolve(); return; }
+    _primeiraSnapMin = true; _resolverPrimeiraMin = resolve;
+    escutarMinistrosTempoReal();
+    if(!_unsubMinistros){ _primeiraSnapMin = false; carregarMinistros().then(()=>resolve()).catch(()=>resolve()); }
+  });
+}
 function escutarMinistrosTempoReal(){
   if(_unsubMinistros) return; // já escutando
   try{
     _unsubMinistros = onSnapshot(collection(db,'ministros'), snap=>{
+      if(_primeiraSnapMin){
+        _primeiraSnapMin = false;
+        ministros = snap.docs.map(d=>({id:d.id,...d.data()})).filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+        window._ministros = ministros;
+        atualizarContadorMinistros();
+        const r = _resolverPrimeiraMin; _resolverPrimeiraMin = null; if(r) r();
+        return;
+      }
       // OTIMIZAÇÃO: em vez de reconstruir os 177 ministros (com fotos) a cada mudança,
       // aplica apenas o que mudou (added/modified/removed). Muito mais leve.
       let mudou = false;
@@ -2158,7 +2200,10 @@ function escutarMinistrosTempoReal(){
         }
         else if(idAtiva==='inicio' && typeof renderInicio==='function') renderInicio();
       }
-    }, err=>{ /* silencioso: se falhar, app continua com carga manual */ });
+    }, err=>{
+      // se o listener falhar, cai na carga manual de sempre
+      if(_primeiraSnapMin){ _primeiraSnapMin = false; const r = _resolverPrimeiraMin; _resolverPrimeiraMin = null; carregarMinistros().then(()=>{ if(r) r(); }).catch(()=>{ if(r) r(); }); }
+    });
   }catch(e){}
 }
 
@@ -11962,7 +12007,7 @@ async function modoPresencaEvento(eventoId){
     const d = await getDoc(doc(db,'eventos',eventoId));
     if(!d.exists()) throw new Error('não encontrado');
     evento = {id:d.id, ...d.data()};
-    const snap = await getDocs(collection(db,'ministros'));
+    const snap = await _lerMinistrosDocs();
     todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()}));
   }catch(e){
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#A32D2D;text-align:center;padding:20px">Link inválido ou expirado.<br>Fale com a Coordenação MESCE.</div>';
@@ -12809,7 +12854,7 @@ async function modoPresencaResponsavel(codigo){
 
     // Busca cadastro completo dos ministros (fotos, telefones) pra exibir e pra achar o ID (registros são gravados por ID)
     let todosMinistros = [];
-    try{ const snap = await getDocs(collection(db,'ministros')); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
+    try{ const snap = await _lerMinistrosDocs(); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
     const porNome = {}; todosMinistros.forEach(mm=>{ porNome[mm.nome]=mm; });
     const escaladosObjs = (grupo.ministros||[]).map(nome=>porNome[nome]).filter(Boolean);
 
@@ -12873,7 +12918,7 @@ async function modoPresencaCirio(partes){
   const datas = brutas.map(x=>{ const [d,m] = String(x).split('/'); const dd = String(d).padStart(2,'0'), mm = String(m).padStart(2,'0'); return { data:`${dd}/${mm}`, label:`${coluna.label} ${dd}/${mm}` }; });
   if(!datas.length){ invalido('Não encontrei datas para este dia da Quinzena.'); return; }
   let todosMinistros = [];
-  try{ const snap = await getDocs(collection(db,'ministros')); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
+  try{ const snap = await _lerMinistrosDocs(); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
   const porNome = {}; todosMinistros.forEach(mm=>{ porNome[mm.nome]=mm; });
   const escaladosObjs = (grupo.ministros||[]).map(n=>porNome[n]).filter(Boolean);
   const mesIdx = parseInt(datas[0].data.split('/')[1]) - 1;
