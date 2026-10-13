@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.81.1';
+const APP_VERSAO = '20.82.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -421,7 +421,9 @@ window.addEventListener('load', async()=>{
     let mesEscTrabalho = mesAtualNum, anoEscTrabalho = anoAtualNum;
     try{
       const salvo = JSON.parse(localStorage.getItem('sogi_mes_trabalho')||'null');
-      if(salvo && Number.isInteger(salvo.mes) && Number.isInteger(salvo.ano)){
+      // BLINDAGEM v20.82: o mês lembrado só vale se foi escolhido há menos de 36h; senão abre no mês real
+      // (evita um navegador/aparelho abrir preso num mês antigo, ex: julho, enquanto o outro mostra outubro)
+      if(salvo && Number.isInteger(salvo.mes) && Number.isInteger(salvo.ano) && salvo.em && (Date.now()-salvo.em) < 36*3600*1000){
         mesEscTrabalho = salvo.mes; anoEscTrabalho = salvo.ano;
       }
     }catch(e){}
@@ -442,7 +444,9 @@ window.addEventListener('load', async()=>{
     db = _abrirDb(app);
     window._db = db;
     const _pConfigAcesso = carregarConfigAcesso(); // em paralelo com os ministros
+    const _pHidratar = hidratarMesesDaNuvem(); // semanas/domingos do mês: a NUVEM manda, em qualquer aparelho
     await iniciarMinistrosRapido(); // UM só download (ou cache) + tempo real
+    try{ await Promise.race([_pHidratar, new Promise(r=>setTimeout(r,6000))]); }catch(e){}
     migracaoInicioControleSetembro2026();
     if(typeof carregarAusencias==='function') carregarAusencias();
     setTimeout(()=>{
@@ -525,6 +529,87 @@ function loginRegistrarFalha(){
   loginSalvarBloqueio(st);
 }
 function loginLimparFalhas(){ loginSalvarBloqueio({n:0,ate:0}); }
+
+// ===== BLINDAGEM v20.82: configuração do mês (semanas, domingos, nº de semanas) vive na NUVEM =====
+// Antes ficava só no aparelho (localStorage): outro navegador/aparelho abria sem as datas, ou com
+// um mês antigo, e mostrava escalas erradas e links de presença com datas erradas. Agora a nuvem
+// é a fonte da verdade; o aparelho só guarda cópia. Se a nuvem ainda não tem e o aparelho tem, sobe.
+function _estavel(o){
+  if(Array.isArray(o)) return o.map(_estavel);
+  if(o && typeof o==='object') return Object.keys(o).sort().reduce((r,k)=>{ r[k]=_estavel(o[k]); return r; },{});
+  return o;
+}
+function _igualEstavel(a,b){ try{ return JSON.stringify(_estavel(a))===JSON.stringify(_estavel(b)); }catch(e){ return false; } }
+async function _lerCfgNuvem(id){
+  try{ const d = await getDocFromServer(doc(db,'config',id)); return d.exists()?d.data():null; }
+  catch(e){ try{ const d = await getDoc(doc(db,'config',id)); return d.exists()?d.data():null; }catch(e2){ return undefined; } }
+}
+function _lerLocalJSON(chave){ try{ const r = localStorage.getItem(chave); return r?JSON.parse(r):null; }catch(e){ return null; } }
+// Retorna true se alguma coisa local mudou por causa da nuvem
+async function hidratarMesNuvem(mk){
+  if(!db || !mk) return false;
+  let mudou = false;
+  const [sem, dom, ns] = await Promise.all([ _lerCfgNuvem('semanas_'+mk), _lerCfgNuvem('domingos_'+mk), _lerCfgNuvem('numsem_'+mk) ]);
+  // Semanas (períodos de cada semana)
+  try{
+    const kLoc = 'sogi_semanas_'+mk, loc = _lerLocalJSON(kLoc);
+    if(sem && sem.periodos && Object.keys(sem.periodos).length){
+      const novo = { periodos:sem.periodos, totalSems:sem.totalSems };
+      if(!loc || !_igualEstavel(loc.periodos, sem.periodos)){ localStorage.setItem(kLoc, JSON.stringify(novo)); mudou = true; }
+    } else if(sem===null && loc && loc.periodos && Object.keys(loc.periodos).length){
+      setDoc(doc(db,'config','semanas_'+mk), loc).catch(()=>{});
+    }
+  }catch(e){}
+  // Domingos escolhidos à mão
+  try{
+    const kLoc = 'sogi_domingos_custom_'+mk, loc = _lerLocalJSON(kLoc);
+    if(dom && Array.isArray(dom.lista) && dom.lista.length){
+      if(!loc || !_igualEstavel(loc, dom.lista)){ localStorage.setItem(kLoc, JSON.stringify(dom.lista)); mudou = true; }
+    } else if(dom===null && Array.isArray(loc) && loc.length){
+      setDoc(doc(db,'config','domingos_'+mk), {lista:loc}).catch(()=>{});
+    }
+  }catch(e){}
+  // 4 ou 5 semanas
+  try{
+    const kLoc = 'sogi_num_semanas_'+mk, loc = localStorage.getItem(kLoc);
+    if(ns && (ns.n===4 || ns.n===5)){
+      if(loc !== String(ns.n)){ localStorage.setItem(kLoc, String(ns.n)); mudou = true; }
+    } else if(ns===null && (loc==='4' || loc==='5')){
+      setDoc(doc(db,'config','numsem_'+mk), {n:parseInt(loc)}).catch(()=>{});
+    }
+  }catch(e){}
+  return mudou;
+}
+// Hidrata o mês de trabalho + meses vizinhos (de 2 meses atrás a 2 à frente)
+async function hidratarMesesDaNuvem(){
+  try{
+    const MK = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const chaves = new Set();
+    const base = new Date(_hoje.getFullYear(), _hoje.getMonth(), 1);
+    for(let i=-2;i<=2;i++){ const d = new Date(base.getFullYear(), base.getMonth()+i, 1); chaves.add(MK[d.getMonth()]+d.getFullYear()); }
+    const em = parseInt(document.getElementById('esc-mes')?.value), ea = parseInt(document.getElementById('esc-ano')?.value);
+    if(!isNaN(em) && !isNaN(ea)) chaves.add(MK[em]+ea);
+    const r = await Promise.all([...chaves].map(k=>hidratarMesNuvem(k)));
+    return r.some(Boolean);
+  }catch(e){ return false; }
+}
+// Ao voltar pra janela/aba (ou reabrir o app), confere de novo: se a nuvem tem algo diferente, atualiza a tela
+let _ultimaHidratacao = Date.now();
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.visibilityState!=='visible' || !_usuarioLogado || !db) return;
+  if(Date.now()-_ultimaHidratacao < 45000) return;
+  _ultimaHidratacao = Date.now();
+  try{
+    const mk = (typeof getMesAtual==='function') ? getMesAtual() : null;
+    if(await hidratarMesNuvem(mk)){
+      _resincronizarEstadoComEscala();
+      if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
+      if(typeof atualizarChipsDomingos==='function') atualizarChipsDomingos();
+      if(typeof renderEscala==='function') renderEscala();
+      toast('🔄 Datas das escalas atualizadas pela nuvem.');
+    }
+  }catch(e){}
+});
 
 let _acessoCarregadoOk = false; // true só quando a lista de acessos veio de verdade do banco
 async function carregarConfigAcesso(){
@@ -3011,6 +3096,7 @@ window.definirSemanas = function(n){
   try{
     const mk = getMesAtual();
     localStorage.setItem(`sogi_num_semanas_${mk}`, String(n));
+    setDoc(doc(db,'config',`numsem_${mk}`), {n}).catch(()=>{});
   }catch(e){}
   document.getElementById('btn-sem4').style.border = n===4?'1.5px solid #085041':'1.5px solid #ddd';
   document.getElementById('btn-sem4').style.background = n===4?'#e1f5ee':'white';
@@ -3204,6 +3290,7 @@ window.confirmarDomingos = function(){
   _domingosCustom.forEach(d => DOMINGOS_MES.push(d));
   // BLINDAGEM: salva os domingos manuais para não se perderem em nova atualização/carregamento
   try{ localStorage.setItem(`sogi_domingos_custom_${getMesAtual()}`, JSON.stringify(_domingosCustom)); }catch(e){}
+  try{ setDoc(doc(db,'config',`domingos_${getMesAtual()}`), {lista:[..._domingosCustom]}).catch(()=>{}); }catch(e){}
   atualizarChipsDomingos();
   fecharModal('modal-editar-domingos');
   renderEscala();
@@ -4028,12 +4115,22 @@ window.trocarMes = function(){
   try{
     const m = parseInt(document.getElementById('esc-mes')?.value);
     const a = parseInt(document.getElementById('esc-ano')?.value);
-    if(!isNaN(m) && !isNaN(a)) localStorage.setItem('sogi_mes_trabalho', JSON.stringify({mes:m, ano:a}));
+    if(!isNaN(m) && !isNaN(a)) localStorage.setItem('sogi_mes_trabalho', JSON.stringify({mes:m, ano:a, em:Date.now()}));
   }catch(e){}
   // Reset o select para semana 1 ao trocar de mês
   const selSem = document.getElementById('esc-sem');
   if(selSem && selSem.options.length > 0) selSem.value = selSem.options[0].value;
   if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
+  // v20.82: confere a nuvem para o mês escolhido e atualiza a tela se vier algo diferente
+  try{
+    hidratarMesNuvem(getMesAtual()).then(ch=>{
+      if(!ch) return;
+      _resincronizarEstadoComEscala();
+      if(typeof atualizarCardsSemanas==='function') atualizarCardsSemanas();
+      if(typeof atualizarChipsDomingos==='function') atualizarChipsDomingos();
+      if(typeof renderEscala==='function') renderEscala();
+    });
+  }catch(e){}
 };
 // BLINDAGEM CRÍTICA (v20.45.0): getMesAtual() ANTES lia window.MES_ATUAL_DIN, uma variável
 // GLOBAL que também é sobrescrita por trocarMesPresenca() (aba Presença). Isso causava o
@@ -12830,6 +12927,15 @@ async function modoPresencaResponsavel(codigo){
         }
       }catch(e){}
       // PRIORIDADE 2 (só se ainda não foi finalizada): calcula pelo calendário do mês
+      // PRIORIDADE 2: domingos definidos pela coordenação na nuvem (inclui exclusão dos domingos do Círio)
+      if(!datas.length){
+        try{
+          const dDom = await getDoc(doc(db,'config',`domingos_${mesKey}`));
+          const lista = dDom.exists() ? dDom.data().lista : null;
+          if(Array.isArray(lista) && lista.length) datas = lista.map(d=>({ data:d, label:'Domingo '+d }));
+        }catch(e){}
+      }
+      // PRIORIDADE 3 (nada configurado): calcula pelo calendário do mês
       if(!datas.length){
         const cal = calcularCalendario(ano, mesIdx);
         datas = cal.domingos.map(d=>({ data:d, label:'Domingo '+d }));
