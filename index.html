@@ -19,7 +19,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, getDocFromServer, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const FB = {
   apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.81.0';
+const APP_VERSAO = '20.81.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -526,9 +526,16 @@ function loginRegistrarFalha(){
 }
 function loginLimparFalhas(){ loginSalvarBloqueio({n:0,ate:0}); }
 
+let _acessoCarregadoOk = false; // true só quando a lista de acessos veio de verdade do banco
 async function carregarConfigAcesso(){
   try{
-    const d = await getDoc(doc(db,'config','acesso'));
+    let d;
+    try{ d = await getDocFromServer(doc(db,'config','acesso')); }
+    catch(e1){
+      try{ d = await getDoc(doc(db,'config','acesso')); }               // cache/offline
+      catch(e2){ await new Promise(r=>setTimeout(r,1500)); d = await getDocFromServer(doc(db,'config','acesso')); }
+    }
+    _acessoCarregadoOk = true;
     if(d.exists() && Array.isArray(d.data().usuarios) && d.data().usuarios.length){
       _acessoUsuarios = d.data().usuarios;
     } else if(d.exists() && d.data().usuario){
@@ -541,18 +548,26 @@ async function carregarConfigAcesso(){
       await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
     }
   }catch(e){
-    _acessoUsuarios = [{ usuario:'admin', ...(await novoRegistroSenha('admin')), papel:'coordenador', nome:'Coordenação', trocarSenha:true }];
+    // NÃO inventa admin/admin: sem conseguir ler os acessos, não deixa ninguém errar senha nem apaga a sessão
+    _acessoCarregadoOk = false;
+    _acessoUsuarios = [];
   }
 }
 
 function mostrarLogin(){
+  // v20.81.1: zera um bloqueio causado pela falha de carregamento da versão anterior (uma única vez)
+  try{ if(localStorage.getItem('sogi_lock_reset')!=='20.81.1'){ localStorage.setItem('sogi_lock_reset','20.81.1'); loginLimparFalhas(); } }catch(e){}
   // Sessão lembrada neste aparelho? Entra direto (até clicar em Sair)
   try{
     const salva = localStorage.getItem('sogi_sessao');
     if(salva){
       const sess = JSON.parse(salva);
       // Confere se o usuário ainda existe na lista de acessos
-      const existe = _acessoUsuarios.find(u=>u.usuario.toLowerCase()===(sess.usuario||'').toLowerCase());
+      let existe = _acessoUsuarios.find(u=>u.usuario.toLowerCase()===(sess.usuario||'').toLowerCase());
+      if(!existe && !_acessoCarregadoOk && sess.usuario){
+        existe = { usuario:sess.usuario, papel:sess.papel, nome:sess.nome }; // sem internet/banco: confia na sessão já salva
+        setTimeout(()=>{ carregarConfigAcesso(); },4000);
+      }
       if(existe){
         _usuarioLogado = { usuario:existe.usuario, papel:existe.papel||'coordenador', nome:existe.nome||existe.usuario };
         document.getElementById('tela-login').style.display='none';
@@ -575,7 +590,7 @@ function mostrarLogin(){
         verificarVersao();
         setTimeout(verificarRascunhoEscala, 1200);
         return;
-      } else {
+      } else if(_acessoCarregadoOk){
         // usuário não existe mais — limpa a sessão
         localStorage.removeItem('sogi_sessao');
       }
@@ -611,6 +626,15 @@ window.fazerLogin = async function(){
   }
   const u = (document.getElementById('login-user').value||'').trim();
   const p = document.getElementById('login-pass').value||'';
+  if(!_acessoCarregadoOk){
+    if(erro){ erro.textContent='⏳ Carregando os acessos… aguarde um instante.'; erro.style.display='block'; }
+    await carregarConfigAcesso();
+    if(!_acessoCarregadoOk){
+      if(erro){ erro.textContent='⚠️ Não consegui carregar os acessos. Verifique a internet e tente de novo (a senha NÃO foi contada como errada).'; erro.style.display='block'; }
+      return;
+    }
+    if(erro) erro.style.display='none';
+  }
   const candidato = _acessoUsuarios.find(x => x.usuario.toLowerCase() === u.toLowerCase());
   const ok = candidato ? await conferirSenha(candidato, p) : false;
   if(ok){
