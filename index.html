@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.82.0';
+const APP_VERSAO = '20.83.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4444,7 +4444,7 @@ window.renderEscala = async function(){
   }
   Object.keys(reforcosDoHorario).forEach(h=>{ reforcosDoHorario[h].sort((x,y)=>_chaveOrdemReforco(x.label)-_chaveOrdemReforco(y.label)); });
 
-  document.getElementById('esc-body').innerHTML = horasRender.map(hora=>{
+  document.getElementById('esc-body').innerHTML = '<div id="sug-banner"></div>' + horasRender.map(hora=>{
     const g = escalas[key][hora] || {ministros:[], responsavel:''};
     const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
     const disponíveis = ministros.filter(m=>(m[dispKey]||[]).includes(hora));
@@ -4489,10 +4489,15 @@ window.renderEscala = async function(){
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:11px;color:#888">${g.ministros.length} escalado(s)</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button onclick="abrirSugestoes('${key}','${hora}','${tipo}')"
+          style="font-size:12px;color:white;background:#085041;border:none;border-radius:20px;padding:4px 12px;cursor:pointer;font-weight:700">
+          💡 Sugestões
+        </button>
         <button onclick="verDisponiveis('${key}','${hora}','${dispKey}')"
           style="font-size:11px;color:#185FA5;background:#e6f1fb;border:none;border-radius:20px;padding:3px 10px;cursor:pointer;font-weight:500">
           👥 ${disponíveis.length} disponíveis
-        </button>
+        </button></div>
       </div>
       ${g.ministros.map((m,mi)=>{
         const _isResp = m===g.responsavel;
@@ -4526,6 +4531,7 @@ window.renderEscala = async function(){
       </div>
     </div>`;
   }).join('');
+  _sugAtualizarBanner(tipo, key, horasRender);
 };
 
 // Renderiza os ministros de REFORÇO dentro do quadrante do horário (marca-texto + selo)
@@ -4946,6 +4952,253 @@ window.addMin = function(key, hora, nome, acId){
   }
   renderEscala();
 };
+
+
+// ====================== ASSISTENTE DE ESCALA — SUGESTÕES INTELIGENTES (v20.83.0) ======================
+// Motor 100% local e gratuito (sem IA paga): lê o histórico real das escalas já feitas e sugere,
+// para cada horário, quem escalar. A DISPONIBILIDADE marcada é a regra de entrada — só é sugerido
+// quem marcou aquele horário. A meta de quantos ministros vem da própria história (mediana dos
+// últimos períodos daquele horário) e pode ser ajustada na tela. Nada é gravado sem confirmação.
+let _sugHist = null;        // { periodos:[{id,tipo,ord,sem,dados}], faltas:{nome:{p,f,j}}, em }
+let _sugMetaManual = {};    // `${key}|${hora}` -> meta digitada pelo coordenador
+let _sugCtx = null;         // contexto da janela aberta
+const _SUG_K = { dom:6, sem:8 };
+
+function _sugOrdMes(abrev, ano){ return parseInt(ano)*12 + MESES_KEY.indexOf(abrev); }
+function _sugParseKey(id){
+  let m = (id||'').match(/^escala_dom_([a-z]{3})(\d{4})$/);
+  if(m) return { tipo:'dom', sem:0, ord:_sugOrdMes(m[1],m[2]) };
+  m = (id||'').match(/^escala_sem_sem(\d+)_([a-z]{3})(\d{4})$/);
+  if(m) return { tipo:'sem', sem:parseInt(m[1]), ord:_sugOrdMes(m[2],m[3]) };
+  return null;
+}
+async function _sugCarregarHistorico(forcar){
+  if(_sugHist && !forcar && (Date.now()-_sugHist.em) < 5*60*1000) return _sugHist;
+  const periodos = [];
+  try{
+    const snap = await getDocs(collection(db,'escalas'));
+    snap.docs.forEach(d=>{
+      const p = _sugParseKey(d.id);
+      if(p) periodos.push({ id:d.id, ...p, dados:d.data()||{} });
+    });
+  }catch(e){}
+  const faltas = {};
+  try{
+    const lista = await calcularFaltasConsolidadas();
+    lista.forEach(x=>{ const c = x.c||{}; faltas[x.nome] = { p:c.missaP||0, f:c.missaF||0, j:c.missaJ||0 }; });
+  }catch(e){}
+  try{ if(typeof carregarAusencias==='function') await carregarAusencias(); }catch(e){}
+  _sugHist = { periodos, faltas, em:Date.now() };
+  return _sugHist;
+}
+function _sugMediana(arr){
+  if(!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b), m = Math.floor(s.length/2);
+  return s.length%2 ? s[m] : Math.round((s[m-1]+s[m])/2);
+}
+// Datas (ISO) em que o horário acontece nesta escala — usadas para checar ausências avisadas
+function _sugDatasISO(tipo, hora){
+  const ano = parseInt(document.getElementById('esc-ano')?.value) || new Date().getFullYear();
+  const out = [];
+  if(tipo==='dom'){
+    (DOMINGOS_MES||[]).forEach(d=>{ const [dd,mm] = d.split('/'); out.push(`${ano}-${mm}-${dd}`); });
+  } else {
+    const sem = document.getElementById('esc-sem')?.value;
+    const per = _periodoSemanaCustom?.[sem];
+    if(per){
+      const NOMES = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+      const cur = new Date(per.ini+'T12:00:00'), fim = new Date(per.fim+'T12:00:00');
+      while(cur<=fim){
+        if((MISSAS_SEM_DIAS[NOMES[cur.getDay()]]||[]).includes(hora)) out.push(cur.toISOString().slice(0,10));
+        cur.setDate(cur.getDate()+1);
+      }
+    }
+  }
+  return out;
+}
+function _sugCalcular(key, hora, tipo){
+  const H = _sugHist || { periodos:[], faltas:{} };
+  const cur = _sugParseKey(key) || { ord:0, sem:0 };
+  const curSeq = cur.ord*10 + cur.sem;
+  const K = _SUG_K[tipo] || 6;
+  const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
+  const g = (escalas[key] && escalas[key][hora]) || { ministros:[], responsavel:'' };
+  const jaNoHorario = new Set(g.ministros||[]);
+
+  // períodos anteriores do MESMO tipo em que este horário teve gente (mais recentes primeiro)
+  const passados = H.periodos
+    .filter(p=>p.tipo===tipo && p.id!==key && (p.ord*10+p.sem) < curSeq && ((p.dados[hora]||{}).ministros||[]).length)
+    .sort((a,b)=>(b.ord*10+b.sem)-(a.ord*10+a.sem))
+    .slice(0,K);
+  const tamanhos = passados.map(p=>p.dados[hora].ministros.length);
+  const metaAuto = _sugMediana(tamanhos);
+  const metaManual = _sugMetaManual[key+'|'+hora];
+  const meta = (metaManual!=null && !isNaN(metaManual)) ? metaManual : metaAuto;
+
+  const hab = {}, resp = {};
+  passados.forEach(p=>{
+    (p.dados[hora].ministros||[]).forEach(n=>{ hab[n] = (hab[n]||0)+1; });
+    const r = p.dados[hora].responsavel;
+    if(r){ const seq = p.ord*10+p.sem; if(!resp[r]) resp[r] = { n:0, ultimo:seq, ultimoOrd:p.ord }; resp[r].n++; if(seq>resp[r].ultimo){ resp[r].ultimo=seq; resp[r].ultimoOrd=p.ord; } }
+  });
+  // carga: em quantas escalas (qualquer horário, dominical ou semanal) o nome apareceu nos últimos 3 meses
+  const carga = {};
+  H.periodos.forEach(p=>{
+    if(p.id===key) return;
+    if(p.ord < cur.ord-3 || p.ord >= cur.ord) return;
+    Object.keys(p.dados||{}).forEach(h=>{ ((p.dados[h]||{}).ministros||[]).forEach(n=>{ carga[n] = (carga[n]||0)+1; }); });
+  });
+
+  const datas = _sugDatasISO(tipo, hora);
+  const candidatos = [], alertas = [];
+  ministros.forEach(m=>{
+    if(m.ativo===false) return;
+    if(!(m[dispKey]||[]).includes(hora)) return;       // REGRA DE ENTRADA: disponibilidade marcada
+    if(jaNoHorario.has(m.nome)) return;
+    // motivos para NÃO sugerir (ficam numa lista de atenção)
+    let motivo = '';
+    const outro = (typeof jaEscaladoNoutroHorario==='function') ? jaEscaladoNoutroHorario(key, hora, m.nome) : '';
+    if(outro) motivo = `já escalado(a) às ${outro} nesta escala`;
+    if(!motivo && datas.length && Array.isArray(_ausencias) && _ausencias.some(a=>a.nome===m.nome && datas.some(d=>a.de<=d && d<=a.ate))) motivo = 'avisou ausência neste período';
+    if(!motivo && _cartaoAmarelo[m.nome]) motivo = '🟡 cartão amarelo (faltas)';
+    if(!motivo && _flagsAltaSubstituicao[m.nome]) motivo = `pede substituição com frequência (${_flagsAltaSubstituicao[m.nome].percentual}%)`;
+    if(!motivo && _alertaJustificativas[m.nome]) motivo = 'muitas justificativas';
+    if(motivo){ alertas.push({ nome:m.nome, motivo }); return; }
+
+    const nh = hab[m.nome]||0, n = passados.length;
+    const f = H.faltas[m.nome] || { p:0, f:0, j:0 };
+    const tot = f.p + f.f + f.j;
+    const c = carga[m.nome]||0;
+    const sHab = n ? (nh/n)*40 : 0;
+    const sEq = Math.max(0, 20 - Math.min(10,c)*2);
+    const sAss = tot>=3 ? Math.round((f.p/tot)*15) : 8;
+    const score = Math.max(0, Math.round(50 + sHab + sEq + sAss - f.f*5));
+    const motivos = ['✓ marcou disponibilidade'];
+    if(n && nh) motivos.push(`serviu ${nh} de ${n} vezes neste horário`);
+    else if(n) motivos.push('novo neste horário');
+    motivos.push(c ? `${c} escala(s) nos últimos 3 meses` : 'descansado: sem escalas nos últimos 3 meses');
+    if(tot>=3) motivos.push(`presença ${f.p} de ${tot}`);
+    if(resp[m.nome]) motivos.push(`★ já foi responsável aqui (${resp[m.nome].n}x)`);
+    candidatos.push({ nome:m.nome, score, motivos, nh });
+  });
+  candidatos.sort((a,b)=> b.score-a.score || a.nome.localeCompare(b.nome,'pt-BR'));
+  const vagas = meta!=null ? Math.max(0, meta - jaNoHorario.size) : 0;
+  return { meta, metaAuto, tamanhos, passados:passados.length, vagas, atual:jaNoHorario.size, candidatos, alertas, resp, jaNoHorario, responsavel:g.responsavel||'' };
+}
+// Responsável sugerido: entre quem já está na equipe (ou foi marcado), quem foi responsável aqui há mais tempo
+function _sugResponsavelSugerido(r, nomesEquipe){
+  const cand = nomesEquipe.filter(n=>r.resp[n]).sort((a,b)=>r.resp[a].ultimo - r.resp[b].ultimo);
+  if(!cand.length) return null;
+  const n = cand[0];
+  return { nome:n, ultimoOrd:r.resp[n].ultimoOrd, vezes:r.resp[n].n };
+}
+function _sugMesLegivel(ord){
+  const NOMES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return `${NOMES[ord%12]}/${Math.floor(ord/12)}`;
+}
+
+window.abrirSugestoes = async function(key, hora, tipo){
+  toast('💡 Analisando o histórico...');
+  await _sugCarregarHistorico(false);
+  _sugCtx = { key, hora, tipo, marcados:null };
+  _sugRender(true);
+};
+function _sugRender(recalcularMarcados){
+  const c = _sugCtx; if(!c) return;
+  const r = _sugCalcular(c.key, c.hora, c.tipo);
+  if(recalcularMarcados || !c.marcados){
+    c.marcados = new Set(r.candidatos.slice(0, r.vagas).map(x=>x.nome));
+  }
+  let el = document.getElementById('modal-sug');
+  if(!el){ el = document.createElement('div'); el.id='modal-sug'; el.className='modal-bg'; el.onclick = e=>{ if(e.target===el) fecharSugestoes(); }; document.body.appendChild(el); }
+  const tipoNome = c.tipo==='dom' ? 'Dominical' : 'Semanal';
+  const hist = r.tamanhos.length ? `mediana dos últimos ${r.tamanhos.length} períodos (${r.tamanhos.join(', ')})` : 'sem histórico deste horário';
+  const linhas = r.candidatos.map(x=>{
+    const m = buscarMinistroPorNome(x.nome);
+    const foto = m?.foto ? `<img src="${m.foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+      : `<div style="width:38px;height:38px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${iniciais(x.nome)}</div>`;
+    const marc = c.marcados.has(x.nome);
+    return `<label style="display:flex;gap:10px;align-items:flex-start;padding:10px 6px;border-bottom:1px solid #eee;cursor:pointer;background:${marc?'#f0faf5':'white'}">
+      <input type="checkbox" ${marc?'checked':''} onchange="sugToggle('${x.nome.replace(/'/g,"\\'")}',this.checked)" style="width:22px;height:22px;margin-top:8px;flex-shrink:0;accent-color:#085041">
+      ${foto}
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+          <span style="font-size:14px;font-weight:700;color:#222">${x.nome}</span>
+          <span style="font-size:12px;font-weight:800;background:#085041;color:white;border-radius:12px;padding:2px 9px">${Math.min(100,x.score)}</span>
+        </div>
+        <div style="font-size:12px;color:#444;line-height:1.5;margin-top:2px">${x.motivos.join(' · ')}</div>
+      </div></label>`;
+  }).join('');
+  const alertasHtml = r.alertas.length ? `<details style="margin-top:12px"><summary style="font-size:13px;font-weight:700;color:#8a5a00;cursor:pointer">⚠️ ${r.alertas.length} disponível(is) NÃO sugerido(s) — com alerta</summary>
+    ${r.alertas.map(a=>`<div style="font-size:12.5px;color:#444;padding:5px 2px;border-bottom:1px solid #f1f1f1"><strong>${a.nome}</strong> — ${a.motivo}</div>`).join('')}</details>` : '';
+  const equipe = [...r.jaNoHorario, ...c.marcados];
+  const rs = r.responsavel ? null : _sugResponsavelSugerido(r, equipe);
+  const respHtml = rs ? `<div style="margin-top:12px;background:#faeeda;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span style="font-size:13px;color:#5a3b00"><strong>★ Responsável sugerido:</strong> ${rs.nome}<br><span style="font-size:11.5px">foi responsável aqui ${rs.vezes}x · última vez em ${_sugMesLegivel(rs.ultimoOrd)}</span></span>
+      <label style="font-size:12px;font-weight:700;color:#5a3b00;white-space:nowrap"><input type="checkbox" id="sug-resp" checked style="width:18px;height:18px;vertical-align:middle;accent-color:#BA7517"> definir</label></div>` : '';
+  el.innerHTML = `<div class="modal-box" style="max-width:640px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <p style="font-size:17px;font-weight:800;color:#085041;margin:0">💡 Sugestões — ${tipoNome} ${c.hora}</p>
+      <button onclick="fecharSugestoes()" style="border:none;background:none;font-size:26px;cursor:pointer;color:#999;line-height:1">×</button>
+    </div>
+    <div style="background:#e6f1fb;border-radius:10px;padding:10px 12px;font-size:13px;color:#0c3b66;line-height:1.55">
+      Meta de ministros neste horário:
+      <input type="number" min="1" max="60" value="${r.meta!=null?r.meta:''}" placeholder="?" onchange="sugMeta(this.value)" style="width:58px;padding:4px 6px;font-size:14px;font-weight:700;border:1.5px solid #185FA5;border-radius:8px;text-align:center">
+      <span style="font-size:12px">(${hist})</span><br>
+      Escalados: <strong>${r.atual}</strong> · Vagas: <strong>${r.vagas}</strong> · Disponíveis sugeríveis: <strong>${r.candidatos.length}</strong>
+    </div>
+    ${r.meta==null ? '<p style="font-size:12.5px;color:#8a5a00;margin:10px 0 0">Ainda não há histórico deste horário. Digite a meta acima para eu pré-selecionar.</p>' : ''}
+    <div style="margin-top:8px;max-height:46vh;overflow-y:auto;border:1px solid #eee;border-radius:10px">${linhas || '<p style="font-size:13px;color:#888;padding:14px">Ninguém disponível sobrando para este horário.</p>'}</div>
+    ${respHtml}
+    ${alertasHtml}
+    <div style="display:flex;gap:8px;margin-top:14px;position:sticky;bottom:0;background:white;padding-top:8px">
+      <button onclick="fecharSugestoes()" style="flex:1;padding:13px;border:1.5px solid #ccc;border-radius:12px;background:white;font-size:14px;font-weight:700;color:#555;cursor:pointer">Cancelar</button>
+      <button onclick="confirmarSugestoes()" ${c.marcados.size?'':'disabled'} style="flex:2;padding:13px;border:none;border-radius:12px;background:${c.marcados.size?'#085041':'#aaa'};color:white;font-size:15px;font-weight:800;cursor:pointer">✓ Escalar ${c.marcados.size} selecionado(s)</button>
+    </div></div>`;
+  el.style.display = 'flex';
+}
+window.sugToggle = function(nome, on){ if(!_sugCtx) return; if(on) _sugCtx.marcados.add(nome); else _sugCtx.marcados.delete(nome); _sugRender(false); };
+window.sugMeta = function(v){ if(!_sugCtx) return; const n = parseInt(v); const k = _sugCtx.key+'|'+_sugCtx.hora; if(isNaN(n)||n<1) delete _sugMetaManual[k]; else _sugMetaManual[k] = n; _sugRender(true); };
+window.fecharSugestoes = function(){ const el = document.getElementById('modal-sug'); if(el) el.style.display='none'; _sugCtx = null; };
+window.confirmarSugestoes = function(){
+  const c = _sugCtx; if(!c || !c.marcados.size) return;
+  const { key, hora } = c;
+  if(!escalas[key]) escalas[key] = {};
+  if(!escalas[key][hora]) escalas[key][hora] = { ministros:[], responsavel:'' };
+  const g = escalas[key][hora];
+  const resp = document.getElementById('sug-resp')?.checked ? _sugResponsavelSugerido(_sugCalcular(key,hora,c.tipo), [...g.ministros, ...c.marcados]) : null;
+  let n = 0;
+  c.marcados.forEach(nome=>{
+    if(g.ministros.includes(nome)) return;
+    g.ministros.push(nome); n++;
+    try{ _registrarUltimaEscalacao(nome, `${c.tipo==='dom'?'Missa Dominical':'Missa Semanal'} ${hora}`); }catch(e){}
+  });
+  g.ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  if(resp && !g.responsavel) g.responsavel = resp.nome;
+  marcarEscalaNaoSalva();
+  try{ registrarLogEscala('sugestao_confirmada', `${n} ministro(s) escalado(s) por sugestão em ${hora} (escala ${key})${resp?`; responsável sugerido: ${resp.nome}`:''}`); }catch(e){}
+  fecharSugestoes();
+  renderEscala();
+  toast(`✓ ${n} ministro(s) escalado(s) em ${hora}. Confira e salve a escala.`);
+};
+// Faixa no topo da escala: avisa quais horários ainda têm vagas e abre as sugestões com 1 toque
+async function _sugAtualizarBanner(tipo, key, horas){
+  const el = document.getElementById('sug-banner'); if(!el) return;
+  try{
+    await _sugCarregarHistorico(false);
+    const itens = [];
+    horas.forEach(h=>{
+      const r = _sugCalcular(key, h, tipo);
+      if(r.meta!=null && r.vagas>0 && r.candidatos.length) itens.push({ h, vagas:r.vagas, sug:Math.min(r.vagas, r.candidatos.length) });
+    });
+    const alvo = document.getElementById('sug-banner'); if(!alvo) return;
+    if(!itens.length){ alvo.innerHTML = ''; return; }
+    alvo.innerHTML = `<div style="background:linear-gradient(135deg,#e8f6ef,#e6f1fb);border:1.5px solid #9fd5bd;border-radius:12px;padding:12px;margin-bottom:12px">
+      <p style="font-size:14px;font-weight:800;color:#085041;margin:0 0 4px">💡 Assistente de escala</p>
+      <p style="font-size:12.5px;color:#345;margin:0 0 8px">Tenho sugestões para ${itens.length} horário(s) com vagas abertas. Toque para ver:</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${itens.map(i=>`<button onclick="abrirSugestoes('${key}','${i.h}','${tipo}')" style="padding:8px 12px;border:none;border-radius:20px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer">${i.h} · faltam ${i.vagas}</button>`).join('')}</div></div>`;
+  }catch(e){}
+}
 
 window.addMinForaDisp = function(key, hora, nome, acId){
   if(confirm(`⚠️ EXCEÇÃO — Sem disponibilidade\n\n${nome} NÃO marcou disponibilidade para ${hora}.\n\nDeseja escalá-lo(a) mesmo assim?`)){
