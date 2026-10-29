@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.84.0';
+const APP_VERSAO = '20.86.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1184,6 +1184,8 @@ async function modoIdentificacao(id){
   // IMPRESSÃO (v20.80.1): o app tem uma regra global de impressão que ESCONDE tudo que não é a
   // "área de impressão" — por isso a carteirinha saía em BRANCO. Aqui liberamos só esta página.
   document.body.classList.add('modo-carteirinha');
+  // impede o "modo escuro forçado" do celular de inverter o QR (QR claro sobre fundo preto é difícil de ler)
+  try{ const _mc = document.createElement('meta'); _mc.name='color-scheme'; _mc.content='only light'; document.head.appendChild(_mc); document.documentElement.style.colorScheme='light'; }catch(e){}
   if(!document.getElementById('css-carteirinha-print')){
     const st = document.createElement('style'); st.id = 'css-carteirinha-print';
     st.textContent = `@page{size:A4 portrait;margin:12mm}
@@ -1257,7 +1259,7 @@ async function modoIdentificacao(id){
         </div>
         <!-- QR Code grande e centralizado (fácil de escanear no quiosque) -->
         <div style="display:flex;flex-direction:column;align-items:center;margin-top:10px;padding:8px;background:white;border-radius:12px;border:1.5px solid #085041">
-          <div id="ident-qr" style="background:white;padding:4px;border-radius:8px"></div>
+          <div id="ident-qr" style="background:#f2f2f2;padding:16px;border-radius:10px;line-height:0"></div>
           <p style="font-size:10.5px;font-weight:800;color:#000;margin:5px 0 0;text-align:center">Apresente este QR Code à Coordenação<br>para registrar sua presença</p>
         </div>
       </div>
@@ -1301,10 +1303,14 @@ async function modoIdentificacao(id){
   try{
     const url = `${APP_URL}/?ministro=${id}`;
     new QRCode(document.getElementById('ident-qr'), {
-      text: url, width: 112, height: 112,
-      colorDark: '#000000', colorLight: '#ffffff',
+      text: url, width: 200, height: 200,
+      colorDark: '#000000', colorLight: '#f2f2f2',
       correctLevel: QRCode.CorrectLevel.M
     });
+    // na tela o QR fica grande e com margem branca (zona de silêncio); na impressão volta ao tamanho compacto
+    const _stq = document.createElement('style');
+    _stq.textContent = '#ident-qr img,#ident-qr canvas{width:200px!important;height:200px!important;display:block}@media print{#ident-qr{padding:8px!important}#ident-qr img,#ident-qr canvas{width:112px!important;height:112px!important}}';
+    document.head.appendChild(_stq);
   }catch(e){}
 }
 
@@ -4862,10 +4868,27 @@ async function registrarLogEscala(tipo, detalhe){
   }catch(e){ /* log não deve travar a operação */ }
 }
 
-window.addMin = function(key, hora, nome, acId){
+window.addMin = async function(key, hora, nome, acId){
   if(!escalas[key]) escalas[key]={};
   if(!escalas[key][hora]) escalas[key][hora]={ministros:[],responsavel:''};
   if(escalas[key][hora].ministros.includes(nome)){ return; } // já está
+
+  // TRAVA DE DUPLICIDADE: nunca escala o mesmo ministro duas vezes no mês (domingo, semanas, horários)
+  try{ await _sugCarregarHistorico(false); }catch(e){}
+  if(escalas[key][hora].ministros.includes(nome)){ return; }
+  { const onde = _conflitoEscala(key, hora, nome);
+    if(onde){
+      if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
+      _bloquearDuplicado(key, hora, nome, onde); return;
+    } }
+  // EXCEÇÃO CONSCIENTE: domingo + uma semana (raro, quando falta ministro) — avisa e deixa você escolher
+  { const cruz = _conflitoEscala(key, hora, nome, 'cruzado');
+    if(cruz){
+      const ok = confirm(`⚠️ ATENÇÃO — Domingo + Semana\n\n${nome} já está escalado(a) para a ${cruz}.\n\nEscalar também em ${hora} é uma EXCEÇÃO (use quando faltar ministro).\n\nDeseja escalá-lo(a) mesmo assim?`);
+      if(!ok){ if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; } return; }
+      registrarLogEscala('excecao_domingo_semana', `${nome} escalado(a) em ${cruz} e em ${hora} (escala ${key})`);
+      toast(`⚠️ Exceção registrada: ${nome.split(' ')[0]} no domingo e na semana`,'warn');
+    } }
 
   // ALERTA DE AUSÊNCIA: o ministro avisou que não poderá servir em alguma data
   if(typeof ausenciasDoMinistro==='function'){
@@ -4924,18 +4947,6 @@ window.addMin = function(key, hora, nome, acId){
       if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
       return;
     }
-  }
-
-  // GOVERNANÇA: verifica dupla escala (já escalado noutro horário desta escala)
-  const outroHorario = jaEscaladoNoutroHorario(key, hora, nome);
-  if(outroHorario){
-    const ok = confirm(`⚠️ EXCEÇÃO — Dupla escala\n\n${nome} já está escalado(a) no horário ${outroHorario} desta mesma escala.\n\nDeseja escalá-lo(a) também em ${hora}?`);
-    if(!ok){
-      if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
-      return;
-    }
-    registrarLogEscala('dupla_escala', `${nome} escalado(a) em ${outroHorario} e ${hora} (escala ${key})`);
-    toast(`⚠️ Exceção registrada: ${nome.split(' ')[0]} em 2 horários`,'warn');
   }
 
   escalas[key][hora].ministros.push(nome);
@@ -5021,18 +5032,45 @@ function _sugDatasISO(tipo, hora){
 function _sugOcupadosNoMes(key, tipo){
   const out = {};
   const cur = _sugParseKey(key);
-  if(!cur || tipo!=='sem') return out;
+  if(!cur) return out;
   const docs = {};
-  ((_sugHist&&_sugHist.periodos)||[]).forEach(p=>{ if(p.tipo==='sem' && p.ord===cur.ord) docs[p.id] = p.dados; });
-  Object.keys(escalas||{}).forEach(id=>{ const p = _sugParseKey(id); if(p && p.tipo==='sem' && p.ord===cur.ord) docs[id] = escalas[id]; });
+  ((_sugHist&&_sugHist.periodos)||[]).forEach(p=>{ if(p.ord===cur.ord) docs[p.id] = p.dados; });
+  Object.keys(escalas||{}).forEach(id=>{ const p = _sugParseKey(id); if(p && p.ord===cur.ord) docs[id] = escalas[id]; });
   Object.entries(docs).forEach(([id,d])=>{
     if(id===key) return;
     const p = _sugParseKey(id);
     Object.entries(d||{}).forEach(([h,g])=>{
-      ((g&&g.ministros)||[]).forEach(n=>{ if(!out[n]) out[n] = `${p.sem}ª semana às ${h}`; });
+      ((g&&g.ministros)||[]).forEach(n=>{ if(!out[n]) out[n] = p.tipo==='dom' ? `Missa Dominical das ${h}` : `Missa Semanal da ${p.sem}ª semana às ${h}`; });
     });
   });
   return out;
+}
+// TRAVA DE DUPLICIDADE (v20.86.0): devolve onde o ministro JÁ está escalado no mês (domingo, qualquer semana,
+// qualquer horário), exceto a própria vaga (key+hora). Junta o que está salvo com o que está na tela.
+function _conflitoEscala(key, hora, nome, modo){
+  // modo 'duro' = só repetição do MESMO tipo (domingo×domingo, semana×semana); 'cruzado' = domingo×semana (exceção permitida)
+  let cruzado = null;
+  const cur = _sugParseKey(key);
+  if(!cur) return null;
+  const docs = {};
+  ((_sugHist&&_sugHist.periodos)||[]).forEach(p=>{ if(p.ord===cur.ord) docs[p.id] = p.dados; });
+  Object.keys(escalas||{}).forEach(id=>{ const p = _sugParseKey(id); if(p && p.ord===cur.ord) docs[id] = escalas[id]; });
+  for(const [id,d] of Object.entries(docs)){
+    const p = _sugParseKey(id);
+    for(const [h,g] of Object.entries(d||{})){
+      if(id===key && h===hora) continue;
+      if(((g&&g.ministros)||[]).includes(nome)){
+        const txt = p.tipo==='dom' ? `Missa Dominical das ${h}` : `Missa Semanal da ${p.sem}ª semana às ${h}`;
+        if(p.tipo===cur.tipo){ if(modo!=='cruzado') return txt; }
+        else if(!cruzado) cruzado = txt;
+      }
+    }
+  }
+  return modo==='cruzado' ? cruzado : null;
+}
+function _bloquearDuplicado(key, hora, nome, onde){
+  try{ registrarLogEscala('duplicidade_bloqueada', `${nome}: tentativa de escalar em ${hora} (escala ${key}); já escalado(a) na ${onde}`); }catch(e){}
+  alert(`🚫 DUPLICIDADE BLOQUEADA\n\n${nome} já está escalado(a) para a ${onde}.\n\nO mesmo ministro não pode ser escalado duas vezes no mês.\nSe quiser trocá-lo, retire-o de lá primeiro.`);
 }
 function _sugCalcular(key, hora, tipo){
   const H = _sugHist || { periodos:[], faltas:{} };
@@ -5077,7 +5115,7 @@ function _sugCalcular(key, hora, tipo){
     // motivos para NÃO sugerir (ficam numa lista de atenção)
     let motivo = '';
     const outro = (typeof jaEscaladoNoutroHorario==='function') ? jaEscaladoNoutroHorario(key, hora, m.nome) : '';
-    if(ocupados[m.nome]) motivo = `já escalado(a) na ${ocupados[m.nome]} — no semanal serve só uma semana no mês`;
+    if(ocupados[m.nome]) motivo = `já escalado(a) na ${ocupados[m.nome]}`;
     if(!motivo && outro) motivo = `já escalado(a) às ${outro} nesta semana`;
     if(!motivo && datas.length && Array.isArray(_ausencias) && _ausencias.some(a=>a.nome===m.nome && datas.some(d=>a.de<=d && d<=a.ate))) motivo = 'avisou ausência neste período';
     if(!motivo && _cartaoAmarelo[m.nome]) motivo = '🟡 cartão amarelo (faltas)';
@@ -5202,9 +5240,11 @@ window.confirmarSugestoes = function(){
   if(!escalas[key][hora]) escalas[key][hora] = { ministros:[], responsavel:'' };
   const g = escalas[key][hora];
   const resp = document.getElementById('sug-resp')?.checked ? _sugResponsavelSugerido(_sugCalcular(key,hora,c.tipo), [...g.ministros, ...c.marcados]) : null;
-  let n = 0;
+  let n = 0; const bloq = [];
   c.marcados.forEach(nome=>{
     if(g.ministros.includes(nome)) return;
+    const onde = _conflitoEscala(key, hora, nome);
+    if(onde){ bloq.push(`${nome} (já na ${onde})`); return; }
     g.ministros.push(nome); n++;
     try{ _registrarUltimaEscalacao(nome, `${c.tipo==='dom'?'Missa Dominical':'Missa Semanal'} ${hora}`); }catch(e){}
   });
@@ -5214,6 +5254,7 @@ window.confirmarSugestoes = function(){
   try{ registrarLogEscala('sugestao_confirmada', `${n} ministro(s) escalado(s) por sugestão em ${hora} (escala ${key})${resp?`; responsável sugerido: ${resp.nome}`:''}`); }catch(e){}
   fecharSugestoes();
   renderEscala();
+  if(bloq.length) alert(`🚫 DUPLICIDADE BLOQUEADA\n\nNão foram escalados por já estarem escalados:\n• ${bloq.join('\n• ')}`);
   toast(`✓ ${n} ministro(s) escalado(s) em ${hora}. Confira e salve a escala.`);
 };
 // Faixa no topo da escala: avisa quais horários ainda têm vagas e abre as sugestões com 1 toque
@@ -5325,6 +5366,7 @@ function _sugRenderRascunho(){
 window.sugRascToggle = function(i, on){ if(_rascPlano){ _rascPlano.plano[i].ativo = on; _sugRenderRascunho(); } };
 window.aplicarRascunho = function(){
   const P = _rascPlano; if(!P) return;
+  const bloqRasc = [];
   const { key, tipo } = P;
   if(!escalas[key]) escalas[key] = {};
   let n = 0;
@@ -5333,6 +5375,8 @@ window.aplicarRascunho = function(){
     const g = escalas[key][p.hora];
     p.nomes.forEach(nome=>{
       if(g.ministros.includes(nome)) return;
+      const onde = _conflitoEscala(key, p.hora, nome);
+      if(onde){ bloqRasc.push(`${nome} (já na ${onde})`); return; }
       g.ministros.push(nome); n++;
       try{ _registrarUltimaEscalacao(nome, `${tipo==='dom'?'Missa Dominical':'Missa Semanal'} ${p.hora}`); }catch(e){}
     });
@@ -5343,6 +5387,7 @@ window.aplicarRascunho = function(){
   try{ registrarLogEscala('rascunho_aplicado', `${n} ministro(s) escalado(s) por rascunho automático (escala ${key})`); }catch(e){}
   sugFecharModal('modal-rasc'); _rascPlano = null;
   renderEscala();
+  if(bloqRasc.length) alert(`🚫 DUPLICIDADE BLOQUEADA\n\nNão foram escalados por já estarem escalados:\n• ${bloqRasc.join('\n• ')}`);
   toast(`✓ Rascunho aplicado: ${n} ministro(s). Revise e salve a escala.`);
 };
 
@@ -5366,7 +5411,7 @@ window.abrirConferencia = async function(){
       const m = buscarMinistroPorNome(n);
       if(m && !(m[dispKey]||[]).includes(h)) avisos.push(`⏰ ${h}: <strong>${n}</strong> não marcou disponibilidade neste horário.`);
       if(datas.length && Array.isArray(_ausencias) && _ausencias.some(a=>a.nome===n && datas.some(d=>a.de<=d && d<=a.ate))) problemas.push(`⏰ ${h}: <strong>${n}</strong> avisou ausência neste período.`);
-      if(ocup[n]) problemas.push(`⏰ ${h}: <strong>${n}</strong> também está na ${ocup[n]} (no semanal serve só uma semana no mês).`);
+      if(ocup[n]) problemas.push(`⏰ ${h}: <strong>${n}</strong> já está escalado(a) na ${ocup[n]} — duplicidade.`);
       if(vistos[n]) problemas.push(`<strong>${n}</strong> está em ${vistos[n]} e em ${h} nesta mesma escala.`); else vistos[n] = h;
       if(_cartaoAmarelo[n]) avisos.push(`⏰ ${h}: <strong>${n}</strong> está com cartão amarelo (faltas).`);
     });
@@ -12039,13 +12084,14 @@ window.verQRCode = function(id){
   qrMinistroAtual = m;
   document.getElementById('qr-nome').textContent = m.nome;
   document.getElementById('qr-canvas').innerHTML = '';
+  { const qc = document.getElementById('qr-canvas'); qc.style.background = '#f2f2f2'; qc.style.padding = '14px'; qc.style.display = 'inline-block'; qc.style.borderRadius = '10px'; qc.style.lineHeight = '0'; }
   const url = `${APP_URL}/?ministro=${id}`;
   new QRCode(document.getElementById('qr-canvas'), {
     text: url,
     width: 220,
     height: 220,
     colorDark: '#000000',
-    colorLight: '#ffffff',
+    colorLight: '#f2f2f2',
     correctLevel: QRCode.CorrectLevel.H
   });
   document.getElementById('modal-qr').style.display='flex';
@@ -14792,12 +14838,124 @@ function obterBarcodeDetectorQuiosque(){
   return _qBarcodeDetector;
 }
 
+
+// ===== LEITOR DE QR ROBUSTO (v20.85.0) — fundo escuro, QR invertido, reflexo e luz desigual =====
+// Tenta, em ordem: (1) imagem pura (jsQR já testa normal e invertido), (2) contraste reforçado,
+// (3) preto-e-branco pela média, (4) limiar ADAPTATIVO LOCAL (Bradley) — o que mais ajuda quando
+// o QR está num fundo escuro (modo escuro do celular), com brilho/reflexo desigual na tela.
+// O passo 4 é mais pesado, então só roda em quadros alternados (completo=true).
+let _qFrameN = 0;
+window._qDecodificar = function(imageData, tam, completo){
+  const jq = d => jsQR(d, tam, tam, {inversionAttempts:'attemptBoth'});
+  let code = jq(imageData.data);
+  if(code) return code;
+  const n = tam*tam;
+  const orig = imageData.data;
+  // 2) contraste reforçado
+  const data = new Uint8ClampedArray(orig);
+  for(let i=0; i<data.length; i+=4){
+    const avg = (data[i]+data[i+1]+data[i+2])/3;
+    const v = avg > 128 ? Math.min(255, avg*1.3) : Math.max(0, avg*0.7);
+    data[i] = data[i+1] = data[i+2] = v;
+  }
+  code = jq(data);
+  if(code) return code;
+  // 3) binariza pela média real
+  let soma = 0;
+  for(let i=0; i<data.length; i+=4) soma += data[i];
+  const media = soma / n;
+  const bin = new Uint8ClampedArray(data.length);
+  for(let i=0; i<data.length; i+=4){ const v = data[i] > media ? 255 : 0; bin[i]=bin[i+1]=bin[i+2]=v; bin[i+3]=255; }
+  code = jq(bin);
+  if(code) return code;
+  // 3b) FUNDO COLORIDO/ESCURO COLADO NO QR (cartão verde, moldura escura, sem margem branca):
+  // acha a cor do fundo nas bordas da imagem, pinta toda essa área de branco e deixa o QR "respirar".
+  {
+    const W0 = tam, px = new Uint8ClampedArray(orig), vis = new Uint8Array(n), pil = [];
+    const semente = [];
+    for(let x=0; x<W0; x+=Math.max(1,W0>>5)){ semente.push(x, (W0-1)*W0+x); }
+    for(let y=0; y<W0; y+=Math.max(1,W0>>5)){ semente.push(y*W0, y*W0+W0-1); }
+    // cor de fundo = mediana simples das sementes
+    const rs=[], gs=[], bs=[];
+    for(const q of semente){ rs.push(px[q*4]); gs.push(px[q*4+1]); bs.push(px[q*4+2]); }
+    const med = a => a.sort((p,q)=>p-q)[a.length>>1];
+    const R=med(rs), G=med(gs), B=med(bs), TOL = 48*48*3/2;
+    const perto = q => { const k=q*4, dr=px[k]-R, dg=px[k+1]-G, db=px[k+2]-B; return dr*dr+dg*dg+db*db < TOL; };
+    for(const q of semente) pil.push(q);
+    let pintados = 0;
+    while(pil.length){
+      const q = pil.pop();
+      if(vis[q]) continue; vis[q]=1;
+      if(!perto(q)) continue;
+      const k=q*4; px[k]=px[k+1]=px[k+2]=255; pintados++;
+      const x = q % W0, y = (q-x)/W0;
+      if(x>0) pil.push(q-1); if(x<W0-1) pil.push(q+1); if(y>0) pil.push(q-W0); if(y<W0-1) pil.push(q+W0);
+    }
+    if(pintados > n*0.05 && pintados < n*0.97){
+      code = jq(px);
+      if(code) return code;
+    }
+  }
+  if(!completo) return null;
+  // 4) limiar adaptativo local (imagem integral) a partir da imagem ORIGINAL em cinza
+  const gray = new Float32Array(n);
+  for(let i=0, j=0; i<orig.length; i+=4, j++) gray[j] = (orig[i]*0.299 + orig[i+1]*0.587 + orig[i+2]*0.114);
+  const W = tam, integral = new Float64Array((W+1)*(W+1));
+  for(let y=0; y<W; y++){
+    let linha = 0;
+    for(let x=0; x<W; x++){ linha += gray[y*W+x]; integral[(y+1)*(W+1)+(x+1)] = integral[y*(W+1)+(x+1)] + linha; }
+  }
+  const r = Math.max(8, Math.round(W/16));
+  // variantes: fator do limiar (menor = só o bem escuro vira preto) e "engrossar o preto" para
+  // compensar o ESTOURO DE LUZ da câmera em fundo preto (o branco invade e some com os quadradinhos pretos).
+  const variantes = [[0.88,0],[0.97,1],[0.93,2],[1.0,3],[0.97,4],[0.75,0]];
+  for(const [fator, engrossa] of variantes){
+    let ad = new Uint8ClampedArray(orig.length);
+    for(let y=0; y<W; y++){
+      const y0 = Math.max(0,y-r), y1 = Math.min(W-1,y+r);
+      for(let x=0; x<W; x++){
+        const x0 = Math.max(0,x-r), x1 = Math.min(W-1,x+r);
+        const area = (x1-x0+1)*(y1-y0+1);
+        const m = (integral[(y1+1)*(W+1)+(x1+1)] - integral[y0*(W+1)+(x1+1)] - integral[(y1+1)*(W+1)+x0] + integral[y0*(W+1)+x0]) / area;
+        const v = gray[y*W+x] < m*fator ? 0 : 255;
+        const k = (y*W+x)*4; ad[k]=ad[k+1]=ad[k+2]=v; ad[k+3]=255;
+      }
+    }
+    for(let p=0; p<engrossa; p++){
+      const t = new Uint8ClampedArray(ad);
+      for(let y=1; y<W-1; y++) for(let x=1; x<W-1; x++){
+        const k = (y*W+x)*4;
+        if(ad[k]===255 && (ad[k-4]===0 || ad[k+4]===0 || ad[k-W*4]===0 || ad[k+W*4]===0)){ t[k]=t[k+1]=t[k+2]=0; }
+      }
+      ad = t;
+    }
+    code = jq(ad);
+    if(code) return code;
+    // FUNDO PRETO COLADO NO QR (cartão impresso/escuro, sem margem branca): apaga o preto que vem das bordas
+    // da imagem (o fundo) e deixa só o QR sobre branco. Não exige nada do ministro.
+    const fl = new Uint8ClampedArray(ad), pil = [];
+    for(let x=0; x<W; x++){ pil.push(x, (W-1)*W+x); }
+    for(let y=0; y<W; y++){ pil.push(y*W, y*W+W-1); }
+    while(pil.length){
+      const q = pil.pop(), k = q*4;
+      if(fl[k]!==0) continue;
+      fl[k]=fl[k+1]=fl[k+2]=255;
+      const x = q % W, y = (q - x) / W;
+      if(x>0) pil.push(q-1); if(x<W-1) pil.push(q+1); if(y>0) pil.push(q-W); if(y<W-1) pil.push(q+W);
+    }
+    code = jq(fl);
+    if(code) return code;
+  }
+  return null;
+};
+
 let _qLendoAgora = false;
 async function qLerFrame(video){
   if(_qPausado || _qLendoAgora) return;
   if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
   if(!video.videoWidth || !video.videoHeight) return; // metadados ainda não prontos
   _qLendoAgora = true;
+  _qFrameN++;
   try{
     let codigoLido = null;
 
@@ -14809,6 +14967,20 @@ async function qLerFrame(video){
         const resultados = await detector.detect(video);
         if(resultados && resultados.length) codigoLido = resultados[0].rawValue;
       }catch(e){ /* aparelho não deu suporte nesse frame — segue pro método de reserva */ }
+      // QR INVERTIDO (claro sobre escuro, ex.: modo escuro do celular): o detector nativo só lê o normal,
+      // então em quadros alternados inverte as cores do quadro (rápido, na própria placa gráfica) e tenta de novo.
+      if(!codigoLido && (_qFrameN % 3)===0){
+        try{
+          const cv = document.getElementById('q-canvas'); const cx = cv.getContext('2d');
+          const vw0 = video.videoWidth, vh0 = video.videoHeight, esc = Math.min(1, 960/Math.max(vw0,vh0));
+          cv.width = Math.round(vw0*esc); cv.height = Math.round(vh0*esc);
+          cx.drawImage(video, 0, 0, cv.width, cv.height);
+          cx.globalCompositeOperation = 'difference'; cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+          cx.globalCompositeOperation = 'source-over';
+          const inv = await detector.detect(cv);
+          if(inv && inv.length) codigoLido = inv[0].rawValue;
+        }catch(e){}
+      }
     }
 
     // MÉTODO DE RESERVA (jsQR): roda sempre que o detector nativo não existe ou não achou nada.
@@ -14827,31 +14999,7 @@ async function qLerFrame(video){
         canvas.width=tam; canvas.height=tam;
         ctx.drawImage(video, sx, sy, lado, lado, 0, 0, tam, tam);
         const imageData=ctx.getImageData(0,0,tam,tam);
-        let code=jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:'attemptBoth'});
-        if(code) return code;
-        // 2ª tentativa — reforça contraste: ajuda quando o QR está na tela de outro celular
-        // (brilho da tela, reflexo leve) ou é um print/impressão com contraste mais fraco
-        const data = imageData.data;
-        for(let i=0; i<data.length; i+=4){
-          const avg = (data[i]+data[i+1]+data[i+2])/3;
-          const v = avg > 128 ? Math.min(255, avg*1.3) : Math.max(0, avg*0.7);
-          data[i] = data[i+1] = data[i+2] = v;
-        }
-        code = jsQR(data, tam, tam, {inversionAttempts:'attemptBoth'});
-        if(code) return code;
-        // 3ª tentativa — binariza puro (preto/branco), com o limiar calculado pelo brilho médio
-        // REAL da imagem em vez de um valor fixo — é o que mais ajuda em reflexo forte de tela
-        // (um canto muito claro) ou luz muito desigual na igreja, onde só esticar o contraste
-        // às vezes não separa bem o QR do fundo.
-        let soma = 0;
-        for(let i=0; i<data.length; i+=4){ soma += (data[i]+data[i+1]+data[i+2])/3; }
-        const media = soma / (data.length/4);
-        for(let i=0; i<data.length; i+=4){
-          const lum = (data[i]+data[i+1]+data[i+2])/3;
-          const v = lum > media ? 255 : 0;
-          data[i] = data[i+1] = data[i+2] = v;
-        }
-        return jsQR(data, tam, tam, {inversionAttempts:'attemptBoth'});
+        return window._qDecodificar(imageData, tam, (_qFrameN & 1)===0);
       };
 
       // 1) Moldura central (75% do quadro) — carteirinha bem posicionada na mira
@@ -18615,6 +18763,7 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
   <div style="position:absolute;bottom:0;left:0;right:0;text-align:center;padding:20px 16px 22px;background:linear-gradient(transparent,rgba(0,0,0,.6))">
     <p style="color:white;font-size:20px;font-weight:700;margin:0;text-shadow:0 1px 4px rgba(0,0,0,.6)">Aproxime sua carteirinha</p>
     <p id="q-status-cam" style="color:#3ddb9a;font-size:12px;margin:5px 0 0">Iniciando câmera...</p>
+    <p style="color:rgba(255,255,255,.75);font-size:11px;margin:3px 0 0">Tela do celular escura? Peça para subir o brilho e desligar o modo escuro.</p>
     <button onclick="abrirBuscaManualQuiosque()" style="margin-top:12px;padding:10px 22px;border:none;border-radius:22px;background:#1D9E75;color:white;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)">🔎 Não leu? Buscar meu nome</button>
     <div style="display:flex;gap:8px;justify-content:center;margin-top:10px">
       <button id="q-btn-torch" onclick="alternarTorchQuiosque()" style="display:none;padding:7px 16px;border:1px solid rgba(255,255,255,.3);border-radius:20px;background:rgba(255,255,255,.08);color:#ccc;font-size:11px;cursor:pointer">🔦 Lanterna</button>
