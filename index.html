@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.83.2';
+const APP_VERSAO = '20.84.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5224,16 +5224,164 @@ async function _sugAtualizarBanner(tipo, key, horas){
     const itens = [];
     horas.forEach(h=>{
       const r = _sugCalcular(key, h, tipo);
-      if(r.meta!=null && r.vagas>0 && r.candidatos.length) itens.push({ h, vagas:r.vagas, sug:Math.min(r.vagas, r.candidatos.length) });
+      if(r.meta!=null && r.vagas>0 && r.candidatos.length) itens.push({ h, vagas:r.vagas });
     });
     const alvo = document.getElementById('sug-banner'); if(!alvo) return;
-    if(!itens.length){ alvo.innerHTML = ''; return; }
-    alvo.innerHTML = `<div style="background:linear-gradient(135deg,#e8f6ef,#e6f1fb);border:1.5px solid #9fd5bd;border-radius:12px;padding:12px;margin-bottom:12px">
-      <p style="font-size:14px;font-weight:800;color:#085041;margin:0 0 4px">💡 Assistente de escala</p>
-      <p style="font-size:12.5px;color:#345;margin:0 0 8px">Tenho sugestões para ${itens.length} horário(s) com vagas abertas. Toque para ver:</p>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">${itens.map(i=>`<button onclick="abrirSugestoes('${key}','${i.h}','${tipo}')" style="padding:8px 12px;border:none;border-radius:20px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer">${i.h} · faltam ${i.vagas}</button>`).join('')}</div></div>`;
+    const btn = (fn,txt,cor)=>`<button onclick="${fn}" style="padding:10px 14px;border:none;border-radius:22px;background:${cor};color:white;font-size:13px;font-weight:800;cursor:pointer">${txt}</button>`;
+    alvo.innerHTML = `<div style="background:linear-gradient(135deg,#e8f6ef,#e6f1fb);border:1.5px solid #9fd5bd;border-radius:14px;padding:13px;margin-bottom:12px">
+      <p style="font-size:15px;font-weight:800;color:#085041;margin:0 0 4px">💡 Assistente de escala</p>
+      <p style="font-size:12.5px;color:#345;margin:0 0 9px;line-height:1.45">${itens.length ? `Tenho sugestões para ${itens.length} horário(s) com vagas abertas.` : 'Nenhum horário com vagas abertas no momento.'}</p>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:${itens.length?9:0}px">${btn('abrirRascunho()','🪄 Montar rascunho','#BA7517')}${btn('abrirConferencia()','✅ Conferir escala','#185FA5')}</div>
+      ${itens.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${itens.map(i=>`<button onclick="abrirSugestoes('${key}','${i.h}','${tipo}')" style="padding:8px 12px;border:none;border-radius:20px;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer">${i.h} · faltam ${i.vagas}</button>`).join('')}</div>` : ''}
+    </div>`;
   }catch(e){}
 }
+
+
+// ====================== RASCUNHO AUTOMÁTICO + CONFERÊNCIA DA ESCALA (v20.84.0) ======================
+async function _sugRecarregarEscalas(){
+  try{
+    const snap = await getDocs(collection(db,'escalas')); const per = [];
+    snap.docs.forEach(d=>{ const pp = _sugParseKey(d.id); if(pp) per.push({ id:d.id, ...pp, dados:d.data()||{} }); });
+    if(per.length && _sugHist) _sugHist.periodos = per;
+  }catch(e){}
+}
+function _sugContexto(){
+  const tipo = document.getElementById('esc-tipo')?.value || 'dom';
+  const sem = document.getElementById('esc-sem')?.value;
+  const key = tipo==='dom' ? `escala_dom_${getMesAtual()}` : `escala_sem_sem${sem}_${getMesAtual()}`;
+  const horas = tipo==='dom' ? MISSAS_DOM : ['07:00h','09:00h','12:00h','18:00h'];
+  return { tipo, sem, key, horas };
+}
+function _sugFoto(nome, tam){
+  const m = buscarMinistroPorNome(nome);
+  return m?.foto ? `<img src="${m.foto}" style="width:${tam}px;height:${tam}px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+    : `<div style="width:${tam}px;height:${tam}px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:${Math.round(tam/3)}px;font-weight:700;flex-shrink:0">${iniciais(nome)}</div>`;
+}
+function _sugModal(id, html){
+  let el = document.getElementById(id);
+  if(!el){ el = document.createElement('div'); el.id = id; el.className = 'modal-bg'; el.onclick = e=>{ if(e.target===el) el.style.display='none'; }; document.body.appendChild(el); }
+  el.innerHTML = `<div class="modal-box" style="max-width:640px">${html}</div>`;
+  el.style.display = 'flex';
+}
+window.sugFecharModal = function(id){ const el = document.getElementById(id); if(el) el.style.display='none'; };
+
+// ----- Montar rascunho: preenche TODOS os horários com vagas, do mais escasso ao mais folgado -----
+let _rascPlano = null;
+window.abrirRascunho = async function(){
+  toast('🪄 Montando o rascunho...');
+  await _sugCarregarHistorico(false); await _sugRecarregarEscalas();
+  const { tipo, key, horas } = _sugContexto();
+  if(!escalas[key]) escalas[key] = {};
+  const backup = JSON.parse(JSON.stringify(escalas[key]));
+  const plano = [];                       // [{hora, nomes, responsavel, meta, faltam}]
+  const pendentes = new Set(horas);
+  try{
+    let guarda = 0;
+    while(pendentes.size && guarda++ < 40){
+      let melhor = null;
+      pendentes.forEach(h=>{
+        const r = _sugCalcular(key, h, tipo);
+        if(r.meta==null || r.vagas<=0){ pendentes.delete(h); return; }
+        const folga = r.candidatos.length / r.vagas;
+        if(!melhor || folga < melhor.folga) melhor = { h, r, folga };
+      });
+      if(!melhor) break;
+      const { h, r } = melhor;
+      const escolhidos = r.candidatos.slice(0, r.vagas).map(x=>x.nome);
+      if(!escalas[key][h]) escalas[key][h] = { ministros:[], responsavel:'' };
+      escalas[key][h].ministros.push(...escolhidos);        // simula, para os próximos horários já respeitarem
+      let resp = '';
+      if(!r.responsavel){ const rs = _sugResponsavelSugerido(r, [...r.jaNoHorario, ...escolhidos]); if(rs) resp = rs.nome; }
+      plano.push({ hora:h, nomes:escolhidos, responsavel:resp, meta:r.meta, vagas:r.vagas, faltam:Math.max(0, r.vagas - escolhidos.length), ativo:true });
+      pendentes.delete(h);
+    }
+  } finally { escalas[key] = backup; }       // desfaz a simulação — só grava se você confirmar
+  plano.sort((a,b)=> horas.indexOf(a.hora) - horas.indexOf(b.hora));
+  _rascPlano = { key, tipo, plano };
+  _sugRenderRascunho();
+};
+function _sugRenderRascunho(){
+  const P = _rascPlano; if(!P) return;
+  const total = P.plano.filter(p=>p.ativo).reduce((s,p)=>s+p.nomes.length,0);
+  const risco = P.plano.filter(p=>p.faltam>0);
+  const blocos = P.plano.map((p,i)=>`<div style="border:1.5px solid ${p.faltam?'#e0a0a0':'#cde8d8'};border-radius:12px;margin-bottom:10px;overflow:hidden;opacity:${p.ativo?1:.45}">
+      <label style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:${p.faltam?'#fdecec':'#e8f6ef'};cursor:pointer">
+        <span style="font-size:15px;font-weight:800;color:#085041"><input type="checkbox" ${p.ativo?'checked':''} onchange="sugRascToggle(${i},this.checked)" style="width:20px;height:20px;vertical-align:middle;accent-color:#085041;margin-right:6px">⏰ ${p.hora}</span>
+        <span style="font-size:12.5px;font-weight:700;color:${p.faltam?'#A32D2D':'#085041'}">+${p.nomes.length} de ${p.vagas} vaga(s)${p.faltam?` · ⚠️ faltam ${p.faltam}`:''}</span></label>
+      <div style="padding:6px 12px">${p.nomes.map(n=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0">${_sugFoto(n,30)}<span style="font-size:13.5px;font-weight:${n===p.responsavel?800:500}">${n}${n===p.responsavel?' <span style="font-size:10px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>':''}</span></div>`).join('') || '<p style="font-size:12.5px;color:#888;margin:4px 0">Ninguém disponível sobrando.</p>'}</div>
+      ${p.faltam?`<p style="margin:0;padding:6px 12px 10px;font-size:12px;color:#A32D2D">Poucos disponíveis neste horário — vale convidar mais ministros para marcarem disponibilidade.</p>`:''}</div>`).join('');
+  _sugModal('modal-rasc', `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <p style="font-size:17px;font-weight:800;color:#085041;margin:0">🪄 Rascunho da escala</p>
+      <button onclick="sugFecharModal('modal-rasc')" style="border:none;background:none;font-size:26px;cursor:pointer;color:#999;line-height:1">×</button></div>
+    <p style="font-size:12.5px;color:#345;margin:0 0 10px;line-height:1.5">Montei todos os horários com vagas, começando pelos mais difíceis de completar. Nada foi gravado — desmarque o que não quiser e confirme.</p>
+    ${risco.length ? `<div style="background:#fdecec;border-radius:10px;padding:9px 12px;font-size:12.5px;color:#7a1f1f;margin-bottom:10px">⚠️ <strong>Vagas em risco:</strong> ${risco.map(p=>`${p.hora} (faltam ${p.faltam})`).join(' · ')}</div>` : ''}
+    <div style="max-height:52vh;overflow-y:auto">${blocos || '<p style="font-size:13px;color:#888">Não há horários com vagas abertas, ou ainda não há histórico para calcular a meta.</p>'}</div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button onclick="sugFecharModal('modal-rasc')" style="flex:1;padding:13px;border:1.5px solid #ccc;border-radius:12px;background:white;font-size:14px;font-weight:700;color:#555;cursor:pointer">Cancelar</button>
+      <button onclick="aplicarRascunho()" ${total?'':'disabled'} style="flex:2;padding:13px;border:none;border-radius:12px;background:${total?'#085041':'#aaa'};color:white;font-size:15px;font-weight:800;cursor:pointer">✓ Aplicar rascunho (${total})</button></div>`);
+}
+window.sugRascToggle = function(i, on){ if(_rascPlano){ _rascPlano.plano[i].ativo = on; _sugRenderRascunho(); } };
+window.aplicarRascunho = function(){
+  const P = _rascPlano; if(!P) return;
+  const { key, tipo } = P;
+  if(!escalas[key]) escalas[key] = {};
+  let n = 0;
+  P.plano.filter(p=>p.ativo).forEach(p=>{
+    if(!escalas[key][p.hora]) escalas[key][p.hora] = { ministros:[], responsavel:'' };
+    const g = escalas[key][p.hora];
+    p.nomes.forEach(nome=>{
+      if(g.ministros.includes(nome)) return;
+      g.ministros.push(nome); n++;
+      try{ _registrarUltimaEscalacao(nome, `${tipo==='dom'?'Missa Dominical':'Missa Semanal'} ${p.hora}`); }catch(e){}
+    });
+    g.ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    if(p.responsavel && !g.responsavel) g.responsavel = p.responsavel;
+  });
+  marcarEscalaNaoSalva();
+  try{ registrarLogEscala('rascunho_aplicado', `${n} ministro(s) escalado(s) por rascunho automático (escala ${key})`); }catch(e){}
+  sugFecharModal('modal-rasc'); _rascPlano = null;
+  renderEscala();
+  toast(`✓ Rascunho aplicado: ${n} ministro(s). Revise e salve a escala.`);
+};
+
+// ----- Conferir escala: pré-voo antes de salvar/transmitir -----
+window.abrirConferencia = async function(){
+  await _sugCarregarHistorico(false); await _sugRecarregarEscalas();
+  const { tipo, key, horas } = _sugContexto();
+  const dispKey = tipo==='dom' ? 'dispDom' : 'dispSem';
+  const ocup = _sugOcupadosNoMes(key, tipo);
+  const problemas = [], avisos = [];
+  const vistos = {};
+  horas.forEach(h=>{
+    const g = (escalas[key]||{})[h] || { ministros:[], responsavel:'' };
+    const nomes = g.ministros||[];
+    if(!nomes.length){ avisos.push(`⏰ ${h}: sem ninguém escalado.`); return; }
+    if(!g.responsavel) problemas.push(`⏰ ${h}: <strong>sem responsável</strong> definido (sem ele não há link de presença).`);
+    const r = _sugCalcular(key, h, tipo);
+    if(r.meta!=null && nomes.length < r.meta) avisos.push(`⏰ ${h}: ${nomes.length} escalados, a meta pelo histórico é ${r.meta} (faltam ${r.meta-nomes.length}).`);
+    const datas = _sugDatasISO(tipo, h);
+    nomes.forEach(n=>{
+      const m = buscarMinistroPorNome(n);
+      if(m && !(m[dispKey]||[]).includes(h)) avisos.push(`⏰ ${h}: <strong>${n}</strong> não marcou disponibilidade neste horário.`);
+      if(datas.length && Array.isArray(_ausencias) && _ausencias.some(a=>a.nome===n && datas.some(d=>a.de<=d && d<=a.ate))) problemas.push(`⏰ ${h}: <strong>${n}</strong> avisou ausência neste período.`);
+      if(ocup[n]) problemas.push(`⏰ ${h}: <strong>${n}</strong> também está na ${ocup[n]} (no semanal serve só uma semana no mês).`);
+      if(vistos[n]) problemas.push(`<strong>${n}</strong> está em ${vistos[n]} e em ${h} nesta mesma escala.`); else vistos[n] = h;
+      if(_cartaoAmarelo[n]) avisos.push(`⏰ ${h}: <strong>${n}</strong> está com cartão amarelo (faltas).`);
+    });
+  });
+  const lista = (arr,cor,tit)=> arr.length ? `<div style="background:${cor[0]};border-radius:10px;padding:10px 12px;margin-bottom:10px"><p style="font-size:13.5px;font-weight:800;color:${cor[1]};margin:0 0 6px">${tit} (${arr.length})</p>${arr.map(x=>`<p style="font-size:13px;color:#333;margin:0 0 5px;line-height:1.45">• ${x}</p>`).join('')}</div>` : '';
+  const ok = !problemas.length && !avisos.length;
+  _sugModal('modal-conf', `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <p style="font-size:17px;font-weight:800;color:#085041;margin:0">✅ Conferência da escala</p>
+      <button onclick="sugFecharModal('modal-conf')" style="border:none;background:none;font-size:26px;cursor:pointer;color:#999;line-height:1">×</button></div>
+    ${ok ? `<div style="background:#e8f6ef;border-radius:12px;padding:16px;text-align:center"><p style="font-size:30px;margin:0">✅</p><p style="font-size:15px;font-weight:800;color:#085041;margin:6px 0 2px">Tudo certo!</p><p style="font-size:12.5px;color:#345;margin:0">Responsáveis definidos, ninguém repetido, sem ausências nem conflitos.</p></div>` : ''}
+    ${lista(problemas,['#fdecec','#A32D2D'],'🔴 Resolver antes de transmitir')}
+    ${lista(avisos,['#fff6dd','#8a5a00'],'🟡 Atenção')}
+    <button onclick="sugFecharModal('modal-conf')" style="width:100%;padding:13px;border:none;border-radius:12px;background:#085041;color:white;font-size:15px;font-weight:800;cursor:pointer;margin-top:6px">Entendi</button>`);
+};
 
 window.addMinForaDisp = function(key, hora, nome, acId){
   if(confirm(`⚠️ EXCEÇÃO — Sem disponibilidade\n\n${nome} NÃO marcou disponibilidade para ${hora}.\n\nDeseja escalá-lo(a) mesmo assim?`)){
