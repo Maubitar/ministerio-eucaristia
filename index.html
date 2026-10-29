@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.83.0';
+const APP_VERSAO = '20.83.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5016,6 +5016,24 @@ function _sugDatasISO(tipo, hora){
   }
   return out;
 }
+// Semanal: cada ministro serve em UMA semana do mês (1 horário só). Mapa nome -> onde já está escalado
+// nas OUTRAS semanas (e em outros horários) do mesmo mês — junta o que está salvo com o que está na tela.
+function _sugOcupadosNoMes(key, tipo){
+  const out = {};
+  const cur = _sugParseKey(key);
+  if(!cur || tipo!=='sem') return out;
+  const docs = {};
+  ((_sugHist&&_sugHist.periodos)||[]).forEach(p=>{ if(p.tipo==='sem' && p.ord===cur.ord) docs[p.id] = p.dados; });
+  Object.keys(escalas||{}).forEach(id=>{ const p = _sugParseKey(id); if(p && p.tipo==='sem' && p.ord===cur.ord) docs[id] = escalas[id]; });
+  Object.entries(docs).forEach(([id,d])=>{
+    if(id===key) return;
+    const p = _sugParseKey(id);
+    Object.entries(d||{}).forEach(([h,g])=>{
+      ((g&&g.ministros)||[]).forEach(n=>{ if(!out[n]) out[n] = `${p.sem}ª semana às ${h}`; });
+    });
+  });
+  return out;
+}
 function _sugCalcular(key, hora, tipo){
   const H = _sugHist || { periodos:[], faltas:{} };
   const cur = _sugParseKey(key) || { ord:0, sem:0 };
@@ -5050,6 +5068,7 @@ function _sugCalcular(key, hora, tipo){
   });
 
   const datas = _sugDatasISO(tipo, hora);
+  const ocupados = _sugOcupadosNoMes(key, tipo);
   const candidatos = [], alertas = [];
   ministros.forEach(m=>{
     if(m.ativo===false) return;
@@ -5058,7 +5077,8 @@ function _sugCalcular(key, hora, tipo){
     // motivos para NÃO sugerir (ficam numa lista de atenção)
     let motivo = '';
     const outro = (typeof jaEscaladoNoutroHorario==='function') ? jaEscaladoNoutroHorario(key, hora, m.nome) : '';
-    if(outro) motivo = `já escalado(a) às ${outro} nesta escala`;
+    if(ocupados[m.nome]) motivo = `já escalado(a) na ${ocupados[m.nome]} — no semanal serve só uma semana no mês`;
+    if(!motivo && outro) motivo = `já escalado(a) às ${outro} nesta semana`;
     if(!motivo && datas.length && Array.isArray(_ausencias) && _ausencias.some(a=>a.nome===m.nome && datas.some(d=>a.de<=d && d<=a.ate))) motivo = 'avisou ausência neste período';
     if(!motivo && _cartaoAmarelo[m.nome]) motivo = '🟡 cartão amarelo (faltas)';
     if(!motivo && _flagsAltaSubstituicao[m.nome]) motivo = `pede substituição com frequência (${_flagsAltaSubstituicao[m.nome].percentual}%)`;
@@ -5074,10 +5094,11 @@ function _sugCalcular(key, hora, tipo){
     const sAss = tot>=3 ? Math.round((f.p/tot)*15) : 8;
     const score = Math.max(0, Math.round(50 + sHab + sEq + sAss - f.f*5));
     const motivos = ['✓ marcou disponibilidade'];
-    if(n && nh) motivos.push(`serviu ${nh} de ${n} vezes neste horário`);
-    else if(n) motivos.push('novo neste horário');
-    motivos.push(c ? `${c} escala(s) nos últimos 3 meses` : 'descansado: sem escalas nos últimos 3 meses');
-    if(tot>=3) motivos.push(`presença ${f.p} de ${tot}`);
+    const un = tipo==='dom' ? 'escalas mensais' : 'semanas';
+    if(n && nh) motivos.push(`escalado em ${nh} das últimas ${n} ${un} deste horário`);
+    else if(n) motivos.push(`não esteve nas últimas ${n} ${un} deste horário`);
+    motivos.push(c ? `${c} escala(s) nos últimos 3 meses (todos os horários)` : 'descansado: sem escalas nos últimos 3 meses');
+    if(tot>=3) motivos.push(`presença registrada: ${f.p} de ${tot} missas`);
     if(resp[m.nome]) motivos.push(`★ já foi responsável aqui (${resp[m.nome].n}x)`);
     candidatos.push({ nome:m.nome, score, motivos, nh });
   });
@@ -5100,6 +5121,11 @@ function _sugMesLegivel(ord){
 window.abrirSugestoes = async function(key, hora, tipo){
   toast('💡 Analisando o histórico...');
   await _sugCarregarHistorico(false);
+  try{ // pega as escalas mais novas (outras semanas salvas agora há pouco)
+    const snap = await getDocs(collection(db,'escalas')); const per = [];
+    snap.docs.forEach(d=>{ const pp = _sugParseKey(d.id); if(pp) per.push({ id:d.id, ...pp, dados:d.data()||{} }); });
+    if(per.length) _sugHist.periodos = per;
+  }catch(e){}
   _sugCtx = { key, hora, tipo, marcados:null };
   _sugRender(true);
 };
@@ -5151,6 +5177,15 @@ function _sugRender(recalcularMarcados){
     <div style="margin-top:8px;max-height:46vh;overflow-y:auto;border:1px solid #eee;border-radius:10px">${linhas || '<p style="font-size:13px;color:#888;padding:14px">Ninguém disponível sobrando para este horário.</p>'}</div>
     ${respHtml}
     ${alertasHtml}
+    <details style="margin-top:12px"><summary style="font-size:13px;font-weight:700;color:#185FA5;cursor:pointer">ℹ️ Como o assistente calcula</summary>
+      <div style="font-size:12.5px;color:#333;line-height:1.6;padding:6px 2px">
+        <p style="margin:0 0 6px"><strong>Entrada:</strong> só entra na lista quem marcou disponibilidade para este horário.</p>
+        <p style="margin:0 0 6px"><strong>"Escalado em X das últimas Y ${c.tipo==='dom'?'escalas mensais':'semanas'} deste horário":</strong> olha as últimas ${_SUG_K[c.tipo]} ${c.tipo==='dom'?'escalas mensais':'semanas'} em que este horário teve equipe montada (Y) e conta em quantas o ministro estava escalado (X). Conta quem foi <em>escalado</em>, não quem compareceu.</p>
+        <p style="margin:0 0 6px"><strong>"Escalas nos últimos 3 meses":</strong> quantas vezes o nome aparece em qualquer escala (dominical ou semanal, qualquer horário) nos 3 meses anteriores. Quanto menos, mais descansado — e mais ponto no equilíbrio.</p>
+        <p style="margin:0 0 6px"><strong>"Presença registrada X de Y":</strong> nas missas com presença lançada (desde o início do controle digital), X presenças de Y registros (presença + falta + justificativa). Só aparece com 3 ou mais registros.</p>
+        <p style="margin:0 0 6px"><strong>Nota (0 a 100):</strong> base 50 + até 40 por costume de servir neste horário + até 20 por descanso + até 15 por presença − 5 por cada falta.</p>
+        <p style="margin:0"><strong>Meta:</strong> mediana de quantos ministros as últimas escalas deste horário tiveram (editável).</p>
+      </div></details>
     <div style="display:flex;gap:8px;margin-top:14px;position:sticky;bottom:0;background:white;padding-top:8px">
       <button onclick="fecharSugestoes()" style="flex:1;padding:13px;border:1.5px solid #ccc;border-radius:12px;background:white;font-size:14px;font-weight:700;color:#555;cursor:pointer">Cancelar</button>
       <button onclick="confirmarSugestoes()" ${c.marcados.size?'':'disabled'} style="flex:2;padding:13px;border:none;border-radius:12px;background:${c.marcados.size?'#085041':'#aaa'};color:white;font-size:15px;font-weight:800;cursor:pointer">✓ Escalar ${c.marcados.size} selecionado(s)</button>
