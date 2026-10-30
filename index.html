@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.87.0';
+const APP_VERSAO = '20.87.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4597,7 +4597,7 @@ function renderReforcoNoQuadrante(hora, refArray){
       ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">🔁 Automático — ${refInfo.label} — vale o mês todo</p>`
       : ehDataFixa(refInfo.id)
       ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Só para esta missa especial (${refInfo.label}) — não se repete nas demais semanas</p>`
-      : (lista.length ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço de ${refInfo.label} — lançamento manual: vale só para esta missa</p>` : '');
+      : (lista.length ? `<p style="font-size:9px;color:#8a6d0c;margin:2px 0 4px;font-style:italic">⭐ Reforço de ${refInfo.label} — vale desta semana em diante · para tirar só desta semana, toque no ×</p>` : '');
     return `${avisoTipo}${linhas}
       <div style="position:relative">
         <input type="text" id="${inpId}" placeholder="⭐ + Adicionar reforço (${refInfo.label})..."
@@ -4628,14 +4628,20 @@ window.addMinReforcoQuad = function(key, nome, acId, semQ){
   if(!reforcos[key].ministros) reforcos[key].ministros=[];
   const r = reforcos[key];
   if(semQ){
-    // Manual: vale só para esta semana
-    const sk = String(semQ);
+    // Reforço fixo: ao adicionar numa semana, vale DESTA semana em diante (semanas seguintes do mês).
+    // As semanas ANTERIORES não são alteradas. Para tirar de uma semana só, use o × naquela semana.
+    const sn = parseInt(semQ), sk = String(semQ);
     r.off = r.off||{}; r.add = r.add||{};
-    r.off[sk] = (r.off[sk]||[]).filter(n=>n!==nome);
     if(!r.ministros.includes(nome)){
-      r.add[sk] = r.add[sk]||[];
-      if(!r.add[sk].includes(nome)) r.add[sk].push(nome);
+      r.ministros.push(nome);
+      r.ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+      for(let k=1; k<sn; k++){            // semanas anteriores continuam como estavam (sem ele)
+        const kk = String(k);
+        if(!(r.add[kk]||[]).includes(nome)){ r.off[kk] = r.off[kk]||[]; if(!r.off[kk].includes(nome)) r.off[kk].push(nome); }
+      }
     }
+    for(const kk of Object.keys(r.off)){ if(parseInt(kk)>=sn) r.off[kk] = (r.off[kk]||[]).filter(n=>n!==nome); }
+    r.add[sk] = (r.add[sk]||[]).filter(n=>n!==nome);
   } else if(!r.ministros.includes(nome)){
     r.ministros.push(nome);
     r.ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
