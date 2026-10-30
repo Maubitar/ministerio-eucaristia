@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.88.1';
+const APP_VERSAO = '20.88.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5418,7 +5418,7 @@ async function _ondeCarregarRefMeses(meses){
   }
 }
 // Monta o relatório do ministro: cada mês (mais recente primeiro) com missa, horário e as datas
-async function _ondeRelatorio(nome){
+async function _ondeRelatorio(nome, extrasAtual){
   const cur = getMesAtual(), nx = _ondeMesSeguinte(cur);
   const ords = new Set([_sugOrdMes(cur.slice(0,3),cur.slice(3)), _sugOrdMes(nx.slice(0,3),nx.slice(3))]);
   ((_sugHist&&_sugHist.periodos)||[]).forEach(p=>{
@@ -5443,6 +5443,7 @@ async function _ondeRelatorio(nome){
       const datas = t.sems.map(n=>((D.sem[n]||[]).find(x=>x.dia===dia)||{}).data).filter(Boolean).join(', ');
       linhas.push({ cor:'a', txt:`⭐ Reforço — Missa ${t.label}`, datas });
     });
+    if(mk===cur && extrasAtual && extrasAtual.length) extrasAtual.forEach(x=>linhas.push(x));
     meses.push({ mk, nome:_ondeNomeMes(mk), atual: mk===cur, seguinte: mk===nx, linhas });
   }
   return meses;
@@ -5458,6 +5459,26 @@ function _ondeTexto(nome, meses){
   return L.join('\n').trim();
 }
 window._ondeTexto_atual = '';
+function _ondeBlocoHtml(m){ return `<p style="font-size:14px;font-weight:800;color:#333;margin:14px 0 6px;text-transform:capitalize">📅 ${m.nome}${m.atual?' <span style="font-size:11px;background:#e1f5ee;color:#085041;padding:1px 8px;border-radius:12px;text-transform:none">mês atual</span>':''}${m.seguinte?' <span style="font-size:11px;background:#e6f1fb;color:#185FA5;padding:1px 8px;border-radius:12px;text-transform:none">mês seguinte</span>':''}</p>`
+    + (m.linhas.length ? m.linhas.map(l=>`<div style="padding:10px 12px;background:${l.cor==='a'?'#fff6d6':'#f0faf5'};border-radius:10px;margin-bottom:6px"><div style="font-size:14px;font-weight:700;color:${l.cor==='a'?'#7a5b00':'#085041'}">${l.txt}${l.resp?' <span style="font-size:11px;background:#faeeda;color:#7a4a06;padding:1px 8px;border-radius:12px">★ Responsável</span>':''}</div>${l.datas?`<div style="font-size:12.5px;color:#555;margin-top:3px">📆 ${l.datas}</div>`:''}</div>`).join('') : '<p style="font-size:13px;color:#999;margin:0 0 6px">Sem escala neste mês (nas escalas salvas).</p>'); }
+async function _ondeExtras(m){
+  const extras = [];
+  try{
+    await calcularDisponibilidadeEscala();
+    const c = _dispEscalaCache || {};
+    // Círio (quinzena) e Eventos especiais do mês atual — com as datas
+    if(c.cirioCfg && c.cirioCfg.colunas){
+      c.cirioCfg.colunas.forEach(col=>{
+        const hs = (c.cirioCfg.horarios||[]).filter(h=>((c.docsColunas&&c.docsColunas[col.id]&&c.docsColunas[col.id][h])||{}).ministros && c.docsColunas[col.id][h].ministros.includes(m.nome));
+        if(hs.length) extras.push({ cor:'a', txt:`🕯️ Círio — ${col.label} às ${hs.join(', ')}`, datas:(col.datas||[col.data]).filter(Boolean).join(', ') });
+      });
+    }
+    (c.eventosCarregados||[]).forEach(e=>{
+      if((e.escala||[]).includes(m.nome)) extras.push({ cor:'a', txt:`🎉 Evento — ${e.nome}${e.hora?` às ${e.hora}`:''}`, datas:(e.data||'').split('-').reverse().join('/') });
+    });
+  }catch(e){}
+  return extras;
+}
 async function _ondeTela(nome){
   const cab = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><p style="font-size:18px;font-weight:800;color:#6b3fa0;margin:0">🔎 Onde está escalado?</p><button onclick="sugFecharModal('modal-onde')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#999">×</button></div>
@@ -5469,13 +5490,12 @@ async function _ondeTela(nome){
     return;
   }
   _sugModal('modal-onde', cab + '<p style="font-size:13px;color:#666;margin-top:14px">Montando o relatório...</p>');
-  const meses = await _ondeRelatorio(nome);
+  const _mObj = ministros.find(x=>x.nome===nome);
+  const meses = await _ondeRelatorio(nome, _mObj ? await _ondeExtras(_mObj) : []);
   window._ondeTexto_atual = _ondeTexto(nome, meses);
-  const bloco = m => `<p style="font-size:14px;font-weight:800;color:#333;margin:14px 0 6px;text-transform:capitalize">📅 ${m.nome}${m.atual?' <span style="font-size:11px;background:#e1f5ee;color:#085041;padding:1px 8px;border-radius:12px;text-transform:none">mês atual</span>':''}${m.seguinte?' <span style="font-size:11px;background:#e6f1fb;color:#185FA5;padding:1px 8px;border-radius:12px;text-transform:none">mês seguinte</span>':''}</p>`
-    + (m.linhas.length ? m.linhas.map(l=>`<div style="padding:10px 12px;background:${l.cor==='a'?'#fff6d6':'#f0faf5'};border-radius:10px;margin-bottom:6px"><div style="font-size:14px;font-weight:700;color:${l.cor==='a'?'#7a5b00':'#085041'}">${l.txt}${l.resp?' <span style="font-size:11px;background:#faeeda;color:#7a4a06;padding:1px 8px;border-radius:12px">★ Responsável</span>':''}</div>${l.datas?`<div style="font-size:12.5px;color:#555;margin-top:3px">📆 ${l.datas}</div>`:''}</div>`).join('') : '<p style="font-size:13px;color:#999;margin:0 0 6px">Sem escala neste mês (nas escalas salvas).</p>');
   _sugModal('modal-onde', `${cab}
     <div style="display:flex;align-items:center;gap:10px;margin-top:14px">${_sugFoto(nome,44)}<p style="font-size:16px;font-weight:800;margin:0">${nome}</p></div>
-    ${meses.map(bloco).join('')}
+    ${meses.map(_ondeBlocoHtml).join('')}
     <div style="display:flex;gap:8px;margin-top:14px;position:sticky;bottom:0;background:white;padding-top:8px">
       <button onclick="_ondeCopiar()" style="flex:1;padding:12px;border:1.5px solid #6b3fa0;border-radius:12px;background:white;color:#6b3fa0;font-size:14px;font-weight:800;cursor:pointer">📋 Copiar</button>
       <button onclick="_ondeWhats()" style="flex:1;padding:12px;border:none;border-radius:12px;background:#25a05a;color:white;font-size:14px;font-weight:800;cursor:pointer">📲 WhatsApp</button>
@@ -7136,24 +7156,17 @@ window.mostrarOndeServeUm = async function(nome){
     // especiais). Antes esta busca só olhava a escala dominical/semanal "normal", e por isso
     // sumia quem serve só como reforço, no Círio ou em eventos (ex: o coordenador, que reforça
     // várias missas especiais sem estar escalado normalmente nelas).
-    await calcularDisponibilidadeEscala();
-    const s = _statusMinistroNoMes(m);
-    const partes = [];
-    if(s.escaladoDom.length) partes.push(`⛪ Dominical: ${s.escaladoDom.join(', ')}`);
-    if(s.escaladoSem.length) partes.push(`📆 Semanal: ${s.escaladoSem.join(', ')}`);
-    if(s.escaladoCirio.length) partes.push(`🕯️ Círio: ${s.escaladoCirio.join(', ')}`);
-    if(s.escaladoEventos.length) partes.push(`🎉 Eventos: ${s.escaladoEventos.join(', ')}`);
-    if(s.escaladoReforco.length) partes.push(`⭐ ${s.escaladoReforco.join(', ')}`);
-    if(!partes.length){
-      cont.innerHTML = `<div style="background:#FBEAEA;border:1px solid #E9A8A8;border-radius:8px;padding:10px 12px;margin-top:8px">
-        <p style="margin:0;font-size:13px;color:#A32D2D"><strong>${nome}</strong> não está escalado(a) em nada este mês (missa, Círio, evento ou reforço).</p>
-      </div>`;
-      return;
-    }
-    cont.innerHTML = `<div style="background:#eef7f2;border:1px solid #cde8d8;border-radius:8px;padding:10px 12px;margin-top:8px">
-      <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#085041">${nome}</p>
-      <p style="margin:0;font-size:12.5px;color:#1D9E75">${partes.join(' · ')}</p>
-    </div>`;
+    const extras = await _ondeExtras(m);
+    await _ondeCarregar();
+    const meses = await _ondeRelatorio(nome, extras);
+    window._ondeTexto_atual = _ondeTexto(nome, meses);
+    cont.innerHTML = `<div style="background:#fff;border:1px solid #cde8d8;border-radius:10px;padding:12px 14px;margin-top:8px">
+      <p style="margin:0 0 2px;font-size:15px;font-weight:800;color:#085041">${nome}</p>
+      ${meses.map(_ondeBlocoHtml).join('')}
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button onclick="_ondeCopiar()" style="flex:1;padding:11px;border:1.5px solid #6b3fa0;border-radius:10px;background:white;color:#6b3fa0;font-size:13px;font-weight:800;cursor:pointer">📋 Copiar</button>
+        <button onclick="_ondeWhats()" style="flex:1;padding:11px;border:none;border-radius:10px;background:#25a05a;color:white;font-size:13px;font-weight:800;cursor:pointer">📲 WhatsApp</button>
+      </div></div>`;
   }catch(e){
     cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;padding:8px 0 0">Erro: ${e.message}</p>`;
   }
@@ -17480,13 +17493,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <div class="metric"><div class="v" id="m-total">0</div><div class="l">Ministros ativos</div></div>
     <div class="metric"><div class="v" id="m-escalas">0</div><div class="l">Escalas montadas</div></div>
     <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários no mês</div></div>
-  </div>
-
-  <div class="card">
-    <p class="ct">🔎 Onde esse ministro está servindo?</p>
-    <input type="text" id="busca-onde-serve" placeholder="Digite o nome do ministro..." oninput="buscarOndeServe(this.value)"
-      style="width:100%;padding:12px 14px;border:1.5px solid #cde8d8;border-radius:9px;font-size:14px;box-sizing:border-box">
-    <div id="resultado-onde-serve"></div>
   </div>
 
   <!-- AÇÕES PRINCIPAIS — destaque premium -->
