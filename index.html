@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.89.2';
+const APP_VERSAO = '20.89.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -6225,9 +6225,9 @@ function _mostrarCartaoEnviarPronto(file, tituloShare, textoShare){
   }
   const card = document.createElement('div');
   card.style.cssText = 'background:white;border:2px solid #1ba34d;border-radius:12px;padding:10px 12px;box-shadow:0 4px 18px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px;pointer-events:auto';
-  card.innerHTML = `<span style="flex:1;font-size:12.5px;color:#1a1a1a;font-weight:600">✓ Pronto — ${tituloShare||'Escala MESCE'}</span>
-    <button class="btn-pdf" title="PDF: o WhatsApp não comprime — fica nítido e dá para ampliar" style="padding:10px 14px;border:none;border-radius:8px;background:#1ba34d;color:white;font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap">📄 Enviar PDF nítido</button>
-    <button class="btn-env" title="Foto: o WhatsApp comprime e borra" style="padding:9px 10px;border:1.5px solid #bbb;border-radius:8px;background:white;color:#666;font-weight:700;font-size:11.5px;cursor:pointer;white-space:nowrap">📷 Foto</button>
+  card.innerHTML = `<span style="flex:1;font-size:12.5px;color:#1a1a1a;font-weight:600">✓ Pronto — ${tituloShare||'Escala MESCE'}<br><span style="font-size:11px;font-weight:700;color:#185FA5">No WhatsApp, toque em <u>HD</u> antes de enviar — fica nítida ao dar zoom</span></span>
+    <button class="btn-env" style="padding:9px 16px;border:none;border-radius:8px;background:#1ba34d;color:white;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap">📤 Enviar</button>
+    <button class="btn-pdf" title="Opcional: enviar em PDF" style="padding:9px 10px;border:1.5px solid #bbb;border-radius:8px;background:white;color:#666;font-weight:700;font-size:11.5px;cursor:pointer;white-space:nowrap">📄 PDF</button>
     <button class="btn-fch" style="border:none;background:none;color:#999;font-size:18px;cursor:pointer;line-height:1;padding:0 2px" title="Fechar">×</button>`;
   const btnEnviar = card.querySelector('.btn-env');
   const btnFechar = card.querySelector('.btn-fch');
@@ -6264,7 +6264,7 @@ function _mostrarCartaoEnviarPronto(file, tituloShare, textoShare){
         toast('✓ Enviado!','ok');
         return;
       }catch(e){
-        if(e.name==='AbortError'){ btnEnviar.disabled=false; btnEnviar.textContent='📷 Foto'; return; }
+        if(e.name==='AbortError'){ btnEnviar.disabled=false; btnEnviar.textContent='📤 Enviar'; return; }
         // qualquer outro erro: cai pro download manual abaixo
       }
     }
