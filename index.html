@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.87.1';
+const APP_VERSAO = '20.87.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4647,7 +4647,9 @@ window.addMinReforcoQuad = function(key, nome, acId, semQ){
     r.ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
   }
   const ac=document.getElementById(acId); if(ac) ac.style.display='none';
-  setDoc(doc(db,'reforcos',key), r).catch(()=>{});
+  setDoc(doc(db,'reforcos',key), r)
+    .then(()=>toast(semQ ? `✓ Reforço salvo: ${nome.split(' ')[0]} — da ${semQ}ª semana em diante` : '✓ Reforço salvo'))
+    .catch(e=>toast('⚠️ NÃO salvou o reforço: '+(e&&e.message||e),'err'));
   renderEscala();
 };
 
