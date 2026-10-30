@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.86.1';
+const APP_VERSAO = '20.87.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1016,6 +1016,7 @@ window.renderUsuarios = function(){
         <p style="font-size:13px;font-weight:600;margin:0">${u.usuario}</p>
         <p style="font-size:11px;color:#888;margin:0">${perm.nome}</p>
       </div>
+      <button onclick="redefinirSenhaUsuario(${i})" title="Definir nova senha" style="border:1.5px solid #085041;background:white;color:#085041;font-size:12px;font-weight:700;cursor:pointer;padding:6px 10px;border-radius:8px">🔑 Nova senha</button>
       ${u.papel!=='coordenador'||_acessoUsuarios.filter(x=>x.papel==='coordenador').length>1 ?
         `<button onclick="removerUsuario(${i})" style="border:none;background:none;color:#A32D2D;font-size:16px;cursor:pointer;padding:0 4px">×</button>` : ''}
     </div>`;
@@ -1047,6 +1048,20 @@ window.salvarNovoUsuario = async function(){
     toast('✓ Acesso criado para '+usuario+' ('+PAPEIS[papel].nome+')');
     renderUsuarios();
   }catch(e){ toast('Erro ao criar: '+e.message,'err'); }
+};
+
+// Senha não pode ser consultada (fica guardada só em código seguro). O coordenador define uma NOVA e passa à pessoa.
+window.redefinirSenhaUsuario = async function(i){
+  const u = _acessoUsuarios[i]; if(!u) return;
+  const nova = prompt(`Nova senha para "${u.usuario}" (mínimo 4 caracteres).\n\nAnote o usuário e a senha para passar à pessoa:\nUsuário: ${u.usuario}`);
+  if(nova===null) return;
+  if(nova.length<4){ toast('A senha precisa ter ao menos 4 caracteres.','warn'); return; }
+  try{
+    _acessoUsuarios[i] = { ...u, ...(await novoRegistroSenha(nova)) };
+    await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
+    alert(`✓ Senha redefinida.\n\nUsuário: ${u.usuario}\nNova senha: ${nova}\n\nPasse estes dados à pessoa.`);
+    renderUsuarios();
+  }catch(e){ toast('Erro ao redefinir: '+e.message,'err'); }
 };
 
 window.removerUsuario = async function(i){
