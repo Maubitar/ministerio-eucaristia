@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.87.2';
+const APP_VERSAO = '20.87.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3440,9 +3440,12 @@ function _dataDoDiaNaSemana(sem, nomeDia){
 function _nomesRefFixo(d, sem){
   const base = (d && d.ministros) || [];
   if(sem===undefined || sem===null || sem==='') return [...base];
+  const sn = parseInt(sem);
   const off = ((d.off||{})[String(sem)])||[];
-  const add = ((d.add||{})[String(sem)])||[];
-  return [...new Set([...base.filter(n=>!off.includes(n)), ...add])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  // lançamentos feitos em semanas ANTERIORES (add) continuam valendo nas semanas seguintes
+  const carregados = [];
+  Object.keys(d.add||{}).forEach(k=>{ if(parseInt(k)<=sn) carregados.push(...(d.add[k]||[])); });
+  return [...new Set([...base, ...carregados].filter(n=>!off.includes(n)))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
 }
 function _comDataReforcoFixo(label, sem){
   const dia = /Quinta/.test(label) ? 'Quinta' : (/Sábado/.test(label) ? 'Sábado' : '');
@@ -4662,11 +4665,8 @@ window.remMinReforcoQuad = function(key, idx, semQ){
       if(nome){
         const sk = String(semQ);
         r.off = r.off||{}; r.add = r.add||{};
-        r.add[sk] = (r.add[sk]||[]).filter(n=>n!==nome);
-        if(r.ministros.includes(nome)){
-          r.off[sk] = r.off[sk]||[];
-          if(!r.off[sk].includes(nome)) r.off[sk].push(nome);
-        }
+        r.off[sk] = r.off[sk]||[];
+        if(!r.off[sk].includes(nome)) r.off[sk].push(nome);
       }
     } else {
       r.ministros.splice(idx,1);
