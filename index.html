@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.88.3';
+const APP_VERSAO = '20.89.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -7457,6 +7457,8 @@ function _bannerHtmlImpressao(rotulo){
 const SLIDE_W = 1900, SLIDE_H = 1343, SLIDE_CARD_W = 602, SLIDE_GAP_H = 16, SLIDE_GAP_V = 14;
 const SLIDE_K_BASE = 0.7; // tamanho padrão do texto/fotos (nomes cabem numa linha nos cartões de 3 colunas)
 const SLIDE_K_MIN = 0.45;
+const SLIDE_K_ENCAIXE_MIN = 0.30;   // menor tamanho aceito para MANTER a escala numa única folha
+let _slideCardWAtual = 0;           // largura do cartão em uso (0 = padrão SLIDE_CARD_W)
 
 // Divide n cartões em linhas equilibradas, mantendo a ordem: 7 → 3,2,2 · 4 → 2,2 · 5 → 3,2
 function _planejarLinhas(n){
@@ -7476,7 +7478,7 @@ function _montarSlideEscala(rotulo, tituloFaixa, linhas, corBorda, k, gradeCusto
       <div style="font-size:${tam}px;font-weight:900;letter-spacing:2px;line-height:1.1">${ban.icone} ${ban.titulo}</div>
       ${subtitulo?`<div style="font-size:25px;font-weight:700;margin-top:1px;line-height:1.2">${subtitulo}</div>`:''}
     </div>`;
-  const grade = (gradeCustom!==undefined && gradeCustom!==null) ? gradeCustom : linhas.map(l=>`<div class="slide-linha" style="display:flex;gap:${SLIDE_GAP_H}px;justify-content:center;align-items:flex-start">${l.map(h=>`<div style="width:${SLIDE_CARD_W}px;flex:none">${cardHorarioFin(h,k)}</div>`).join('')}</div>`).join('');
+  const grade = (gradeCustom!==undefined && gradeCustom!==null) ? gradeCustom : linhas.map(l=>`<div class="slide-linha" style="display:flex;gap:${SLIDE_GAP_H}px;justify-content:center;align-items:flex-start">${l.map(h=>`<div style="width:${_slideCardWAtual||SLIDE_CARD_W}px;flex:none">${cardHorarioFin(h,k)}</div>`).join('')}</div>`).join('');
   return `<div style="width:${SLIDE_W}px;height:${SLIDE_H}px;box-sizing:border-box;overflow:hidden;background:white;border:4px solid ${corBorda};border-radius:14px;padding:8px 24px 8px;display:flex;flex-direction:column;font-family:Arial,sans-serif;color:#1a1a1a">
     <div style="flex:none;display:flex;align-items:center;gap:22px">
       <img src="${LOGO_BASILICA}" crossorigin="anonymous" style="width:50px;height:50px;object-fit:contain">
@@ -7543,44 +7545,79 @@ async function capturarPaginaComDivisao(rotulo, tituloFaixa, cards, corBorda, op
       hObjs = novos;
     }
 
-    // 1) PLANO DE LINHAS: cartões em linhas de até 3, na ordem cronológica (7 → 3,2,2 · 4 → 2,2)
-    const tamanhos = _planejarLinhas(hObjs.length);
-    const linhasTodas = [];
-    let pos = 0;
-    tamanhos.forEach(t=>{ linhasTodas.push(hObjs.slice(pos, pos+t)); pos += t; });
-
-    // 2) PLANO DE PÁGINAS pra um tamanho de letra k: mede cada linha, descobre o MENOR número de
-    // páginas possível e então DISTRIBUI as linhas de forma EQUILIBRADA entre elas (nunca uma
-    // página cheia e a última quase vazia), sempre na ordem.
-    const planejar = async (k)=>{
-      const g = await montar(tituloFaixa, linhasTodas, k);
-      const util = g.clientHeight;
-      const alt = Array.from(g.querySelectorAll('.slide-linha')).map(el=>el.offsetHeight);
-      const alturaDe = (i,j)=> alt.slice(i,j).reduce((a,x)=>a+x,0) + SLIDE_GAP_V*Math.max(0,j-i-1);
-      // menor nº de páginas (guloso)
-      let n = 1, qtd = 0, soma = 0;
-      alt.forEach(h=>{
-        const add = (qtd ? SLIDE_GAP_V : 0) + h;
-        if(qtd > 0 && soma + add > util){ n++; soma = h; qtd = 1; }
-        else { soma += add; qtd++; }
-      });
-      // partição equilibrada em n páginas (minimiza a página mais alta) — DP
-      const R = alt.length, INF = 1e9;
-      const dp = Array.from({length:n+1}, ()=>Array(R+1).fill(INF));
-      const corte = Array.from({length:n+1}, ()=>Array(R+1).fill(0));
-      dp[0][0] = 0;
-      for(let c=1;c<=n;c++) for(let j=c;j<=R;j++) for(let i=c-1;i<j;i++){
-        const v = Math.max(dp[c-1][i], alturaDe(i,j));
-        if(v < dp[c][j]){ dp[c][j] = v; corte[c][j] = i; }
-      }
-      const limites = []; let j = R;
-      for(let c=n;c>=1;c--){ const i = corte[c][j]; limites.unshift([i,j]); j = i; }
-      const slides = limites.map(([i,j])=>({ linhas: linhasTodas.slice(i,j), altura: alturaDe(i,j) }));
-      return { k, util, slides };
+    // 1) PADRÃO: cada escala (semana, domingos, dia do Círio, evento) cabe NUMA ÚNICA FOLHA.
+    // Testa 3, 4, 5 ou 6 cartões por linha e escolhe o arranjo que mantém a LETRA MAIOR com tudo na mesma folha.
+    // Só divide em mais folhas se, mesmo no menor tamanho aceito, não couber.
+    const linhasPara = (n, c)=>{
+      const porLinha = Math.min(n, c);
+      const numLinhas = Math.ceil(n/porLinha);
+      const base = Math.floor(n/numLinhas), extra = n % numLinhas;
+      const tam = Array.from({length:numLinhas}, (_,i)=> base + (i<extra ? 1 : 0));
+      const out = []; let p = 0; tam.forEach(t=>{ out.push(hObjs.slice(p,p+t)); p += t; });
+      return out;
     };
-    // 3) TAMANHO DE LETRA FIXO (padrão único, igual em todas as escalas — nomes sempre numa linha)
-    const plano = await planejar(SLIDE_K_BASE);
-    const slides = plano.slides, alturaUtil = plano.util;
+    const larguraCols = c => Math.floor((SLIDE_W - 72 - (c-1)*SLIDE_GAP_H) / c);
+    let melhor = null;
+    for(const c of [3,4,5,6]){
+      if(c > 3 && hObjs.length <= 3) break;
+      const linhas = linhasPara(hObjs.length, c);
+      _slideCardWAtual = larguraCols(c);
+      const kTeste = Math.min(SLIDE_K_BASE, _slideCardWAtual/776);   // sem quebrar nomes em duas linhas
+      const g0 = await montar(tituloFaixa, linhas, kTeste);
+      const util0 = g0.clientHeight;
+      const alt0 = Array.from(g0.querySelectorAll('.slide-linha')).map(el=>el.offsetHeight).reduce((a,x)=>a+x,0) + SLIDE_GAP_V*Math.max(0,linhas.length-1);
+      let k = kTeste * Math.min(1, util0 / Math.max(1, alt0)) * 0.98;
+      k = Math.min(SLIDE_K_BASE, k);
+      // confere de verdade (a altura não é 100% proporcional) e reduz até caber
+      let gr = await montar(tituloFaixa, linhas, k);
+      for(let t=0; t<8 && gr.scrollHeight > gr.clientHeight + 1 && k > 0.2; t++){
+        k = k * (gr.clientHeight / gr.scrollHeight) * 0.97;
+        gr = await montar(tituloFaixa, linhas, k);
+      }
+      const cabe = gr.scrollHeight <= gr.clientHeight + 1;
+      if(cabe && k >= SLIDE_K_ENCAIXE_MIN && (!melhor || k > melhor.k + 0.015)) melhor = { c, k, linhas, larg:_slideCardWAtual };
+    }
+
+    let slides, alturaUtil, plano;
+    if(melhor){
+      // tudo numa folha só
+      _slideCardWAtual = melhor.larg;
+      slides = [{ linhas: melhor.linhas, altura: 0 }];
+      alturaUtil = 1; plano = { k: melhor.k, util: 1, slides };
+      slides[0].altura = 1;               // k já calculado: não reduz de novo
+    } else {
+      // Não coube nem no menor tamanho aceito: divide em folhas iguais (3 por linha, letra padrão)
+      _slideCardWAtual = 0;
+      const tamanhos = _planejarLinhas(hObjs.length);
+      const linhasTodas = [];
+      let pos = 0;
+      tamanhos.forEach(t=>{ linhasTodas.push(hObjs.slice(pos, pos+t)); pos += t; });
+      const planejar = async (k)=>{
+        const g = await montar(tituloFaixa, linhasTodas, k);
+        const util = g.clientHeight;
+        const alt = Array.from(g.querySelectorAll('.slide-linha')).map(el=>el.offsetHeight);
+        const alturaDe = (i,j)=> alt.slice(i,j).reduce((a,x)=>a+x,0) + SLIDE_GAP_V*Math.max(0,j-i-1);
+        let n = 1, qtd = 0, soma = 0;
+        alt.forEach(h=>{
+          const add = (qtd ? SLIDE_GAP_V : 0) + h;
+          if(qtd > 0 && soma + add > util){ n++; soma = h; qtd = 1; }
+          else { soma += add; qtd++; }
+        });
+        const R = alt.length, INF = 1e9;
+        const dp = Array.from({length:n+1}, ()=>Array(R+1).fill(INF));
+        const corte = Array.from({length:n+1}, ()=>Array(R+1).fill(0));
+        dp[0][0] = 0;
+        for(let c=1;c<=n;c++) for(let j=c;j<=R;j++) for(let i=c-1;i<j;i++){
+          const v = Math.max(dp[c-1][i], alturaDe(i,j));
+          if(v < dp[c][j]){ dp[c][j] = v; corte[c][j] = i; }
+        }
+        const limites = []; let j = R;
+        for(let c=n;c>=1;c--){ const i = corte[c][j]; limites.unshift([i,j]); j = i; }
+        return { k, util, slides: limites.map(([i,j])=>({ linhas: linhasTodas.slice(i,j), altura: alturaDe(i,j) })) };
+      };
+      plano = await planejar(SLIDE_K_BASE);
+      slides = plano.slides; alturaUtil = plano.util;
+    }
 
     // 4) DESENHA cada página (todas do mesmo tamanho 1900x1343); se alguma passar da altura, reduz k até caber
     for(let i=0;i<slides.length;i++){
@@ -7599,6 +7636,7 @@ async function capturarPaginaComDivisao(rotulo, tituloFaixa, cards, corBorda, op
       await new Promise(r=>setTimeout(r,120)); // respiro pro navegador liberar memória
     }
   }finally{
+    _slideCardWAtual = 0;
     document.body.removeChild(wrap);
   }
   return resultados;
