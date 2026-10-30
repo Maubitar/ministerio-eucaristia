@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.89.0';
+const APP_VERSAO = '20.89.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5983,8 +5983,8 @@ const SOGI_QUALIDADE = Object.freeze({
   // o tempo (e o peso do arquivo) gerando 8x era jogado fora pelo WhatsApp mesmo. A resolução abaixo
   // já é muito maior que o que qualquer Foto do WhatsApp preserva, então NADA se perde na prática —
   // só o desperdício de tempo é cortado. A impressão em papel (ESCALA_ALVO acima) continua intocada.
-  ESCALA_ALVO_FOTO: 2.5,      // resolução da imagem que vai virar Foto no WhatsApp — nítida, rápida de gerar e leve de baixar
-  QUALIDADE_JPEG_FOTO: 0.93, // JPEG de altíssima qualidade — visualmente idêntico ao PNG depois que o WhatsApp recomprime
+  ESCALA_ALVO_FOTO: 3,      // resolução da imagem que vai virar Foto no WhatsApp — nítida, rápida de gerar e leve de baixar
+  QUALIDADE_JPEG_FOTO: 0.97, // JPEG de altíssima qualidade — visualmente idêntico ao PNG depois que o WhatsApp recomprime
   // BLINDAGEM (v20.71.0): "Memória insuficiente" / navegador travou — a Escala Dominical inteira
   // (todos os domingos do mês, com foto de cada ministro) é um elemento gigante; gerando a 4x com
   // teto de 16000px (o mesmo da impressão em papel) o navegador tentava criar uma imagem/canvas
@@ -6035,7 +6035,7 @@ async function capturarImagemAlta(elemento, paraFoto){
   const escalaMinimaSegura = Math.min(SOGI_QUALIDADE.ESCALA_MINIMA, ladoMaximo/larguraEl, ladoMaximo/alturaEl);
   escala = Math.max(escalaMinimaSegura, escala);
   // BLINDAGEM (v20.73.0): teto de PIXELS totais (memória) — vale pra impressão (PNG) e Foto
-  const _maxPx = paraFoto ? 20e6 : 70e6;
+  const _maxPx = paraFoto ? 30e6 : 70e6;
   if(larguraEl*alturaEl*escala*escala > _maxPx) escala = Math.sqrt(_maxPx/(larguraEl*alturaEl));
 
   const tipoSaida = paraFoto ? 'image/jpeg' : 'image/png';
@@ -6227,10 +6227,34 @@ function _mostrarCartaoEnviarPronto(file, tituloShare, textoShare){
   card.style.cssText = 'background:white;border:2px solid #1ba34d;border-radius:12px;padding:10px 12px;box-shadow:0 4px 18px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px;pointer-events:auto';
   card.innerHTML = `<span style="flex:1;font-size:12.5px;color:#1a1a1a;font-weight:600">✓ Pronto — ${tituloShare||'Escala MESCE'}</span>
     <button class="btn-env" style="padding:9px 16px;border:none;border-radius:8px;background:#1ba34d;color:white;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap">📤 Enviar</button>
+    <button class="btn-pdf" title="Enviar em PDF — o WhatsApp não comprime, fica nítido e dá para ampliar" style="padding:9px 12px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-weight:800;font-size:12.5px;cursor:pointer;white-space:nowrap">📄 PDF nítido</button>
     <button class="btn-fch" style="border:none;background:none;color:#999;font-size:18px;cursor:pointer;line-height:1;padding:0 2px" title="Fechar">×</button>`;
   const btnEnviar = card.querySelector('.btn-env');
   const btnFechar = card.querySelector('.btn-fch');
   btnFechar.onclick = ()=> card.remove();
+  // PDF NÍTIDO: o WhatsApp recomprime qualquer imagem enviada como Foto (fica borrada). Em PDF ele não mexe,
+  // e o ministro amplia à vontade sem perder a nitidez.
+  const btnPdf = card.querySelector('.btn-pdf');
+  btnPdf.onclick = async ()=>{
+    const rotOrig = btnPdf.textContent; btnPdf.disabled = true; btnPdf.textContent = '...';
+    try{
+      const dataUrl = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
+      const dim = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth,h:im.naturalHeight}); im.onerror=rej; im.src=dataUrl; });
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: dim.w>=dim.h?'landscape':'portrait', unit:'px', format:[dim.w,dim.h], hotfixes:['px_scaling'], compress:false });
+      pdf.addImage(dataUrl, /png/i.test(file.type)?'PNG':'JPEG', 0, 0, dim.w, dim.h);
+      const nomePdf = (file.name||'escala').replace(/\.[a-z0-9]+$/i,'') + '.pdf';
+      const filePdf = new File([pdf.output('blob')], nomePdf, {type:'application/pdf'});
+      if(navigator.canShare && navigator.canShare({files:[filePdf]})){
+        try{ await navigator.share({ files:[filePdf], title: tituloShare||'Escala MESCE', text: textoShare||'' }); card.remove(); toast('✓ Enviado em PDF!','ok'); return; }
+        catch(e){ if(e.name==='AbortError'){ btnPdf.disabled=false; btnPdf.textContent=rotOrig; return; } }
+      }
+      const a=document.createElement('a'); a.href=URL.createObjectURL(filePdf); a.download=nomePdf; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+      toast('PDF baixado. No WhatsApp, toque em 📎 → Documento e escolha o PDF.','ok');
+      card.remove();
+    }catch(e){ toast('Não consegui gerar o PDF: '+(e&&e.message||e),'warn'); btnPdf.disabled=false; btnPdf.textContent=rotOrig; }
+  };
   btnEnviar.onclick = async ()=>{
     btnEnviar.disabled = true; btnEnviar.textContent = '...';
     if(navigator.canShare && navigator.canShare({files:[file]})){
