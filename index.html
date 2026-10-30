@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.88.0';
+const APP_VERSAO = '20.88.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5359,40 +5359,131 @@ function _ondeAchar(nome, mk){
     const p = _sugParseKey(id);
     Object.entries(d||{}).forEach(([h,g])=>{
       if(((g&&g.ministros)||[]).includes(nome)){
-        itens.push({ ord: p.tipo==='dom' ? 0 : p.sem, txt: p.tipo==='dom' ? `Missa Dominical · ${h}` : `Missa Semanal · ${p.sem}ª semana · ${h}`, resp: g.responsavel===nome });
+        itens.push({ ord: p.tipo==='dom' ? 0 : p.sem, tipo:p.tipo, sem:p.sem, hora:h, txt: p.tipo==='dom' ? `Missa Dominical · ${h}` : `Missa Semanal · ${p.sem}ª semana · ${h}`, resp: g.responsavel===nome });
       }
     });
   });
-  itens.sort((a,b)=>a.ord-b.ord || a.txt.localeCompare(b.txt));
-  const refs = [];
+  itens.sort((a,b)=>a.ord-b.ord || a.hora.localeCompare(b.hora));
+  const refs = [], refsDet = [];
   REFORCO_TIPOS.forEach(t=>{
     const d = (_ondeCache&&_ondeCache.reforcos[`reforco_${t.id}_${mk}`]) || null;
     if(!d) return;
     const sems = [1,2,3,4,5].filter(sm=>_nomesRefFixo(d, sm).includes(nome));
-    if(sems.length) refs.push(`⭐ Reforço ${t.label} · ${sems.map(x=>x+'ª').join(', ')} semana(s)`);
+    if(sems.length){ refs.push(`⭐ Reforço ${t.label} · ${sems.map(x=>x+'ª').join(', ')} semana(s)`); refsDet.push({ id:t.id, label:t.label, sems }); }
   });
-  return { itens, refs };
+  return { itens, refs, refsDet };
 }
 window.abrirOndeEsta = async function(){
   _sugModal('modal-onde', `<p style="font-size:18px;font-weight:800;color:#6b3fa0;margin:0 0 6px">🔎 Onde está escalado?</p><p style="font-size:13px;color:#666">Carregando as escalas salvas...</p>`);
   await _ondeCarregar();
   _ondeTela('');
 };
-function _ondeTela(nome){
-  const mk = getMesAtual(), nx = _ondeMesSeguinte(mk);
-  const bloco = (m)=>{
-    const r = _ondeAchar(nome, m);
-    const lin = [...r.itens.map(i=>`<div style="padding:9px 12px;background:#f0faf5;border-radius:10px;margin-bottom:6px;font-size:14px;font-weight:600;color:#085041">⛪ ${i.txt}${i.resp?' <span style="font-size:11px;background:#faeeda;color:#7a4a06;padding:1px 8px;border-radius:12px">★ Responsável</span>':''}</div>`), ...r.refs.map(t=>`<div style="padding:9px 12px;background:#fff6d6;border-radius:10px;margin-bottom:6px;font-size:14px;font-weight:600;color:#7a5b00">${t}</div>`)];
-    return `<p style="font-size:13px;font-weight:800;color:#444;margin:12px 0 6px">${mesKeyLegivel(m)}${m===mk?' (mês atual)':' (mês seguinte)'}</p>${lin.length ? lin.join('') : '<p style="font-size:13px;color:#999;margin:0 0 6px">Não está escalado(a) neste mês (nas escalas salvas).</p>'}`;
-  };
-  const sug = nome ? '' : '';
-  _sugModal('modal-onde', `
+const _ONDE_MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const _ONDE_DIA3 = {Domingo:'Dom',Segunda:'Seg',Terça:'Ter',Quarta:'Qua',Quinta:'Qui',Sexta:'Sex',Sábado:'Sáb'};
+function _ondeNomeMes(mk){ const m = mk.match(/^([a-z]{3})(\d{4})$/); return m ? `${_ONDE_MESES[MESES_KEY.indexOf(m[1])]} de ${m[2]}` : mk; }
+let _ondeDatasCache = {};
+// Datas reais do mês: domingos e dias de cada semana (o que a coordenação configurou; senão, o calendário)
+async function _ondeDatasMes(mk){
+  if(_ondeDatasCache[mk]) return _ondeDatasCache[mk];
+  const out = { dom:[], sem:{} };
+  const mi = MESES_KEY.indexOf(mk.slice(0,3)), ano = parseInt(mk.slice(3));
+  let cal = null; try{ cal = calcularCalendario(ano, mi); }catch(e){}
+  const dDom = await _lerCfgNuvem('domingos_'+mk);
+  out.dom = (dDom && Array.isArray(dDom.lista) && dDom.lista.length) ? dDom.lista : ((cal&&cal.domingos)||[]);
+  const dSem = await _lerCfgNuvem('semanas_'+mk);
+  const per = (dSem && dSem.periodos) || {};
+  const DN = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  for(let n=1; n<=6; n++){
+    const p = per[n] || per[String(n)];
+    const dias = [];
+    if(p && p.ini && p.fim){
+      const cur = new Date(p.ini+'T12:00:00'), fim = new Date(p.fim+'T12:00:00');
+      while(cur<=fim){ dias.push({ dia:DN[cur.getDay()], data:fmt(cur) }); cur.setDate(cur.getDate()+1); }
+    } else if(!Object.keys(per).length && cal && cal.semanas && cal.semanas[n]){
+      (cal.semanas[n].dias||[]).filter(x=>x.mesRef!==false).forEach(x=>dias.push({ dia:x.dia, data:x.data }));
+    }
+    if(dias.length) out.sem[n] = dias;
+  }
+  _ondeDatasCache[mk] = out;
+  return out;
+}
+async function _ondeCarregarRefMeses(meses){
+  for(const mk of meses){
+    for(const t of REFORCO_TIPOS){
+      const k = `reforco_${t.id}_${mk}`;
+      if(_ondeCache && k in _ondeCache.reforcos) continue;
+      try{ const d = await getDoc(doc(db,'reforcos',k)); _ondeCache.reforcos[k] = d.exists()?d.data():null; }catch(e){ _ondeCache.reforcos[k] = null; }
+    }
+  }
+}
+// Monta o relatório do ministro: cada mês (mais recente primeiro) com missa, horário e as datas
+async function _ondeRelatorio(nome){
+  const cur = getMesAtual(), nx = _ondeMesSeguinte(cur);
+  const ords = new Set([_sugOrdMes(cur.slice(0,3),cur.slice(3)), _sugOrdMes(nx.slice(0,3),nx.slice(3))]);
+  ((_sugHist&&_sugHist.periodos)||[]).forEach(p=>{
+    if(Object.values(p.dados||{}).some(g=>((g&&g.ministros)||[]).includes(nome))) ords.add(p.ord);
+  });
+  const lista = [...ords].sort((a,b)=>b-a).slice(0,8).map(o=>MESES_KEY[o%12]+Math.floor(o/12));
+  await _ondeCarregarRefMeses(lista);
+  const meses = [];
+  for(const mk of lista){
+    const r = _ondeAchar(nome, mk);
+    const D = await _ondeDatasMes(mk);
+    const linhas = [];
+    r.itens.forEach(i=>{
+      let datas = '';
+      const h = i.hora;
+      if(i.tipo==='dom') datas = D.dom.join(', ');
+      else datas = (D.sem[i.sem]||[]).filter(x=>(MISSAS_SEM_DIAS[x.dia]||[]).includes(h)).map(x=>`${_ONDE_DIA3[x.dia]||x.dia} ${x.data}`).join(', ');
+      linhas.push({ cor:'v', txt: i.tipo==='dom' ? `Missa Dominical às ${h}` : `Missa Semanal (${i.sem}ª semana) às ${h}`, datas, resp:i.resp });
+    });
+    r.refsDet.forEach(t=>{
+      const dia = /sab/.test(t.id) ? 'Sábado' : 'Quinta';
+      const datas = t.sems.map(n=>((D.sem[n]||[]).find(x=>x.dia===dia)||{}).data).filter(Boolean).join(', ');
+      linhas.push({ cor:'a', txt:`⭐ Reforço — Missa ${t.label}`, datas });
+    });
+    meses.push({ mk, nome:_ondeNomeMes(mk), atual: mk===cur, seguinte: mk===nx, linhas });
+  }
+  return meses;
+}
+function _ondeTexto(nome, meses){
+  const L = [`*${nome}* — onde está escalado(a)`, ''];
+  meses.forEach(m=>{
+    L.push(`📅 *${m.nome.charAt(0).toUpperCase()+m.nome.slice(1)}*${m.atual?' (mês atual)':''}${m.seguinte?' (mês seguinte)':''}`);
+    if(!m.linhas.length) L.push('   — sem escala neste mês');
+    m.linhas.forEach(l=>{ L.push(`   • ${l.txt}${l.resp?' (responsável)':''}${l.datas?`\n      Datas: ${l.datas}`:''}`); });
+    L.push('');
+  });
+  return L.join('\n').trim();
+}
+window._ondeTexto_atual = '';
+async function _ondeTela(nome){
+  const cab = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><p style="font-size:18px;font-weight:800;color:#6b3fa0;margin:0">🔎 Onde está escalado?</p><button onclick="sugFecharModal('modal-onde')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#999">×</button></div>
     <div style="position:relative"><input id="onde-inp" type="text" autocomplete="off" placeholder="Digite o nome do ministro..." value="${nome.replace(/"/g,'&quot;')}" oninput="_ondeBuscar(this.value)" style="width:100%;padding:13px;border:2px solid #c9b3e6;border-radius:12px;font-size:16px;margin:0">
-    <div id="onde-ac" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:10px;z-index:60;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.15);margin-top:3px"></div></div>
-    ${nome ? `<div style="display:flex;align-items:center;gap:10px;margin-top:14px">${_sugFoto(nome,44)}<p style="font-size:16px;font-weight:800;margin:0">${nome}</p></div>${bloco(mk)}${bloco(nx)}<p style="font-size:11px;color:#999;margin-top:10px">Mostra o que está salvo (e o que já está na tela, no mês atual).</p>` : '<p style="font-size:13px;color:#999;margin-top:14px">Digite o nome para ver em quais missas e semanas ele já está escalado, neste mês e no seguinte.</p>'}`);
-  if(!nome){ setTimeout(()=>{ const i=document.getElementById('onde-inp'); if(i) i.focus(); },100); }
+    <div id="onde-ac" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:10px;z-index:60;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.15);margin-top:3px"></div></div>`;
+  if(!nome){
+    _sugModal('modal-onde', cab + '<p style="font-size:13px;color:#999;margin-top:14px">Digite o nome para ver o relatório: mês, missa, horário e as datas em que ele serve.</p>');
+    setTimeout(()=>{ const i=document.getElementById('onde-inp'); if(i) i.focus(); },100);
+    return;
+  }
+  _sugModal('modal-onde', cab + '<p style="font-size:13px;color:#666;margin-top:14px">Montando o relatório...</p>');
+  const meses = await _ondeRelatorio(nome);
+  window._ondeTexto_atual = _ondeTexto(nome, meses);
+  const bloco = m => `<p style="font-size:14px;font-weight:800;color:#333;margin:14px 0 6px;text-transform:capitalize">📅 ${m.nome}${m.atual?' <span style="font-size:11px;background:#e1f5ee;color:#085041;padding:1px 8px;border-radius:12px;text-transform:none">mês atual</span>':''}${m.seguinte?' <span style="font-size:11px;background:#e6f1fb;color:#185FA5;padding:1px 8px;border-radius:12px;text-transform:none">mês seguinte</span>':''}</p>`
+    + (m.linhas.length ? m.linhas.map(l=>`<div style="padding:10px 12px;background:${l.cor==='a'?'#fff6d6':'#f0faf5'};border-radius:10px;margin-bottom:6px"><div style="font-size:14px;font-weight:700;color:${l.cor==='a'?'#7a5b00':'#085041'}">${l.txt}${l.resp?' <span style="font-size:11px;background:#faeeda;color:#7a4a06;padding:1px 8px;border-radius:12px">★ Responsável</span>':''}</div>${l.datas?`<div style="font-size:12.5px;color:#555;margin-top:3px">📆 ${l.datas}</div>`:''}</div>`).join('') : '<p style="font-size:13px;color:#999;margin:0 0 6px">Sem escala neste mês (nas escalas salvas).</p>');
+  _sugModal('modal-onde', `${cab}
+    <div style="display:flex;align-items:center;gap:10px;margin-top:14px">${_sugFoto(nome,44)}<p style="font-size:16px;font-weight:800;margin:0">${nome}</p></div>
+    ${meses.map(bloco).join('')}
+    <div style="display:flex;gap:8px;margin-top:14px;position:sticky;bottom:0;background:white;padding-top:8px">
+      <button onclick="_ondeCopiar()" style="flex:1;padding:12px;border:1.5px solid #6b3fa0;border-radius:12px;background:white;color:#6b3fa0;font-size:14px;font-weight:800;cursor:pointer">📋 Copiar</button>
+      <button onclick="_ondeWhats()" style="flex:1;padding:12px;border:none;border-radius:12px;background:#25a05a;color:white;font-size:14px;font-weight:800;cursor:pointer">📲 WhatsApp</button>
+    </div>
+    <p style="font-size:11px;color:#999;margin-top:8px">Mostra o que está salvo (e o que já está na tela, no mês atual).</p>`);
 }
+window._ondeCopiar = async function(){ try{ await navigator.clipboard.writeText(window._ondeTexto_atual); toast('✓ Relatório copiado'); }catch(e){ toast('Não consegui copiar — selecione o texto.','warn'); } };
+window._ondeWhats = function(){ window.open('https://wa.me/?text='+encodeURIComponent(window._ondeTexto_atual),'_blank'); };
 window._ondeBuscar = function(v){
   const ac = document.getElementById('onde-ac'); if(!ac) return;
   const q = normalizarBusca(v);
