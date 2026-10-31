@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.92.1';
+const APP_VERSAO = '20.93.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2801,6 +2801,12 @@ function primeiroNomes(nome){ return nome.split(' ').slice(0,3).join(' '); }
 // Usada em TODOS os lugares que leem ou gravam na coleção 'presencas' — tela principal, link do
 // responsável, e quiosque. Nunca construir essa chave "na mão" em outro lugar: foi exatamente
 // isso que causou o bug do link salvando sem o ano (setembro/2026).
+// Mapa nome→ministro que ignora maiúscula, acento e espaço duplo (ex.: "Danielle rocha da silva barbosa" acha "Danielle Rocha da Silva Barbosa")
+function _mapaPorNome(lista){
+  const exato = {}, norm = {};
+  lista.forEach(m=>{ exato[m.nome]=m; norm[normalizarBusca(m.nome)]=m; });
+  return new Proxy(exato, { get:(t,k)=> (typeof k==='string' ? (t[k] || norm[normalizarBusca(k)]) : t[k]) });
+}
 function chavePresenca(dataISO, horario){
   return `${dataISO}_${(horario||'').replace(':','')}`;
 }
@@ -12966,7 +12972,7 @@ function renderPainelPresencaEvento(){
   const e = window._presEventoAtual;
   const escala = e.escala || [];
   const presenca = e.presenca || {};
-  const porNome = {}; window._presEventoTodosMinistros.forEach(m=>{ porNome[m.nome]=m; });
+  const porNome = _mapaPorNome(window._presEventoTodosMinistros);
   const registranteSalvo = localStorage.getItem('sogi_registrante_nome');
   const dataFmt = (e.data||'').split('-').reverse().join('/');
 
@@ -13808,7 +13814,7 @@ async function modoPresencaResponsavel(codigo){
     // Busca cadastro completo dos ministros (fotos, telefones) pra exibir e pra achar o ID (registros são gravados por ID)
     let todosMinistros = [];
     try{ const snap = await _lerMinistrosDocs(); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
-    const porNome = {}; todosMinistros.forEach(mm=>{ porNome[mm.nome]=mm; });
+    const porNome = _mapaPorNome(todosMinistros);
     const escaladosObjs = (grupo.ministros||[]).map(nome=>porNome[nome]).filter(Boolean);
 
     // REFORÇO: horários 12:00h e 18:00h semanais têm equipes extras de reforço (Quinta 18h,
@@ -13872,7 +13878,7 @@ async function modoPresencaCirio(partes){
   if(!datas.length){ invalido('Não encontrei datas para este dia da Quinzena.'); return; }
   let todosMinistros = [];
   try{ const snap = await _lerMinistrosDocs(); todosMinistros = snap.docs.map(dd=>({id:dd.id, ...dd.data()})); }catch(e){}
-  const porNome = {}; todosMinistros.forEach(mm=>{ porNome[mm.nome]=mm; });
+  const porNome = _mapaPorNome(todosMinistros);
   const escaladosObjs = (grupo.ministros||[]).map(n=>porNome[n]).filter(Boolean);
   const mesIdx = parseInt(datas[0].data.split('/')[1]) - 1;
   renderPainelPresencaResponsavel({ tipo:'cir', colLabel:coluna.label, horario, mesKey:`cir${ano}`, semana:null, responsavel:grupo.responsavel||'', escaladosObjs, datas, todosMinistros, mesIdx, anoMesKey:ano, reforcosEsp:[] });
@@ -13933,6 +13939,8 @@ window.salvarRegistrante = function(){
   localStorage.setItem('sogi_registrante_nome', nome);
   document.getElementById('pr-quem-registra').style.display='none';
   document.getElementById('pr-registrante-atual').innerHTML = `Registrando como: <strong>${nome}</strong> · <a href="#" onclick="trocarRegistrante();return false" style="color:#185FA5">trocar</a>`;
+  // cards já abertos antes de informar o nome: recarrega para o próprio registrante entrar como presente
+  document.querySelectorAll('[id^="pr-corpo-"]').forEach(el=>{ if(el.dataset.carregado==='1'){ const i = el.id.replace('pr-corpo-',''); el.dataset.carregado='0'; el.style.display='none'; toggleDataPresenca(parseInt(i)); } });
 };
 
 window.trocarRegistrante = function(){
@@ -13986,8 +13994,28 @@ window.toggleDataPresenca = async function(i){
   let jaSalvo = {};
   try{ const d = await getDoc(doc(db,'presencas',docId)); jaSalvo = d.exists()?(d.data().registros||{}):{}; }catch(e){}
 
+  jaSalvo = await _autoMarcarRegistrante(i, docId, jaSalvo);
   renderCorpoDataPresenca(i, docId, jaSalvo);
 };
+
+// Quem está registrando (e está escalado nesta missa) já entra como PRESENTE, sem precisar tocar no próprio nome.
+// Só vale para missa que já começou, e nunca mexe em quem já tem P/F/S/J marcado.
+async function _autoMarcarRegistrante(i, docId, jaSalvo){
+  try{
+    const registrante = localStorage.getItem('sogi_registrante_nome');
+    if(!registrante) return jaSalvo;
+    const ctx = _presRespCtx, dt = ctx.datas[i]; if(!dt) return jaSalvo;
+    const iso = docId.split('_')[0];
+    const hoje = new Date(), hojeISO = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`;
+    if(iso > hojeISO) return jaSalvo;   // missa de dia futuro: não marca
+    const alvo = normalizarBusca(registrante);
+    const eu = [...ctx.escaladosObjs, ...(ctx.reforcosEsp||[]).flatMap(r=>r.objs)].find(m=>normalizarBusca(m.nome)===alvo);
+    if(!eu || (jaSalvo[eu.id] && jaSalvo[eu.id].status)) return jaSalvo;
+    const ok = await _salvarPresencaResponsavel(docId, eu.id, 'P', registrante);
+    if(ok){ jaSalvo = { ...jaSalvo, [eu.id]: { status:'P', justificativa:'', registradoPor:registrante, registradoEm:Date.now() } }; }
+  }catch(e){}
+  return jaSalvo;
+}
 
 function renderCorpoDataPresenca(i, docId, registrosSalvos){
   const ctx = _presRespCtx;
