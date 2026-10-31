@@ -19,7 +19,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, getDocFromServer, collection, getDocs as _fbGetDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc as _fbGetDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, getDocFromServer, collection, getDocs as _fbGetDocs, addDoc, setDoc as _fbSetDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc as _fbGetDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ===== NOME CANÔNICO (v20.94.0) =====
 // Escalas antigas guardam o nome como foi digitado ("Danielle rocha da Silva barbosa"). Os relatórios, o Radar e a busca
@@ -54,6 +54,23 @@ function _envolverSnap(sn){
   }});
 }
 async function getDoc(ref){ return _envolverSnap(await _fbGetDoc(ref)); }
+// Gravação: o nome que vai para escala/reforço/evento é SEMPRE o do cadastro (nunca o digitado à mão)
+function setDoc(ref, dados, opcoes){
+  const p = (ref && ref.path) || '';
+  const colecao = p.split('/')[0];
+  const dadosOk = (colecao==='ministros' || colecao==='presencas' || colecao==='usuarios') ? dados : _canonDados(dados);
+  return opcoes===undefined ? _fbSetDoc(ref, dadosOk) : _fbSetDoc(ref, dadosOk, opcoes);
+}
+// Nomes que estão em escalas salvas mas NÃO existem no cadastro (nem ignorando maiúscula/acento) — o Radar avisa
+function _nomesOrfaosNoCache(){
+  const c = _dispEscalaCache; if(!c) return [];
+  const orf = new Set();
+  const ver = n=>{ if(typeof n==='string' && n.trim() && !buscarMinistroPorNome(n)) orf.add(n); };
+  const grupo = g=>{ if(!g) return; (g.ministros||[]).forEach(ver); if(g.responsavel) ver(g.responsavel); };
+  [c.docDom, ...Object.values(c.docsSem||{}), ...Object.values(c.docsColunas||{})].forEach(d=>{ if(d && typeof d==='object') Object.values(d).forEach(grupo); });
+  Object.values(c.docsReforco||{}).forEach(r=>{ if(r){ (r.ministros||[]).forEach(ver); } });
+  return [...orf];
+}
 async function getDocs(ref){
   const r = await _fbGetDocs(ref);
   const p = (ref && ref.path) || '';
@@ -87,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.94.1';
+const APP_VERSAO = '20.95.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10637,7 +10654,12 @@ window.radarTrocarMes = async function(alvo){
     } else {
       dados = await calcularDisponibilidadeEscala(alvo);
     }
-    painel.innerHTML = montarPainelRadarCompleto(dados);
+    let aviso = '';
+    try{
+      const orf = _nomesOrfaosNoCache();
+      if(orf.length) aviso = `<div style="background:#FCEBEB;border:2px solid #A32D2D;border-radius:10px;padding:10px 12px;margin-bottom:12px"><p style="font-size:13px;font-weight:800;color:#A32D2D;margin:0 0 4px">⚠️ ${orf.length} nome${orf.length>1?'s':''} na escala não ${orf.length>1?'existem':'existe'} no cadastro</p><p style="font-size:12px;color:#7a1f1f;margin:0">${orf.map(n=>`<strong>${n}</strong>`).join(', ')}</p><p style="font-size:11.5px;color:#7a1f1f;margin:4px 0 0">Provável erro de digitação. Tire esse nome da escala e escale de novo pelo cadastro.</p></div>`;
+    }catch(e){}
+    painel.innerHTML = aviso + montarPainelRadarCompleto(dados);
   }catch(e){
     painel.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
   }
