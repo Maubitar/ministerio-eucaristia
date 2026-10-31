@@ -19,7 +19,53 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, getDocFromServer, collection, getDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, getDocFromServer, collection, getDocs as _fbGetDocs, addDoc, setDoc, doc, updateDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDoc as _fbGetDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ===== NOME CANÔNICO (v20.94.0) =====
+// Escalas antigas guardam o nome como foi digitado ("Danielle rocha da Silva barbosa"). Os relatórios, o Radar e a busca
+// comparam o nome EXATO do cadastro e por isso a ministra "sumia". Aqui, toda escala/reforço/evento lido do banco já
+// volta com o nome idêntico ao do cadastro (ignora maiúscula, acento e espaço duplo) — vale para o app inteiro.
+function _canonNome(n){
+  if(typeof n!=='string' || !n) return n;
+  try{ const m = buscarMinistroPorNome(n); return m ? m.nome : n; }catch(e){ return n; }
+}
+function _canonDados(o, chave, pai){
+  if(Array.isArray(o)){
+    const ehNomes = chave==='ministros' || chave==='escala' || chave==='_reforco' || pai==='add' || pai==='off';
+    return o.map(x=> typeof x==='string' ? (ehNomes ? _canonNome(x) : x) : ((x && typeof x==='object') ? _canonDados(x, chave, pai) : x));
+  }
+  if(o && typeof o==='object' && Object.getPrototypeOf(o)===Object.prototype){
+    const r = {};
+    for(const k of Object.keys(o)){
+      const v = o[k];
+      if(typeof v==='string') r[k] = (k==='responsavel') ? _canonNome(v) : v;
+      else if(v && typeof v==='object') r[k] = _canonDados(v, k, chave);
+      else r[k] = v;
+    }
+    return r;
+  }
+  return o;
+}
+function _envolverSnap(sn){
+  if(!sn) return sn;
+  return new Proxy(sn, { get(t,k){
+    if(k==='data') return (...a)=>{ const d = t.data(...a); return d ? _canonDados(d) : d; };
+    const v = t[k]; return typeof v==='function' ? v.bind(t) : v;
+  }});
+}
+async function getDoc(ref){ return _envolverSnap(await _fbGetDoc(ref)); }
+async function getDocs(ref){
+  const r = await _fbGetDocs(ref);
+  const p = (ref && ref.path) || '';
+  if(p==='ministros' || p==='usuarios') return r;
+  const docs = r.docs.map(_envolverSnap);
+  return new Proxy(r, { get(t,k){
+    if(k==='docs') return docs;
+    if(k==='forEach') return cb=>docs.forEach(cb);
+    if(k===Symbol.iterator) return ()=>docs[Symbol.iterator]();
+    const v = t[k]; return typeof v==='function' ? v.bind(t) : v;
+  }});
+}
 
 const FB = {
   apiKey:"AIzaSyDXJFcZyjRWQ2iTT8D9-23PRrrU-r0CQOs",
@@ -41,7 +87,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.93.0';
+const APP_VERSAO = '20.94.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10458,14 +10504,25 @@ function _statusMinistroNoMes(m){
     MISSAS_SEM.forEach(hora=>{
       c.semanasKeys.forEach(s=>{ if((c.docsSem[s]?.[hora]?.ministros||[]).includes(m.nome)) escaladoSem.push(`${hora} (${s}ª semana)`); });
     });
+    // Círio e eventos só contam no MÊS em que acontecem (antes valiam para qualquer mês e escondiam quem faltava em novembro)
+    const _mm = (c.mesKey||'').match(/^([a-z]{3})(\d{4})$/);
+    const _mesNum = _mm ? MESES_KEY.indexOf(_mm[1])+1 : 0, _anoNum = _mm ? parseInt(_mm[2]) : 0;
+    const _colNoMes = col => {
+      if(!_mm) return true;
+      if(c.cirioCfg && c.cirioCfg.ano && parseInt(c.cirioCfg.ano)!==_anoNum) return false;
+      const txt = ((col.datas&&col.datas.length)?col.datas.join(' '):(col.data||''));
+      const meses = [...txt.matchAll(/\d{1,2}\/(\d{1,2})/g)].map(x=>parseInt(x[1]));
+      return meses.includes(_mesNum);
+    };
+    const _evNoMes = e => !_mm || (e.data||'').startsWith(`${_anoNum}-${String(_mesNum).padStart(2,'0')}`);
     if(c.cirioCfg?.colunas){
-      c.cirioCfg.colunas.forEach(col=>{
+      c.cirioCfg.colunas.filter(_colNoMes).forEach(col=>{
         (c.cirioCfg.horarios||[]).forEach(h=>{
           if((c.docsColunas[col.id]?.[h]?.ministros||[]).includes(m.nome)) escaladoCirio.push(`${col.label} ${h}`);
         });
       });
     }
-    (c.eventosCarregados||[]).forEach(e=>{ if((e.escala||[]).includes(m.nome)) escaladoEventos.push(e.nome); });
+    (c.eventosCarregados||[]).filter(_evNoMes).forEach(e=>{ if((e.escala||[]).includes(m.nome)) escaladoEventos.push(e.nome); });
     (c.reforcoTipos||[]).forEach(rt=>{
       if((c.docsReforco?.[rt.id]?.ministros||[]).includes(m.nome)) escaladoReforco.push(rt.label);
     });
