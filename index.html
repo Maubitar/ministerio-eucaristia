@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.89.4';
+const APP_VERSAO = '20.91.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -774,6 +774,7 @@ window.fazerLogin = async function(){
 
 // Mostra/esconde abas da barra inferior e ajusta a home conforme o papel
 function aplicarPermissoes(){
+  try{ if(_usuarioLogado && _usuarioLogado.papel==='coordenador') iniciarRadarPresencaGlobal(); }catch(e){}
   const papel = _usuarioLogado?.papel || 'coordenador';
   const perm = PAPEIS[papel] || PAPEIS.coordenador;
   const todas = perm.secoes === 'todas';
@@ -7066,78 +7067,66 @@ const DATA_INICIO_ALERTA_SEMANAL   = new Date(2026, 8, 7); // 07/09/2026
 // que o quiosque de Adoração começou a valer de verdade). Registros de antes disso são de
 // teste/imprecisos — usado pelos relatórios de Reunião e Adoração pra não misturar com dado real.
 const DATA_CORTE_REUNIAO_ADORACAO_STR = '2026-09-02';
+// RADAR DE PRESENÇA (v20.91.0): olha SEMPRE o mês real de hoje e o mês anterior — não depende do mês que o
+// coordenador está montando na Escala (antes, ao trabalhar no mês seguinte, o alerta das missas já realizadas sumia).
+// Não mexe no calendário da tela (usa as datas salvas na nuvem de cada mês).
 async function calcularAlertaPresenca(){
-  const mesKey = getMesAtual();
-  const mMes = mesKey.match(/^([a-z]{3})(\d{4})$/);
-  const mesIdx = _MESES_KEY_INIT.indexOf(mMes[1]);
-  const ano = parseInt(mMes[2]);
   const agora = new Date();
+  const mk = d => MESES_KEY[d.getMonth()] + d.getFullYear();
+  const meses = [mk(new Date(agora.getFullYear(), agora.getMonth()-1, 1)), mk(agora)];
+  const resultados = []; // {tipo, hora, ddmm, dataISO, semanaLabel, responsavel, respTel, totalEscalados, totalMarcados}
 
-  // Garante que DOMINGOS_MES e SEMANAS_MES refletem o mês certo, COM qualquer ajuste manual
-  // que o coordenador tenha feito (domingo derramado, semana com período customizado) — essa é
-  // a mesma fonte de verdade usada na Escala e na Presença. Recalcular do zero aqui, ignorando
-  // essas customizações, foi o que causou o alerta de setembro tratando a semana errada como
-  // "2ª semana" quando o coordenador tinha configurado esse período manualmente.
-  const cal = calcularCalendario(ano, mesIdx);
-  DOMINGOS_MES.length = 0;
-  cal.domingos.forEach(d=>DOMINGOS_MES.push(d));
-  Object.keys(SEMANAS_MES).forEach(k=>delete SEMANAS_MES[k]);
-  Object.assign(SEMANAS_MES, cal.semanas);
-  if(typeof carregarDomingosCustom==='function') carregarDomingosCustom();
-  if(typeof carregarSemanasLocais==='function') carregarSemanasLocais();
+  for(const mesKey of meses){
+    const mMes = mesKey.match(/^([a-z]{3})(\d{4})$/);
+    const mesIdx = MESES_KEY.indexOf(mMes[1]);
+    const ano = parseInt(mMes[2]);
+    delete _ondeDatasCache[mesKey];
+    let D = null; try{ D = await _ondeDatasMes(mesKey); }catch(e){}
+    if(!D) continue;
 
-  function dataHoraMissa(ddmm, hora){
-    const [dd,mm] = ddmm.split('/');
-    const [h,min] = hora.replace('h','').split(':');
-    return new Date(ano, parseInt(mm)-1, parseInt(dd), parseInt(h), parseInt(min||'0'));
-  }
-  function paraISO(ddmm){
-    const [dd,mm] = ddmm.split('/');
-    return `${ano}-${mm}-${dd}`;
-  }
+    const anoDe = mm => (mesIdx===11 && mm===1) ? ano+1 : ((mesIdx===0 && mm===12) ? ano-1 : ano);
+    const dataHoraMissa = (ddmm, hora)=>{
+      const [dd,mm] = ddmm.split('/').map(Number);
+      const [h,min] = hora.replace('h','').split(':');
+      return new Date(anoDe(mm), mm-1, dd, parseInt(h), parseInt(min||'0'));
+    };
+    const paraISO = ddmm=>{
+      const [dd,mm] = ddmm.split('/');
+      return `${anoDe(parseInt(mm))}-${mm}-${dd}`;
+    };
+    const avaliar = async (tipo, ddmm, hora, grupo, semanaLabel)=>{
+      if(!grupo || !(grupo.ministros||[]).length) return;
+      const dataHora = dataHoraMissa(ddmm, hora);
+      if(dataHora > agora) return; // ainda não aconteceu — não avalia
+      const corteDoTipo = tipo==='dom' ? DATA_INICIO_ALERTA_DOMINICAL : DATA_INICIO_ALERTA_SEMANAL;
+      if(dataHora < corteDoTipo) return; // antes desse tipo de escala começar a valer — nunca alerta
+      const totalEscalados = grupo.ministros.length;
+      const dataISO = paraISO(ddmm);
+      let registros = {};
+      try{ const d = await getDoc(doc(db,'presencas', chavePresenca(dataISO, hora))); registros = d.exists()?(d.data().registros||{}):{}; }catch(e){}
+      const totalMarcados = Object.values(registros).filter(r=>r?.status).length;
+      if(totalMarcados >= totalEscalados) return; // completo, sem alerta
+      const respObj = buscarMinistroPorNome(grupo.responsavel);
+      resultados.push({
+        tipo, hora, ddmm, dataISO, semanaLabel,
+        responsavel: grupo.responsavel || '(sem responsável definido)',
+        respTel: respObj?.tel || '',
+        totalEscalados, totalMarcados
+      });
+    };
 
-  const resultados = []; // {tipo, hora, ddmm, dataISO, responsavel, respTel, totalEscalados, totalMarcados}
-
-  async function avaliar(tipo, ddmm, hora, grupo, semanaLabel){
-    if(!grupo || !(grupo.ministros||[]).length) return;
-    const dataHora = dataHoraMissa(ddmm, hora);
-    if(dataHora > agora) return; // ainda não aconteceu — não avalia
-    const corteDoTipo = tipo==='dom' ? DATA_INICIO_ALERTA_DOMINICAL : DATA_INICIO_ALERTA_SEMANAL;
-    if(dataHora < corteDoTipo) return; // antes desse tipo de escala começar a valer — nunca alerta
-    const totalEscalados = grupo.ministros.length;
-    const dataISO = paraISO(ddmm);
-    let registros = {};
-    try{ const d = await getDoc(doc(db,'presencas', chavePresenca(dataISO, hora))); registros = d.exists()?(d.data().registros||{}):{}; }catch(e){}
-    const totalMarcados = Object.values(registros).filter(r=>r?.status).length;
-    if(totalMarcados >= totalEscalados) return; // completo, sem alerta
-    const respObj = buscarMinistroPorNome(grupo.responsavel);
-    resultados.push({
-      tipo, hora, ddmm, dataISO, semanaLabel,
-      responsavel: grupo.responsavel || '(sem responsável definido)',
-      respTel: respObj?.tel || '',
-      totalEscalados, totalMarcados
-    });
-  }
-
-  // DOMINICAL — usa DOMINGOS_MES (já com customização aplicada), não o calendário cru
-  const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
-  for(const ddmm of DOMINGOS_MES){
-    for(const hora of MISSAS_DOM){
-      await avaliar('dom', ddmm, hora, docDom[hora], null);
+    // DOMINICAL
+    const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
+    for(const ddmm of (D.dom||[])){
+      for(const hora of MISSAS_DOM){ await avaliar('dom', ddmm, hora, docDom[hora], null); }
     }
-  }
-
-  // SEMANAL — usa SEMANAS_MES (já com período customizado aplicado), checagem diária: cada
-  // dia, cada horário, é avaliado sozinho, assim que a data e hora daquela missa específica já
-  // tiverem passado. Não espera a semana toda terminar.
-  for(const semNum of Object.keys(SEMANAS_MES)){
-    const semana = SEMANAS_MES[semNum];
-    const docSem = await _lerEscalaDocRaw(`escala_sem_sem${semNum}_${mesKey}`);
-    for(const diaObj of (semana.dias||[])){
-      if(!diaObj.mesRef) continue;
-      const horariosDoDia = MISSAS_SEM_DIAS[diaObj.dia] || [];
-      for(const hora of horariosDoDia){
-        await avaliar('sem', diaObj.data, hora, docSem[hora], semana.label);
+    // SEMANAL — dia a dia, horário a horário, assim que cada missa passa
+    for(const semNum of Object.keys(D.sem||{})){
+      const docSem = await _lerEscalaDocRaw(`escala_sem_sem${semNum}_${mesKey}`);
+      for(const diaObj of D.sem[semNum]){
+        for(const hora of (MISSAS_SEM_DIAS[diaObj.dia] || [])){
+          await avaliar('sem', diaObj.data, hora, docSem[hora], `${semNum}ª semana`);
+        }
       }
     }
   }
@@ -7146,6 +7135,40 @@ async function calcularAlertaPresenca(){
   const naoPreenchido = resultados.filter(r=>r.totalMarcados===0);
   const parcial = resultados.filter(r=>r.totalMarcados>0);
   return { naoPreenchido, parcial };
+}
+
+// ===== RADAR LIGADO O TEMPO TODO (v20.91.0) =====
+// Faixa vermelha fixa no topo, em QUALQUER tela, enquanto houver missa já realizada sem presença completa.
+// Atualiza na hora em que alguma presença é salva e também a cada 5 minutos (passa o horário de uma missa → entra no radar).
+let _radarGlobalAtivo = false, _radarUnsub = null, _radarDeb = null, _radarTimer = null, _radarRodando = false;
+async function _radarAtualizar(){
+  if(_radarRodando) return; _radarRodando = true;
+  try{
+    const { naoPreenchido, parcial } = await calcularAlertaPresenca();
+    const total = naoPreenchido.length + parcial.length;
+    const header = document.querySelector('.header'); if(!header) return;
+    let bar = document.getElementById('radar-presenca-global');
+    if(!total){ if(bar) bar.style.display = 'none'; return; }
+    if(!bar){
+      bar = document.createElement('div'); bar.id = 'radar-presenca-global';
+      bar.style.cssText = 'margin:6px 10px 2px;padding:9px 12px;border-radius:10px;background:#A32D2D;color:white;font-size:13px;font-weight:800;text-align:center;cursor:pointer;line-height:1.35';
+      bar.onclick = ()=>nav('alerta-presenca');
+      header.appendChild(bar);
+    }
+    const prim = [...naoPreenchido, ...parcial].sort((a,b)=>(a.dataISO+a.hora).localeCompare(b.dataISO+b.hora))[0];
+    bar.innerHTML = `🔴 RADAR: ${total} missa${total>1?'s':''} sem presença completa${naoPreenchido.length?` (${naoPreenchido.length} sem nada marcado)`:''} — toque para ver<br><span style="font-weight:600;font-size:11.5px;opacity:.95">mais antiga: ${prim.hora} · ${prim.ddmm} · resp.: ${prim.responsavel}</span>`;
+    bar.style.display = 'block';
+  }catch(e){ console.warn('[SOGI] radar de presença', e); }
+  finally{ _radarRodando = false; }
+}
+function iniciarRadarPresencaGlobal(){
+  if(_radarGlobalAtivo) return; _radarGlobalAtivo = true;
+  setTimeout(_radarAtualizar, 1500);
+  try{
+    _radarUnsub = onSnapshot(collection(db,'presencas'), ()=>{ clearTimeout(_radarDeb); _radarDeb = setTimeout(_radarAtualizar, 1500); }, ()=>{});
+  }catch(e){}
+  _radarTimer = setInterval(_radarAtualizar, 5*60*1000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) _radarAtualizar(); });
 }
 
 // Busca rápida: "onde esse ministro está servindo" — usada na tela inicial. Filtra o nome
