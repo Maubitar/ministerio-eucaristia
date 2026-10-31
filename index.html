@@ -41,7 +41,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.91.0';
+const APP_VERSAO = '20.92.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10385,10 +10385,13 @@ function _diasSemEscalar(m){
   return Math.floor((Date.now() - m.ultimaEscalacaoEm) / (1000*60*60*24));
 }
 
-async function calcularDisponibilidadeEscala(){
-  const mesKey = getMesAtualEscala();
+async function calcularDisponibilidadeEscala(mesOverride, extraEscalados){
+  const mesKey = mesOverride || getMesAtualEscala();
   const docDom = await _lerEscalaDocRaw(`escala_dom_${mesKey}`);
-  const semanasKeys = Object.keys(SEMANAS_MES);
+  let semanasKeys = Object.keys(SEMANAS_MES);
+  if(mesOverride){   // outro mês (ex.: o mês seguinte já salvo): usa as semanas configuradas DAQUELE mês, não as da tela
+    try{ delete _ondeDatasCache[mesKey]; const D = await _ondeDatasMes(mesKey); semanasKeys = Object.keys((D&&D.sem)||{}); }catch(e){}
+  }
   const docsSem = {};
   for(const s of semanasKeys){ docsSem[s] = await _lerEscalaDocRaw(`escala_sem_sem${s}_${mesKey}`); }
 
@@ -10425,7 +10428,7 @@ async function calcularDisponibilidadeEscala(){
     catch(e){ docsReforco[rt.id] = {ministros:[]}; }
   }
 
-  _dispEscalaCache = { mesKey, docDom, semanasKeys, docsSem, cirioCfg, docsColunas, eventosCarregados, reforcoTipos, docsReforco };
+  _dispEscalaCache = { mesKey, docDom, semanasKeys, docsSem, cirioCfg, docsColunas, eventosCarregados, reforcoTipos, docsReforco, extraEscalados: extraEscalados||null };
 
   const ativos = ministros.filter(m=>m.ativo!==false);
   const alertaFinal = [];
@@ -10461,7 +10464,8 @@ function _statusMinistroNoMes(m){
       if((c.docsReforco?.[rt.id]?.ministros||[]).includes(m.nome)) escaladoReforco.push(rt.label);
     });
   }
-  const escaladoEmAlgo = !!(escaladoDom.length || escaladoSem.length || escaladoCirio.length || escaladoEventos.length || escaladoReforco.length);
+  const escaladoOutroMes = !!(c && c.extraEscalados && c.extraEscalados.has(m.nome));
+  const escaladoEmAlgo = !!(escaladoDom.length || escaladoSem.length || escaladoCirio.length || escaladoEventos.length || escaladoReforco.length || escaladoOutroMes);
 
   const partesDisp = [];
   if((m.dispDom||[]).length) partesDisp.push(`Dominical: ${m.dispDom.join(', ')}`);
@@ -10470,7 +10474,7 @@ function _statusMinistroNoMes(m){
   if(temCirio) partesDisp.push('Quinzena do Círio');
   if((m.dispCirioEventos||[]).length) partesDisp.push('Eventos especiais');
 
-  return { escaladoDom, escaladoSem, escaladoCirio, escaladoEventos, escaladoReforco, escaladoEmAlgo, temDisponibilidade: partesDisp.length>0, partesDisp };
+  return { escaladoDom, escaladoSem, escaladoCirio, escaladoEventos, escaladoReforco, escaladoOutroMes, escaladoEmAlgo, temDisponibilidade: partesDisp.length>0, partesDisp };
 }
 
 // Monta o HTML do relatório — reaproveitado tanto na aba de Relatórios quanto no modal da Escala
@@ -10516,6 +10520,7 @@ window.abrirModalNaoEscalados = async function(){
       <p style="font-size:16px;font-weight:700">📋 Radar de Escalação</p>
       <button onclick="document.getElementById('modal-nao-escalados').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
     </div>
+    <div id="radar-abas" style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
     <div id="painel-radar-auto"><p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando o painel...</p></div>
     <div style="margin-top:16px;border-top:1px solid #eee;padding-top:12px">
       <p style="font-size:11px;color:#999;margin:0 0 6px">Ou, se preferir, busque um ministro específico:</p>
@@ -10525,11 +10530,53 @@ window.abrirModalNaoEscalados = async function(){
   </div>`;
   document.body.appendChild(modal);
   modal.style.display = 'flex';
+  await radarTrocarMes();
+};
+// Abas do Radar: mês de hoje · mês seguinte (escala já salva) · os dois juntos (quem falta nos DOIS)
+// Meses com escala SALVA, do mês de hoje em diante (até 18 meses à frente). O mês atual sempre entra.
+let _radarMesesCache = null;
+async function _radarMesesSalvos(){
+  const agora = new Date(), lista = [];
+  for(let i=0;i<=18;i++){
+    const d = new Date(agora.getFullYear(), agora.getMonth()+i, 1);
+    const mk = MESES_KEY[d.getMonth()] + d.getFullYear();
+    if(i===0){ lista.push(mk); continue; }
+    let salvo = false;
+    try{
+      const docs = await Promise.all([_lerEscalaDocRaw(`escala_dom_${mk}`), ...[1,2,3,4,5,6].map(n=>_lerEscalaDocRaw(`escala_sem_sem${n}_${mk}`))]);
+      salvo = docs.some(x=>x && Object.keys(x).length);
+    }catch(e){}
+    if(salvo) lista.push(mk);
+  }
+  return lista;
+}
+function _radarMesPadrao(meses){ const sel = getMesAtualEscala(); return meses.includes(sel) ? sel : meses[0]; }
+window.radarTrocarMes = async function(alvo){
+  const abas = document.getElementById('radar-abas'), painel = document.getElementById('painel-radar-auto');
+  if(!painel) return;
+  painel.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Procurando as escalas salvas dos próximos meses...</p>';
+  const meses = await _radarMesesSalvos();
+  if(!alvo || (alvo!=='todos' && !meses.includes(alvo))) alvo = _radarMesPadrao(meses);
+  const aba = (id, txt)=>`<button onclick="radarTrocarMes('${id}')" style="flex:1;min-width:92px;padding:10px 8px;border:1.5px solid ${alvo===id?'#085041':'#ddd'};border-radius:10px;background:${alvo===id?'#085041':'white'};color:${alvo===id?'white':'#555'};font-size:12.5px;font-weight:800;cursor:pointer">${txt}</button>`;
+  if(abas) abas.innerHTML = meses.map(mk=>aba(mk, finMesKeyLegivel(mk))).join('') + (meses.length>1 ? aba('todos', 'Todos (falta em todos)') : '');
+  painel.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Analisando as escalas salvas...</p>';
   try{
-    const dados = await calcularDisponibilidadeEscala();
-    document.getElementById('painel-radar-auto').innerHTML = montarPainelRadarCompleto(dados);
+    let dados;
+    if(alvo==='todos'){
+      // escalado em QUALQUER mês salvo conta como escalado; a lista mostra quem não está em nenhum
+      const escalados = new Set();
+      for(const mk of meses.slice(1)){
+        await calcularDisponibilidadeEscala(mk);
+        ministros.filter(m=>m.ativo!==false).forEach(m=>{ if(_statusMinistroNoMes(m).escaladoEmAlgo) escalados.add(m.nome); });
+      }
+      dados = await calcularDisponibilidadeEscala(meses[0], escalados);
+      dados.rotuloMes = meses.map(finMesKeyLegivel).join(', ');
+    } else {
+      dados = await calcularDisponibilidadeEscala(alvo);
+    }
+    painel.innerHTML = montarPainelRadarCompleto(dados);
   }catch(e){
-    document.getElementById('painel-radar-auto').innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
+    painel.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
   }
 };
 
@@ -10538,7 +10585,7 @@ window.abrirModalNaoEscalados = async function(){
 // (quem está há mais tempo sem ser escalado aparece primeiro), com a disponibilidade de cada um.
 function montarPainelRadarCompleto(dados){
   const { mesKey } = dados;
-  const mesLegivel = finMesKeyLegivel(mesKey);
+  const mesLegivel = dados.rotuloMes || finMesKeyLegivel(mesKey);
   const ativos = ministros.filter(m=>m.ativo!==false);
 
   const naoEscalados = [];
@@ -10560,6 +10607,7 @@ function montarPainelRadarCompleto(dados){
     if(s.escaladoCirio.length) onde.push(`🕯️ Círio: ${s.escaladoCirio.join(', ')}`);
     if(s.escaladoEventos.length) onde.push(`🎉 Eventos: ${s.escaladoEventos.join(', ')}`);
     if(s.escaladoReforco.length) onde.push(`⭐ ${s.escaladoReforco.join(', ')}`);
+    if(s.escaladoOutroMes && !onde.length) onde.push('📅 escalado(a) no outro mês analisado');
     return `<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">
       <p style="font-size:12px;font-weight:700;color:#222;margin:0">${m.nome}</p>
       <p style="font-size:11px;color:#888;margin:2px 0 0">${onde.join(' · ') || '—'}</p>
