@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.95.1';
+const APP_VERSAO = '20.97.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5487,14 +5487,78 @@ async function _ondeCarregarRefMeses(meses){
     }
   }
 }
+// ===== VARREDURA COMPLETA DE UM MÊS (v20.97) =====
+// Tudo o que NÃO é a escala dominical/semanal normal, daquele mês: reforços fixos (Sáb 12h/17h, Qui 18h), reforços de
+// datas especiais, Círio e eventos. Cada item: { txt, datas:['dd/mm'], nomes:[...] }. Usado pela busca e pelo Radar.
+let _extrasMesCache = {};
+async function _extrasDoMes(mk){
+  if(_extrasMesCache[mk]) return _extrasMesCache[mk];
+  const out = [];
+  const mm = mk.match(/^([a-z]{3})(\d{4})$/); if(!mm) return out;
+  const mi = MESES_KEY.indexOf(mm[1]), ano = parseInt(mm[2]), mesNum = mi+1;
+  const D = await _ondeDatasMes(mk);
+  // reforços fixos
+  for(const t of REFORCO_TIPOS){
+    let d = null; try{ const x = await getDoc(doc(db,'reforcos',`reforco_${t.id}_${mk}`)); d = x.exists()?x.data():null; }catch(e){}
+    if(!d) continue;
+    const dia = /sab/.test(t.id) ? 'Sábado' : 'Quinta';
+    const porTxt = {};
+    for(let sm=1; sm<=6; sm++){
+      const data = ((D.sem[sm]||[]).find(x=>x.dia===dia)||{}).data; if(!data) continue;
+      _nomesRefFixo(d, sm).forEach(n=>{ (porTxt[n]=porTxt[n]||[]).push(data); });
+    }
+    const grupos = {};
+    Object.entries(porTxt).forEach(([n,datas])=>{ const k = datas.join(','); (grupos[k]=grupos[k]||{datas,nomes:[]}).nomes.push(n); });
+    Object.values(grupos).forEach(g=>out.push({ txt:`⭐ Reforço — Missa ${t.label}`, datas:g.datas, nomes:g.nomes }));
+  }
+  // reforços de datas especiais
+  try{
+    const lista = await carregarReforcosEspeciais(mk);
+    for(const item of lista){
+      let d = null; try{ const x = await getDoc(doc(db,'reforcos',`reforco_${item.id}_${mk}`)); d = x.exists()?x.data():null; }catch(e){}
+      const nomes = (d&&d.ministros)||[]; if(!nomes.length) continue;
+      let datas = [];
+      if(item.modo==='auto'){
+        if(_reforcoEhDominical(item)) datas = (D.dom||[]).slice();
+        else Object.values(D.sem||{}).forEach(dias=>dias.forEach(x=>{ if((item.diaSemana||'').startsWith(x.dia) || x.dia.startsWith(item.diaSemana||'#')) datas.push(x.data); }));
+      } else datas = [isoParaDDMM(item.data)];
+      out.push({ txt:`⭐ Reforço — ${_rotuloReforcoEspecial(item)}`, datas, nomes });
+    }
+  }catch(e){}
+  // Círio (só no mês em que acontece)
+  try{
+    const cfg = await carregarCirioConfig();
+    if(cfg && cfg.colunas && (!cfg.ano || parseInt(cfg.ano)===ano)){
+      for(const col of cfg.colunas){
+        const datas = (col.datas||[]).filter(x=>parseInt((x.split('/')[1]||'0'))===mesNum);
+        if(!datas.length) continue;
+        const doc_ = await _lerEscalaDocRaw(`escala_cirio_${col.id}`);
+        (cfg.horarios||[]).forEach(h=>{ const g = doc_&&doc_[h]; if(g && (g.ministros||[]).length) out.push({ txt:`🕯️ Círio — ${col.label} às ${h}`, datas, nomes:g.ministros }); });
+      }
+    }
+  }catch(e){}
+  // eventos especiais do mês
+  try{
+    await carregarEventos();
+    const pref = `${ano}-${String(mesNum).padStart(2,'0')}`;
+    (_eventos||[]).filter(e=>(e.data||'').startsWith(pref)).forEach(e=>{
+      if((e.escala||[]).length) out.push({ txt:`🎉 Evento — ${e.nome}${e.hora?` às ${e.hora}`:''}`, datas:[(e.data||'').split('-').reverse().slice(0,2).join('/')], nomes:e.escala });
+    });
+  }catch(e){}
+  _extrasMesCache[mk] = out;
+  return out;
+}
 // Monta o relatório do ministro: cada mês (mais recente primeiro) com missa, horário e as datas
 async function _ondeRelatorio(nome, extrasAtual){
+  _extrasMesCache = {};
   const cur = getMesAtual(), nx = _ondeMesSeguinte(cur);
   const ords = new Set([_sugOrdMes(cur.slice(0,3),cur.slice(3)), _sugOrdMes(nx.slice(0,3),nx.slice(3))]);
   ((_sugHist&&_sugHist.periodos)||[]).forEach(p=>{
     if(Object.values(p.dados||{}).some(g=>((g&&g.ministros)||[]).includes(nome))) ords.add(p.ord);
   });
-  const lista = [...ords].sort((a,b)=>b-a).slice(0,8).map(o=>MESES_KEY[o%12]+Math.floor(o/12));
+  // além do mês atual/seguinte e dos meses passados em que ele aparece: TODOS os meses futuros que já têm escala salva
+  try{ (await _radarMesesSalvos()).forEach(mk=>ords.add(_sugOrdMes(mk.slice(0,3),mk.slice(3)))); }catch(e){}
+  const lista = [...ords].sort((a,b)=>b-a).slice(0,14).map(o=>MESES_KEY[o%12]+Math.floor(o/12));
   await _ondeCarregarRefMeses(lista);
   const meses = [];
   for(const mk of lista){
@@ -5508,12 +5572,9 @@ async function _ondeRelatorio(nome, extrasAtual){
       else datas = (D.sem[i.sem]||[]).filter(x=>(MISSAS_SEM_DIAS[x.dia]||[]).includes(h)).map(x=>`${_ONDE_DIA3[x.dia]||x.dia} ${x.data}`).join(', ');
       linhas.push({ cor:'v', txt: i.tipo==='dom' ? `Missa Dominical às ${h}` : `Missa Semanal (${i.sem}ª semana) às ${h}`, datas, resp:i.resp });
     });
-    r.refsDet.forEach(t=>{
-      const dia = /sab/.test(t.id) ? 'Sábado' : 'Quinta';
-      const datas = t.sems.map(n=>((D.sem[n]||[]).find(x=>x.dia===dia)||{}).data).filter(Boolean).join(', ');
-      linhas.push({ cor:'a', txt:`⭐ Reforço — Missa ${t.label}`, datas });
-    });
-    if(mk===cur && extrasAtual && extrasAtual.length) extrasAtual.forEach(x=>linhas.push(x));
+    const alvoN = normalizarBusca(nome);
+    (await _extrasDoMes(mk)).filter(e=>e.nomes.some(n=>normalizarBusca(n)===alvoN))
+      .forEach(e=>linhas.push({ cor:'a', txt:e.txt, datas:e.datas.join(', ') }));
     meses.push({ mk, nome:_ondeNomeMes(mk), atual: mk===cur, seguinte: mk===nx, linhas });
   }
   return meses;
@@ -10449,9 +10510,60 @@ async function _registrarUltimaEscalacao(nome, descricao){
 
 // Quantos dias inteiros se passaram desde a última escalação registrada — null se ainda não
 // tem nenhum registro (ministro nunca escalado desde que essa engenharia foi criada).
+// v20.96: a contagem agora é pela ÚLTIMA MISSA REALMENTE SERVIDA (data da missa nas escalas salvas), e não pelo dia em que
+// alguém clicou para escalar (antes dava "2 dias" para quem tinha sido colocado na escala há 2 dias, mesmo sem servir há meses).
+let _ultimaServida = null;   // { nome: Date da última missa dominical/semanal já realizada }
+async function _calcularUltimaServida(){
+  const mapa = {};
+  try{
+    await _sugCarregarHistorico();
+    const agora = new Date();
+    const cacheD = {};
+    for(const p of ((_sugHist&&_sugHist.periodos)||[])){
+      if(p.tipo!=='dom' && p.tipo!=='sem') continue;
+      const mk = MESES_KEY[p.ord%12] + Math.floor(p.ord/12);
+      const mi = p.ord%12, ano = Math.floor(p.ord/12);
+      if(!cacheD[mk]) cacheD[mk] = await _ondeDatasMes(mk);
+      const D = cacheD[mk];
+      const anoDe = mm => (mi===11 && mm===1) ? ano+1 : ((mi===0 && mm===12) ? ano-1 : ano);
+      Object.entries(p.dados||{}).forEach(([hora,g])=>{
+        const nomes = (g&&g.ministros)||[]; if(!nomes.length) return;
+        const [h,min] = String(hora).replace('h','').split(':');
+        const dias = p.tipo==='dom' ? (D.dom||[]) : ((D.sem[p.sem]||[]).filter(x=>(MISSAS_SEM_DIAS[x.dia]||[]).includes(hora)).map(x=>x.data));
+        dias.forEach(ddmm=>{
+          const [dd,mm] = ddmm.split('/').map(Number);
+          const dt = new Date(anoDe(mm), mm-1, dd, parseInt(h)||0, parseInt(min||'0'));
+          if(dt>agora) return;
+          nomes.forEach(n=>{ const ch = normalizarBusca(n); if(!mapa[ch] || mapa[ch]<dt) mapa[ch] = dt; });
+        });
+      });
+    }
+    // reforços, Círio e eventos já realizados (data ≤ hoje)
+    _extrasMesCache = {};
+    const meses = new Set(Object.keys(cacheD)); meses.add(getMesAtual());
+    for(const mk of meses){
+      const mm = mk.match(/^([a-z]{3})(\d{4})$/); if(!mm) continue;
+      const mi = MESES_KEY.indexOf(mm[1]), ano = parseInt(mm[2]);
+      const anoDe = n => (mi===11 && n===1) ? ano+1 : ((mi===0 && n===12) ? ano-1 : ano);
+      for(const e of await _extrasDoMes(mk)){
+        e.datas.forEach(ddmm=>{
+          const [dd,mo] = String(ddmm).split('/').map(Number); if(!dd||!mo) return;
+          const dt = new Date(anoDe(mo), mo-1, dd, 12, 0);
+          if(dt>agora) return;
+          e.nomes.forEach(n=>{ const ch = normalizarBusca(n); if(!mapa[ch] || mapa[ch]<dt) mapa[ch] = dt; });
+        });
+      }
+    }
+  }catch(e){ console.warn('[SOGI] última servida', e); }
+  _ultimaServida = mapa;
+}
+function _ultimaServidaDe(m){ return (_ultimaServida && _ultimaServida[normalizarBusca(m.nome)]) || null; }
 function _diasSemEscalar(m){
-  if(!m.ultimaEscalacaoEm) return null;
-  return Math.floor((Date.now() - m.ultimaEscalacaoEm) / (1000*60*60*24));
+  const d = _ultimaServidaDe(m);
+  if(!d) return null;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const dia = new Date(d); dia.setHours(0,0,0,0);
+  return Math.max(0, Math.round((hoje - dia) / 86400000));
 }
 
 async function calcularDisponibilidadeEscala(mesOverride, extraEscalados){
@@ -10614,6 +10726,7 @@ window.abrirModalNaoEscalados = async function(){
   </div>`;
   document.body.appendChild(modal);
   modal.style.display = 'flex';
+  _ultimaServida = null;
   await radarTrocarMes();
 };
 // Abas do Radar: mês de hoje · mês seguinte (escala já salva) · os dois juntos (quem falta nos DOIS)
@@ -10666,6 +10779,7 @@ window.radarTrocarMes = async function(alvo){
   if(abas) abas.innerHTML = meses.map(mk=>aba(mk, finMesKeyLegivel(mk))).join('') + (meses.length>1 ? aba('todos', 'Todos (falta em todos)') : '');
   painel.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Analisando as escalas salvas...</p>';
   try{
+    if(!_ultimaServida) await _calcularUltimaServida();
     let dados;
     if(alvo==='todos'){
       // escalado em QUALQUER mês salvo conta como escalado; a lista mostra quem não está em nenhum
@@ -10730,18 +10844,20 @@ function montarPainelRadarCompleto(dados){
   naoEscalados.sort((a,b)=>{
     const da = _diasSemEscalar(a.m), db = _diasSemEscalar(b.m);
     if(da===null && db===null) return a.m.nome.localeCompare(b.m.nome,'pt-BR');
-    if(da===null) return 1;
-    if(db===null) return -1;
+    if(da===null) return -1;   // quem nunca serviu nas escalas salvas é o mais urgente
+    if(db===null) return 1;
     return db - da;
   });
 
   const linhas = naoEscalados.map(({m,s})=>{
     const dias = _diasSemEscalar(m);
     let tagTempo;
-    if(dias===null) tagTempo = `<span style="color:#999;font-weight:600">sem registro de escalação (ainda não rastreado)</span>`;
-    else if(dias>=60) tagTempo = `<span style="color:#A32D2D;font-weight:700">🔴 ${dias} dias sem ser escalado(a) — mais de 2 meses!</span>`;
-    else if(dias>=30) tagTempo = `<span style="color:#BA7517;font-weight:700">🟡 ${dias} dias sem ser escalado(a)</span>`;
-    else tagTempo = `<span style="color:#888">${dias} dia(s) sem ser escalado(a)</span>`;
+    const _ud = _ultimaServidaDe(m);
+    const _udTxt = _ud ? ` (última missa: ${String(_ud.getDate()).padStart(2,'0')}/${String(_ud.getMonth()+1).padStart(2,'0')}/${_ud.getFullYear()})` : '';
+    if(dias===null) tagTempo = `<span style="color:#999;font-weight:600">nenhuma missa servida nas escalas salvas</span>`;
+    else if(dias>=60) tagTempo = `<span style="color:#A32D2D;font-weight:700">🔴 ${dias} dias sem servir${_udTxt} — mais de 2 meses!</span>`;
+    else if(dias>=30) tagTempo = `<span style="color:#BA7517;font-weight:700">🟡 ${dias} dias sem servir${_udTxt}</span>`;
+    else tagTempo = `<span style="color:#888">${dias===0?'serviu hoje':dias+' dia(s) sem servir'}${_udTxt}</span>`;
     const dispTxt = s.partesDisp.length ? s.partesDisp.join(' · ') : '<span style="color:#c99">nenhuma disponibilidade declarada</span>';
     return `<div style="padding:9px 0;border-bottom:1px solid #eee">
       <p style="font-size:13px;font-weight:700;color:#222;margin:0">${m.nome}</p>
