@@ -68,7 +68,7 @@ function _nomesOrfaosNoCache(){
   const ver = n=>{ if(typeof n==='string' && n.trim() && !buscarMinistroPorNome(n)) orf.add(n); };
   const grupo = g=>{ if(!g) return; (g.ministros||[]).forEach(ver); if(g.responsavel) ver(g.responsavel); };
   [c.docDom, ...Object.values(c.docsSem||{}), ...Object.values(c.docsColunas||{})].forEach(d=>{ if(d && typeof d==='object') Object.values(d).forEach(grupo); });
-  Object.values(c.docsReforco||{}).forEach(r=>{ if(r){ (r.ministros||[]).forEach(ver); } });
+  Object.values(c.docsReforco||{}).forEach(r=>{ if(r){ _nomesReforcoDoc(r).forEach(ver); } });
   return [...orf];
 }
 async function getDocs(ref){
@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.97.1';
+const APP_VERSAO = '20.98.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -3517,6 +3517,22 @@ function _nomesRefFixo(d, sem){
   Object.keys(d.add||{}).forEach(k=>{ if(parseInt(k)<=sn) carregados.push(...(d.add[k]||[])); });
   return [...new Set([...base, ...carregados].filter(n=>!off.includes(n)))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
 }
+// TODOS os nomes de um documento de reforço, de qualquer forma que tenham sido lançados: lista base, lançamentos por semana
+// (add, inclusive os antigos que ficaram só na 1ª semana), e os por horário (horarios) — antes o Radar/busca olhavam só a lista base
+// e o reforço aparecia como "não escalado".
+function _nomesReforcoDoc(d){
+  if(!d) return [];
+  const t = new Set();
+  [1,2,3,4,5,6].forEach(sm=>_nomesRefFixo(d, sm).forEach(n=>t.add(n)));
+  (d.ministros||[]).forEach(n=>t.add(n));
+  Object.values(d.add||{}).forEach(l=>(l||[]).forEach(n=>t.add(n)));
+  Object.values(d.horarios||{}).forEach(h=>((h&&h.ministros)||[]).forEach(n=>t.add(n)));
+  return [...t];
+}
+function _nomeNoReforco(d, nome){
+  const a = normalizarBusca(nome);
+  return _nomesReforcoDoc(d).some(n=>normalizarBusca(n)===a);
+}
 function _comDataReforcoFixo(label, sem){
   const dia = /Quinta/.test(label) ? 'Quinta' : (/Sábado/.test(label) ? 'Sábado' : '');
   if(!dia || /\(\d{1,2}\/\d{1,2}/.test(label)) return label;
@@ -5516,7 +5532,7 @@ async function _extrasDoMes(mk){
     const lista = await carregarReforcosEspeciais(mk);
     for(const item of lista){
       let d = null; try{ const x = await getDoc(doc(db,'reforcos',`reforco_${item.id}_${mk}`)); d = x.exists()?x.data():null; }catch(e){}
-      const nomes = (d&&d.ministros)||[]; if(!nomes.length) continue;
+      const nomes = _nomesReforcoDoc(d); if(!nomes.length) continue;
       let datas = [];
       if(item.modo==='auto'){
         if(_reforcoEhDominical(item)) datas = (D.dom||[]).slice();
@@ -5558,7 +5574,9 @@ async function _ondeRelatorio(nome, extrasAtual){
   });
   // além do mês atual/seguinte e dos meses passados em que ele aparece: TODOS os meses futuros que já têm escala salva
   try{ (await _radarMesesSalvos()).forEach(mk=>ords.add(_sugOrdMes(mk.slice(0,3),mk.slice(3)))); }catch(e){}
-  const lista = [...ords].sort((a,b)=>b-a).slice(0,14).map(o=>MESES_KEY[o%12]+Math.floor(o/12));
+  // os 6 meses anteriores entram sempre (quem serviu só como reforço não aparece nas escalas normais daquele mês)
+  for(let i=1;i<=6;i++){ const d = new Date(new Date().getFullYear(), new Date().getMonth()-i, 1); ords.add(_sugOrdMes(MESES_KEY[d.getMonth()], String(d.getFullYear()))); }
+  const lista = [...ords].sort((a,b)=>b-a).slice(0,16).map(o=>MESES_KEY[o%12]+Math.floor(o/12));
   await _ondeCarregarRefMeses(lista);
   const meses = [];
   for(const mk of lista){
@@ -10671,7 +10689,7 @@ function _statusMinistroNoMes(m){
     }
     (c.eventosCarregados||[]).filter(_evNoMes).forEach(e=>{ if((e.escala||[]).includes(m.nome)) escaladoEventos.push(e.nome); });
     (c.reforcoTipos||[]).forEach(rt=>{
-      if((c.docsReforco?.[rt.id]?.ministros||[]).includes(m.nome)) escaladoReforco.push(rt.label);
+      if(_nomeNoReforco(c.docsReforco?.[rt.id], m.nome)) escaladoReforco.push(rt.label);
     });
   }
   const escaladoOutroMes = !!(c && c.extraEscalados && c.extraEscalados.has(m.nome));
