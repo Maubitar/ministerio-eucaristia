@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.95.0';
+const APP_VERSAO = '20.95.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -10597,8 +10597,12 @@ window.abrirModalNaoEscalados = async function(){
   modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
   modal.innerHTML = `<div class="modal-box">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <p style="font-size:16px;font-weight:700">📋 Radar de Escalação</p>
+      <p style="font-size:16px;font-weight:700">📋 Radar de Escalação <span style="font-size:10px;font-weight:600;color:#aaa">v${APP_VERSAO}</span></p>
       <button onclick="document.getElementById('modal-nao-escalados').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <input id="radar-conf" type="text" autocomplete="off" placeholder="🔎 Conferir um ministro (digite o nome)" oninput="radarConferir(this.value)" style="width:100%;padding:11px;border:1.5px solid #085041;border-radius:10px;font-size:14px;box-sizing:border-box">
+      <div id="radar-conf-res"></div>
     </div>
     <div id="radar-abas" style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
     <div id="painel-radar-auto"><p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando o painel...</p></div>
@@ -10631,6 +10635,27 @@ async function _radarMesesSalvos(){
   return lista;
 }
 function _radarMesPadrao(meses){ const sel = getMesAtualEscala(); return meses.includes(sel) ? sel : meses[0]; }
+window.radarConferir = function(v){
+  const box = document.getElementById('radar-conf-res'); if(!box) return;
+  const q = normalizarBusca(v||'');
+  if(q.length<3){ box.innerHTML=''; return; }
+  const c = _dispEscalaCache;
+  const mes = c ? finMesKeyLegivel(c.mesKey) : '';
+  const achados = ministros.filter(m=>normalizarBusca(m.nome).includes(q)).slice(0,6);
+  if(!achados.length){ box.innerHTML = '<p style="font-size:12px;color:#A32D2D;margin:6px 0 0">Nenhum ministro com esse nome no cadastro.</p>'; return; }
+  box.innerHTML = achados.map(m=>{
+    const s = _statusMinistroNoMes(m);
+    const onde = [];
+    if(s.escaladoDom.length) onde.push(`Dominical ${s.escaladoDom.join(', ')}`);
+    if(s.escaladoSem.length) onde.push(`Semanal ${s.escaladoSem.join(', ')}`);
+    if(s.escaladoCirio.length) onde.push(`Círio ${s.escaladoCirio.join(', ')}`);
+    if(s.escaladoEventos.length) onde.push(`Evento ${s.escaladoEventos.join(', ')}`);
+    if(s.escaladoReforco.length) onde.push(s.escaladoReforco.join(', '));
+    if(s.escaladoOutroMes && !onde.length) onde.push('em outro mês analisado');
+    const inativo = m.ativo===false ? '<br><strong style="color:#A32D2D">⚠️ Cadastro INATIVO — por isso não entra na lista de quem falta.</strong>' : '';
+    return `<div style="margin-top:7px;padding:9px 11px;border-radius:9px;background:${s.escaladoEmAlgo?'#e1f5ee':'#FBEAEA'};font-size:12.5px;line-height:1.4"><strong>${m.nome}</strong><br>${s.escaladoEmAlgo?`✅ Escalado(a) em ${mes}: ${onde.join(' · ')}`:`❌ NÃO está escalado(a) em ${mes}`}${inativo}</div>`;
+  }).join('');
+};
 window.radarTrocarMes = async function(alvo){
   const abas = document.getElementById('radar-abas'), painel = document.getElementById('painel-radar-auto');
   if(!painel) return;
@@ -10660,6 +10685,7 @@ window.radarTrocarMes = async function(alvo){
       if(orf.length) aviso = `<div style="background:#FCEBEB;border:2px solid #A32D2D;border-radius:10px;padding:10px 12px;margin-bottom:12px"><p style="font-size:13px;font-weight:800;color:#A32D2D;margin:0 0 4px">⚠️ ${orf.length} nome${orf.length>1?'s':''} na escala não ${orf.length>1?'existem':'existe'} no cadastro</p><p style="font-size:12px;color:#7a1f1f;margin:0">${orf.map(n=>`<strong>${n}</strong>`).join(', ')}</p><p style="font-size:11.5px;color:#7a1f1f;margin:4px 0 0">Provável erro de digitação. Tire esse nome da escala e escale de novo pelo cadastro.</p></div>`;
     }catch(e){}
     painel.innerHTML = aviso + montarPainelRadarCompleto(dados);
+    try{ const ci = document.getElementById('radar-conf'); if(ci && ci.value) radarConferir(ci.value); }catch(e){}
   }catch(e){
     painel.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Não consegui carregar: ${e.message}</p>`;
   }
