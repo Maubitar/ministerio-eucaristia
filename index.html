@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.1.0';
+const APP_VERSAO = '21.3.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4124,26 +4124,10 @@ window.atualizarCardsSemanas = function(){
     const mesKey = getMesAtual();
     const nMin = Object.values(escalas[`escala_sem_sem${s}_${mesKey}`]||{})
       .reduce((a,g)=>a+(g?.ministros?.length||0),0);
-    return `<div onclick="selecionarSemana('${s}')" style="
-      display:flex;align-items:center;gap:10px;padding:11px 14px;
-      border-radius:10px;cursor:pointer;
-      background:${ativo?'#185FA5':'white'};
-      border:1.5px solid ${ativo?'#185FA5':'#d0dce8'};
-      box-shadow:${ativo?'0 2px 8px rgba(24,95,165,.25)':'0 1px 3px rgba(0,0,0,.05)'}">
-      <div style="flex-shrink:0;width:30px;height:30px;border-radius:50%;
-        background:${ativo?'white':'#185FA5'};color:${ativo?'#185FA5':'white'};
-        display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800">
-        ${s}
-      </div>
-      <div style="flex:1;min-width:0">
-        <p style="font-size:13px;font-weight:700;margin:0;color:${ativo?'white':'#185FA5'}">${s}ª semana</p>
-        <p style="font-size:11px;margin:2px 0 0;color:${ativo?'rgba(255,255,255,.85)':'#777'}">${periodo}</p>
-      </div>
-      <span style="flex-shrink:0;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;
-        background:${nMin>0?(ativo?'rgba(255,255,255,.22)':'#e1f5ee'):'transparent'};
-        color:${nMin>0?(ativo?'white':'#085041'):'#bbb'}">
-        ${nMin>0?nMin+' 👤':'vazia'}
-      </span>
+    return `<div class="sem-chip${ativo?' ativo':''}" onclick="selecionarSemana('${s}')">
+      <b>${s}ª semana</b>
+      <span>${periodo}</span>
+      <i class="${nMin>0?'ok':''}">${nMin>0?nMin+' 👤 escalados':'vazia'}</i>
     </div>`;
   }).join('');
 };
@@ -18099,7 +18083,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
           <div class="cfg-l"><b>📅 Semanas escaladas</b></div>
           <button class="cfg-btn cfg-azul" onclick="abrirEditarPeriodoSemana()">✏️ Definir datas</button>
         </div>
-        <div id="painel-semanas-cards" style="display:flex;flex-direction:column;gap:6px;margin-top:10px"></div>
+        <div id="painel-semanas-cards" class="sem-grid"></div>
       </div>
       <div class="cfg-row">
         <div class="cfg-l"><b>⭐ Reforços por missa e evento</b><span>Qualquer missa e horário: manual (um dia) ou automático (mês todo)</span></div>
@@ -18154,7 +18138,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <div id="s-presenca" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card" style="padding:0;overflow:hidden">
-    <div style="background:linear-gradient(135deg,#085041 0%,#0a6b56 100%);padding:16px 14px;display:flex;align-items:center;gap:12px">
+    <div class="pres-band" style="background:linear-gradient(135deg,#085041 0%,#0a6b56 100%);padding:16px 14px;display:flex;align-items:center;gap:12px">
       <img id="logo-basilica-pres" alt="Basílica de Nazaré" style="width:60px;height:60px;border-radius:8px;background:white;padding:2px;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.25)">
       <div style="flex:1;text-align:center;color:white">
         <p style="font-size:10px;letter-spacing:1.5px;opacity:.85;font-weight:600;margin:0;text-transform:uppercase">Basílica Santuário de Nossa Senhora de Nazaré</p>
@@ -18205,7 +18189,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         </div>
       </div>
       <div id="pres-body"></div>
-      <div style="display:flex;gap:6px;margin-top:4px">
+      <div class="pres-barra" style="display:flex;gap:6px;margin-top:4px">
         <button class="btn-g" onclick="salvarPres()" style="margin:0;flex:1">💾 Salvar presenças</button>
         <button class="btn-o" onclick="imprimirPresenca()" style="margin:0;flex:1">🖨️ Imprimir lista oficial</button>
       </div>
@@ -19506,6 +19490,40 @@ details.tec[open] > summary{border-bottom:1px solid var(--linha);margin-bottom:1
   .esc-seg{flex:1}
   .esc-tools{grid-template-columns:repeat(4,1fr)}
   .esc-barra{bottom:16px;margin:14px 0 0}
+}
+
+/* semanas em grade compacta (v21.2) */
+.sem-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px}
+.sem-chip{display:flex;flex-direction:column;gap:3px;padding:12px 12px;border-radius:14px;cursor:pointer;background:#fff;border:1.5px solid #d4e0ea;transition:transform .12s,box-shadow .12s}
+.sem-chip:active{transform:scale(.97)}
+.sem-chip b{font-size:15px;font-weight:800;color:#185FA5}
+.sem-chip span{font-size:12px;color:#5b6b65;font-weight:500}
+.sem-chip i{font-style:normal;font-size:12px;font-weight:700;color:#aab4af;margin-top:2px}
+.sem-chip i.ok{color:#0a6e57}
+.sem-chip.ativo{background:linear-gradient(135deg,#185FA5,#1f74c4);border-color:#185FA5;box-shadow:0 4px 14px rgba(24,95,165,.35)}
+.sem-chip.ativo b,.sem-chip.ativo span,.sem-chip.ativo i{color:#fff}
+.sem-chip.ativo i{opacity:.92}
+
+/* ===== PRESENÇA (v21.2) ===== */
+#s-presenca .pres-band{display:none!important}
+#s-presenca > .card{padding:0!important;background:transparent;border:none;box-shadow:none}
+#s-presenca > .card > div[style*="padding:14px"]{padding:0!important}
+.tabs{background:#e4ebe7;border:none;border-radius:15px;padding:4px;gap:4px;overflow:visible}
+.tab{padding:12px 4px;font-size:13px;border-radius:11px;color:#5b6b65;font-weight:700}
+.tab.active{background:var(--verde-700);color:#fff;box-shadow:0 2px 8px rgba(8,80,65,.3)}
+#s-presenca select{font-size:16px;padding:12px;min-height:46px;background:#fff}
+#s-presenca #tp-missa > div[style*="f0faf5"],#s-presenca #tp-reuniao > div[style*="f0faf5"],#s-presenca #tp-adoracao > div[style*="f0faf5"]{background:#fff!important;border:1px solid var(--linha)!important;border-radius:16px!important;padding:14px 16px!important}
+#pres-body button[onclick^="setPres"]{width:42px!important;height:42px!important;font-size:15px!important;font-weight:800!important;border-radius:11px!important;border-width:2px!important}
+#pres-body > div > div > span,#pres-body span[style*="font-size:13px"]{font-size:15px!important}
+#pres-body input[type=text]{font-size:14px!important;padding:10px 12px!important;border-radius:10px!important}
+.pres-barra{position:sticky;bottom:78px;z-index:60;padding:10px;margin-top:12px!important;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border:1px solid var(--linha);border-radius:18px;box-shadow:0 8px 28px rgba(6,36,29,.18)}
+.pres-barra button{min-height:52px;font-size:15px!important;border-radius:13px!important}
+@media (min-width:1000px){ .pres-barra{bottom:16px} }
+@media (max-width:700px){
+  #pres-body > div > div > div[style*="display:flex"]{flex-wrap:wrap;row-gap:8px}
+  #pres-body > div > div > div[style*="display:flex"] > span{flex:1 1 calc(100% - 48px)!important;min-width:0}
+  #pres-body button[onclick$="'P')"]{margin-left:42px}
+  #pres-body button[onclick^="setPres"]{width:46px!important;height:44px!important}
 }
 </style>
 <script>
