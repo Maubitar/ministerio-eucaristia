@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '20.98.1';
+const APP_VERSAO = '21.0.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -850,6 +850,7 @@ function aplicarPermissoes(){
   });
   // Marca no body o papel (para CSS e a home se adaptar)
   document.body.setAttribute('data-papel', papel);
+  try{ if(window._shellPermissoes) window._shellPermissoes(papel, perm.secoes, APP_VERSAO); }catch(e){}
   // Badge do papel + botão sair no topo (só para papéis restritos)
   const barra = document.getElementById('barra-papel');
   const badge = document.getElementById('papel-badge');
@@ -2463,6 +2464,7 @@ window.nav = function(id, btn){
     'escala-cirio': ()=>renderEscalaCirio(),
     mais: ()=>{ const cu=document.getElementById('cfg-user'); if(cu && _usuarioLogado) cu.value=_usuarioLogado.usuario||''; if(typeof renderUsuarios==='function') renderUsuarios(); },
   };
+  try{ if(window._shellAtualizar) window._shellAtualizar(id); }catch(e){}
   if(fns[id]) fns[id]();
 };
 
@@ -2490,9 +2492,7 @@ function atualizarBotaoVoltar(){
 // Navega para uma seção a partir de atalhos do dashboard, ativando o botão correto da barra inferior
 window.irPara = function(id){
   const mapa = {inicio:0, escala:1, presenca:2, relatorios:3, ministros:4, mais:5, responsaveis:null, financeiro:null, secretaria:null, eventos:null, plantao:null, ausencias:null};
-  const botoes = document.querySelectorAll('.nb');
-  const btn = botoes[mapa[id]] || null;
-  nav(id, btn);
+  nav(id, null);
   window.scrollTo({top:0, behavior:'smooth'});
 };
 
@@ -7294,6 +7294,7 @@ async function _radarAtualizar(){
   try{
     const { naoPreenchido, parcial } = await calcularAlertaPresenca();
     const total = naoPreenchido.length + parcial.length;
+    try{ if(window._shellBadge) window._shellBadge('alerta-presenca', total); }catch(e){}
     const header = document.querySelector('.header'); if(!header) return;
     let bar = document.getElementById('radar-presenca-global');
     if(!total){ if(bar) bar.style.display = 'none'; return; }
@@ -17876,14 +17877,31 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   </div>
 </div>
 <div id="app">
-<div class="header">
-  <div style="display:flex;align-items:center;gap:10px">
-    <img id="logo-basilica-header" alt="Basílica de Nazaré" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:white;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0">
-    <div>
-      <p class="header-title">Ministério da Eucaristia</p>
-      <p class="header-sub">Basílica de Nazaré · <span id="h-total">0</span> ministros</p>
+<!-- ===== MENU LATERAL (v21.0) ===== -->
+<div id="drawer-ov" onclick="fecharMenu()"></div>
+<aside id="drawer" aria-label="Menu principal">
+  <div class="dr-brand">
+    <div class="dr-logos">
+      <img id="dr-logo1" alt="" style="display:none"><img id="dr-logo2" alt="" style="display:none">
+      <button class="dr-x" onclick="fecharMenu()" aria-label="Fechar menu">✕</button>
     </div>
-    <img id="logo-mesce-header" alt="MESCE" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:white;border:1.5px solid rgba(255,255,255,.4);flex-shrink:0;margin-left:auto">
+    <p class="dr-t1">S.O.G.I.</p>
+    <p class="dr-t2">Ministério da Eucaristia</p>
+    <p class="dr-t3">Basílica de Nazaré · Belém/PA</p>
+  </div>
+  <nav class="dr-nav" id="dr-nav"></nav>
+  <div class="dr-foot" id="dr-foot">S.O.G.I. · Coordenação MESCE</div>
+</aside>
+
+<div class="header">
+  <div class="hd-row">
+    <button class="hd-menu" id="hd-menu" onclick="abrirMenu()" aria-label="Abrir menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    <div class="hd-tit">
+      <p class="header-title" id="h-pagina">Início</p>
+      <p class="header-sub">Ministério da Eucaristia · <span id="h-total">0</span> ministros</p>
+    </div>
+    <img id="logo-basilica-header" alt="Basílica de Nazaré" style="display:none">
+    <img id="logo-mesce-header" alt="MESCE" class="hd-logo">
   </div>
   <div id="barra-papel" style="display:none;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">
     <span id="papel-badge" style="display:none;align-items:center;gap:5px;font-size:11px;font-weight:700;color:white;padding:3px 10px;border-radius:20px"></span>
@@ -17892,13 +17910,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 </div>
 
 <nav class="nav">
-  <button class="nb active" data-sec="inicio" onclick="nav('inicio',this)"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Início</button>
-  <button class="nb" data-sec="escala" onclick="nav('escala',this)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
-  <button class="nb" data-sec="presenca" onclick="nav('presenca',this)"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Presença</button>
-  <button class="nb" data-sec="relatorios" onclick="nav('relatorios',this)"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</button>
-  <button class="nb" data-sec="responsaveis" onclick="nav('responsaveis',this)"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.64A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>Responsáveis</button>
-  <button class="nb" data-sec="ministros" onclick="nav('ministros',this)"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
-  <button class="nb" data-sec="mais" onclick="nav('mais',this)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>Mais</button>
+  <button class="nb active" data-sec="inicio" onclick="irPara('inicio')"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Início</button>
+  <button class="nb" data-sec="escala" onclick="irPara('escala')"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Escala</button>
+  <button class="nb" data-sec="presenca" onclick="irPara('presenca')"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>Presença</button>
+  <button class="nb" data-sec="ministros" onclick="irPara('ministros')"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Ministros</button>
+  <button class="nb" data-sec="menu" onclick="abrirMenu()"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Menu</button>
 </nav>
 
 <!-- INÍCIO -->
@@ -18485,6 +18501,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <button onclick="forcarVersaoNova()" style="width:100%;margin-top:8px;padding:14px;border:none;border-radius:9px;background:#C2185B;color:white;font-size:15px;font-weight:800;cursor:pointer">⚡ FORÇAR ÚLTIMA VERSÃO (imediato)</button>
     <p style="font-size:10px;color:#888;margin:6px 0 0;text-align:center">Use este botão logo após subir o arquivo no GitHub. Ignora todo o cache e recarrega na hora.</p>
   </div>
+  <details class="tec"><summary>🔧 Ferramentas técnicas (somente suporte)</summary>
   <div class="card" style="border:1.5px solid #e1f5ee;background:#f8fcfa">
     <p class="ct">📷 Melhorar fotos já cadastradas</p>
     <p style="font-size:12px;color:#666;line-height:1.7;margin:0 0 12px">
@@ -18532,6 +18549,13 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <div id="diag-evento-body" style="display:none;margin-top:12px"></div>
   </div>
 
+  <div class="card" style="border:1.5px solid #f0d0d0;background:#fffafa">
+    <p class="ct" style="color:#A32D2D">🧹 Limpar dados de teste</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 10px">Apaga escalas, presenças, reuniões, adorações, eventos e logs (úteis durante os testes). <strong>Ministros, fotos, senhas e financeiro são preservados.</strong> Use ao terminar os testes, antes de começar com os dados reais.</p>
+    <button onclick="limparDadosTeste()" style="width:100%;padding:11px;border:1.5px solid #A32D2D;border-radius:9px;background:white;color:#A32D2D;font-size:13px;font-weight:700;cursor:pointer">🧹 Limpar dados de teste</button>
+  </div>
+  </details>
+
   <div class="card"><p class="ct">➕ Novo ministro</p><button class="btn-g" onclick="document.getElementById('modal-cad').style.display='flex'">Cadastrar ministro</button></div>
 
   <div class="card" style="border:1.5px solid #25D366;background:#f6fff9">
@@ -18575,11 +18599,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </p>
   </div>
 
-  <div class="card" style="border:1.5px solid #f0d0d0;background:#fffafa">
-    <p class="ct" style="color:#A32D2D">🧹 Limpar dados de teste</p>
-    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 10px">Apaga escalas, presenças, reuniões, adorações, eventos e logs (úteis durante os testes). <strong>Ministros, fotos, senhas e financeiro são preservados.</strong> Use ao terminar os testes, antes de começar com os dados reais.</p>
-    <button onclick="limparDadosTeste()" style="width:100%;padding:11px;border:1.5px solid #A32D2D;border-radius:9px;background:white;color:#A32D2D;font-size:13px;font-weight:700;cursor:pointer">🧹 Limpar dados de teste</button>
-  </div>
 </div>
 
 <!-- ESCALAS FINALIZADAS -->
@@ -19393,6 +19412,186 @@ setInterval(()=>{ if(window.ministros) window._ministros=window.ministros; },500
   <!-- feedback grande -->
   <div id="q-feedback" style="display:none;position:absolute;inset:0;background:rgba(8,80,65,.96);flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:2"></div>
 </div>
+
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style id="shell-css">
+/* ===== S.O.G.I. v21 — identidade visual unificada ===== */
+:root{--verde-900:#06241d;--verde-800:#0b3a30;--verde-700:#085041;--verde-600:#0a6e57;--verde-500:#1D9E75;--verde-300:#7fd1b4;--ouro:#BA7517;--fundo:#f2f5f3;--tinta:#16231f;--tinta-2:#5b6b65;--linha:#e3e9e6}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--fundo);color:var(--tinta);letter-spacing:-.005em}
+input,select,textarea,button{font-family:inherit}
+input[type=text],input[type=search],input[type=tel],input[type=email],input[type=password],input[type=date],input[type=number],select,textarea{border-radius:12px}
+input:focus,select:focus,textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(29,158,117,.22);border-color:var(--verde-500)}
+.card{background:#fff;border-radius:18px;padding:16px 18px;margin-bottom:14px;border:1px solid var(--linha);box-shadow:0 1px 2px rgba(16,36,29,.04),0 6px 18px rgba(16,36,29,.04)}
+.ct{font-size:15px;font-weight:800;color:var(--verde-800);letter-spacing:-.01em;margin-bottom:12px}
+.btn-g,.btn-w,.btn-o{min-height:46px;border-radius:12px;font-size:14px;font-weight:700}
+.btn-voltar{border-radius:12px;border:1px solid var(--linha);font-weight:700}
+.sec{padding:16px 14px 96px}
+/* cabeçalho */
+.header{background:linear-gradient(135deg,var(--verde-800) 0%,var(--verde-700) 100%);padding:12px 14px;box-shadow:0 2px 14px rgba(6,36,29,.28)}
+.hd-row{display:flex;align-items:center;gap:12px}
+.hd-menu{width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.hd-menu svg{width:24px;height:24px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round}
+.hd-tit{min-width:0;flex:1}
+.header-title{font-size:19px;font-weight:800;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-sub{font-size:11.5px;opacity:.78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.hd-logo{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#fff;border:2px solid rgba(255,255,255,.45);flex-shrink:0}
+/* barra inferior */
+.nav{border-top:1px solid var(--linha);box-shadow:0 -4px 20px rgba(6,36,29,.08)}
+.nb{font-size:11px;font-weight:600;padding:9px 2px 8px;color:#8a9a94}
+.nb.active{color:var(--verde-700);font-weight:800}
+.nb svg{width:24px;height:24px}
+/* menu lateral */
+#drawer{position:fixed;top:0;left:0;bottom:0;width:min(86vw,312px);background:linear-gradient(180deg,var(--verde-900) 0%,var(--verde-800) 100%);color:#e8f3ef;z-index:300;transform:translateX(-104%);transition:transform .26s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;box-shadow:8px 0 30px rgba(0,0,0,.35)}
+#drawer.aberto{transform:none}
+#drawer-ov{position:fixed;inset:0;background:rgba(4,16,12,.6);z-index:290;opacity:0;pointer-events:none;transition:opacity .26s}
+#drawer-ov.aberto{opacity:1;pointer-events:auto}
+.dr-brand{padding:20px 20px 16px;border-bottom:1px solid rgba(255,255,255,.09)}
+.dr-logos{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.dr-logos img{width:46px;height:46px;border-radius:50%;object-fit:cover;background:#fff;border:2px solid rgba(255,255,255,.35)}
+.dr-x{margin-left:auto;width:40px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#fff;font-size:18px;cursor:pointer}
+.dr-t1{font-size:24px;font-weight:800;letter-spacing:.02em;color:#fff;line-height:1.05}
+.dr-t2{font-size:14px;font-weight:600;color:#cfe7de;margin-top:4px}
+.dr-t3{font-size:12px;color:#8fb5a8;margin-top:2px}
+.dr-nav{flex:1;overflow-y:auto;padding:8px 12px 14px;-webkit-overflow-scrolling:touch}
+.dr-g{font-size:11px;font-weight:800;letter-spacing:.16em;color:#6fa593;padding:20px 12px 8px;text-transform:uppercase}
+.dr-i{display:flex;align-items:center;gap:14px;width:100%;min-height:48px;padding:10px 14px;border:none;background:none;color:#d3e6df;font-size:15.5px;font-weight:500;border-radius:13px;cursor:pointer;text-align:left;margin-bottom:2px;position:relative;transition:background .15s}
+.dr-i:hover{background:rgba(255,255,255,.07)}
+.dr-i svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;opacity:.9}
+.dr-i.ativo{background:rgba(61,220,151,.16);color:#fff;font-weight:700;box-shadow:inset 3px 0 0 #3ddc97}
+.dr-i.ativo svg{opacity:1;stroke:#7dffc8}
+.dr-b{margin-left:auto;background:#e5484d;color:#fff;border-radius:999px;font-size:12px;font-weight:800;padding:2px 9px;min-width:24px;text-align:center}
+.dr-foot{padding:12px 20px 16px;font-size:11.5px;color:#7aa597;border-top:1px solid rgba(255,255,255,.09)}
+/* início: o menu lateral já cobre as listas — fica só o essencial */
+body[data-papel="coordenador"] #s-inicio > .home-sec-titulo,body[data-papel="coordenador"] #s-inicio > .home-menu{display:none}
+/* ferramentas técnicas recolhidas */
+details.tec{margin-bottom:14px;border:1px dashed #c9d3ce;border-radius:16px;background:#f8faf9;padding:4px 14px}
+details.tec > summary{cursor:pointer;font-size:13.5px;font-weight:700;color:var(--tinta-2);padding:12px 0;list-style:none}
+details.tec > summary::-webkit-details-marker{display:none}
+details.tec[open] > summary{border-bottom:1px solid var(--linha);margin-bottom:12px}
+/* computador: menu fixo à esquerda, conteúdo centralizado */
+@media (min-width:1000px){
+  #drawer{transform:none;width:284px;z-index:120;box-shadow:none}
+  #drawer-ov{display:none}
+  #app{max-width:none;margin:0;padding:0 0 0 284px}
+  .nav,.hd-menu,.dr-x{display:none}
+  .header{padding:16px 32px}
+  .sec{max-width:980px;margin:0 auto;padding:26px 28px 48px}
+  .header-title{font-size:22px}
+}
+</style>
+<script>
+(function(){
+  var ICO={
+   home:'<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+   cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+   ok:'<circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>',
+   users:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
+   phone:'<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0122 16.92z"/>',
+   chart:'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+   wallet:'<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>',
+   file:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>',
+   bell:'<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>',
+   star:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+   send:'<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+   radar:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+   id:'<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><line x1="13" y1="10" x2="19" y2="10"/><line x1="13" y1="14" x2="18" y2="14"/>',
+   uplus:'<path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>',
+   ux:'<path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="13"/><line x1="23" y1="8" x2="18" y2="13"/>',
+   flame:'<path d="M12 2c1 3 4 5 4 9a4 4 0 11-8 0c0-2 1-3 2-4 0 2 1 2 1 1 0-2-1-3 1-6z"/><path d="M12 22a4 4 0 004-4"/>',
+   grid:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+   gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+   out:'<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+   list:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'
+  };
+  // g = grupo, id = seção (nav) ou acao; sec = seções que acendem este item
+  var MENU=[
+   {id:'inicio',t:'Início',i:'home'},
+   {g:'Escalas'},
+   {id:'escala',t:'Montar escala',i:'cal'},
+   {a:'abrirModalNaoEscalados',t:'Radar de Escalação',i:'radar'},
+   {id:'finalizadas',t:'Escalas finalizadas',i:'ok'},
+   {id:'transmissao',t:'Transmitir escalas',i:'send'},
+   {id:'eventos',t:'Eventos especiais',i:'star',sec:['eventos','evento-detalhe']},
+   {id:'escala-cirio',t:'Escala do Círio',i:'flame'},
+   {id:'cirio',t:'Grade do Círio',i:'list'},
+   {id:'plantao',t:'Plantonistas',i:'bell'},
+   {id:'ausencias',t:'Ausências',i:'ux'},
+   {g:'Presença'},
+   {id:'presenca',t:'Marcar presença',i:'ok'},
+   {id:'alerta-presenca',t:'Radar de presença',i:'radar',badge:true},
+   {id:'envio-presenca',t:'Enviar links de presença',i:'send'},
+   {g:'Ministros'},
+   {id:'ministros',t:'Todos os ministros',i:'users'},
+   {id:'responsaveis',t:'Responsáveis',i:'phone'},
+   {id:'tel-rapido',t:'Telefones rápidos',i:'phone'},
+   {id:'envio-cart',t:'Carteirinhas',i:'id'},
+   {a:'abrirNovoMinistro',t:'Novo ministro',i:'uplus'},
+   {g:'Gestão'},
+   {id:'relatorios',t:'Relatórios',i:'chart'},
+   {id:'financeiro',t:'Financeiro',i:'wallet'},
+   {id:'secretaria',t:'Secretaria',i:'file'},
+   {g:'Administração'},
+   {id:'mais',t:'Acessos e configurações',i:'gear'},
+   {a:'fazerLogout',t:'Sair',i:'out'}
+  ];
+  var TITULOS={inicio:'Início',escala:'Montar escala',presenca:'Presença',relatorios:'Relatórios',responsaveis:'Responsáveis',ministros:'Ministros',mais:'Configurações',finalizadas:'Escalas finalizadas',transmissao:'Transmitir escalas',eventos:'Eventos especiais','evento-detalhe':'Evento especial',plantao:'Plantonistas',ausencias:'Ausências',financeiro:'Financeiro',secretaria:'Secretaria','tel-rapido':'Telefones rápidos','envio-presenca':'Links de presença','envio-cart':'Carteirinhas','alerta-presenca':'Radar de presença',cirio:'Grade do Círio','escala-cirio':'Escala do Círio'};
+  var _permitidas='todas', _atual='inicio', _badges={};
+  function svg(k){return '<svg viewBox="0 0 24 24">'+(ICO[k]||ICO.list)+'</svg>';}
+  function desenhar(){
+    var nav=document.getElementById('dr-nav'); if(!nav) return;
+    var html='', grupoAberto=null, buffer='';
+    function fechaGrupo(){ if(buffer){ html+=(grupoAberto?'<p class="dr-g">'+grupoAberto+'</p>':'')+buffer; } buffer=''; }
+    MENU.forEach(function(it){
+      if(it.g){ fechaGrupo(); grupoAberto=it.g; return; }
+      if(_permitidas!=='todas'){
+        var ok = it.id==='inicio' || (it.id && _permitidas.indexOf(it.id)>=0) || it.a==='fazerLogout';
+        if(!ok) return;
+      }
+      var ativo = it.id && ((it.sec||[it.id]).indexOf(_atual)>=0);
+      var b = it.badge && _badges[it.id] ? '<span class="dr-b">'+_badges[it.id]+'</span>' : '';
+      buffer+='<button class="dr-i'+(ativo?' ativo':'')+'" onclick="_shellIr('+(it.id?"'"+it.id+"',null":"null,'"+it.a+"'")+')">'+svg(it.i)+'<span>'+it.t+'</span>'+b+'</button>';
+    });
+    fechaGrupo();
+    nav.innerHTML=html;
+  }
+  window._shellIr=function(id,acao){
+    fecharMenu();
+    try{
+      if(id){ window.irPara ? window.irPara(id) : window.nav(id,null); }
+      else if(acao==='abrirNovoMinistro'){ var m=document.getElementById('modal-cad'); if(m) m.style.display='flex'; }
+      else if(window[acao]) window[acao]();
+    }catch(e){ console.warn('[SOGI] menu',e); }
+  };
+  window.abrirMenu=function(){
+    var d=document.getElementById('drawer'), o=document.getElementById('drawer-ov'); if(!d) return;
+    ['1','2'].forEach(function(n,k){
+      var src=document.getElementById(k===0?'logo-basilica-header':'logo-mesce-header'), im=document.getElementById('dr-logo'+n);
+      if(src&&im&&src.src&&src.getAttribute('src')){ im.src=src.src; im.style.display='block'; }
+    });
+    desenhar(); d.classList.add('aberto'); o.classList.add('aberto');
+  };
+  window.fecharMenu=function(){
+    var d=document.getElementById('drawer'), o=document.getElementById('drawer-ov');
+    if(d) d.classList.remove('aberto'); if(o) o.classList.remove('aberto');
+  };
+  window._shellAtualizar=function(id){
+    _atual=id;
+    var t=document.getElementById('h-pagina'); if(t) t.textContent=TITULOS[id]||'S.O.G.I.';
+    var nb=document.querySelectorAll('.nb'); var mapa={'evento-detalhe':'eventos'};
+    nb.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-sec')===(mapa[id]||id)); });
+    desenhar();
+  };
+  window._shellBadge=function(id,n){ _badges[id]=n||0; desenhar(); };
+  window._shellPermissoes=function(papel,secoes,versao){
+    _permitidas=secoes; desenhar();
+    var f=document.getElementById('dr-foot'); if(f) f.textContent='S.O.G.I. v'+versao+' · Coordenação MESCE';
+  };
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') fecharMenu(); });
+  document.addEventListener('DOMContentLoaded',desenhar);
+})();
+</script>
 
 </body>
 </html>
