@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.0.0';
+const APP_VERSAO = '21.1.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -4589,8 +4589,8 @@ window.renderEscala = async function(){
     // Cor do cabeçalho por semana (só no semanal) — diferencia visualmente
     const coresSemTela = ['#2E7BC4','#1D9E75','#0E7C7B','#D99A2B','#546E9B'];
     const corCab = tipo==='dom' ? '#085041' : (coresSemTela[(parseInt(sem)-1) % coresSemTela.length] || '#185FA5');
-    return `<div style="background:#f5f5f3;border-radius:10px;padding:12px;margin-bottom:10px">
-      <div style="background:${corCab};color:white;margin:-12px -12px 10px;padding:8px 12px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
+    return `<div class="hc">
+      <div class="hc-top" style="background:${corCab}">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-weight:700;font-size:14px">⏰ ${hora}</span>
           <span style="font-size:11px;font-weight:700;background:rgba(255,255,255,.25);padding:2px 9px;border-radius:20px;white-space:nowrap">${g.ministros.length} 👤</span>
@@ -4618,7 +4618,7 @@ window.renderEscala = async function(){
           ? `<img src="${min.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid #e1f5ee">`
           : `<div style="width:34px;height:34px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m)}</div>`;
         return `
-        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #e8e8e8">
+        <div class="hc-min">
           <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
           ${fotoEsc}
           <span style="flex:1;font-size:12px;font-weight:${_isResp?'700':'500'}">${m}${_isResp?` <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>${_respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${_respTel}</span>`:''}`:''}</span>
@@ -18035,11 +18035,12 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <!-- ESCALA -->
 <div id="s-escala" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
-  <div class="card">
-    <p class="ct">📅 Montar escala</p>
-    <div style="display:flex;align-items:center;gap:8px;background:#f7f9f8;border-radius:10px;padding:4px 10px;margin-bottom:12px">
-      <span style="font-size:15px">🗓️</span>
-      <select id="esc-mes" onchange="trocarMes()" style="flex:2 1 0;min-width:0;margin:0;font-weight:700;color:#085041;border:none;background:transparent;font-size:14px;padding:8px 2px">
+
+  <!-- ===== BARRA DE CONTROLE: mês/ano + tipo de escala ===== -->
+  <div class="esc-ctl">
+    <div class="esc-periodo">
+      <span style="font-size:16px">🗓️</span>
+      <select id="esc-mes" onchange="trocarMes()">
         <option value="0">Janeiro</option><option value="1">Fevereiro</option>
         <option value="2">Março</option><option value="3">Abril</option>
         <option value="4">Maio</option><option value="5">Junho</option>
@@ -18047,132 +18048,106 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <option value="8">Setembro</option><option value="9">Outubro</option>
         <option value="10">Novembro</option><option value="11">Dezembro</option>
       </select>
-      <span style="color:#ccc;font-weight:300">|</span>
-      <select id="esc-ano" onchange="trocarMes()" style="flex:0 0 70px;width:70px;margin:0;font-weight:700;color:#085041;border:none;background:transparent;font-size:14px;padding:8px 2px">
+      <span class="esc-sep"></span>
+      <select id="esc-ano" onchange="trocarMes()" style="flex:0 0 76px;width:76px">
         <option value="2026" selected>2026</option>
         <option value="2027">2027</option>
         <option value="2028">2028</option>
       </select>
     </div>
-
-    <!-- ABAS: DOMINICAL / SEMANAL -->
-    <div style="display:flex;gap:0;margin-bottom:14px;border:1.5px solid #e8e8e8;border-radius:10px;overflow:hidden">
-      <button id="aba-esc-dom" onclick="trocarAbaEscala('dom')" style="flex:1;padding:11px;border:none;background:#085041;color:white;font-size:13px;font-weight:700;cursor:pointer">⛪ Dominical</button>
-      <button id="aba-esc-sem" onclick="trocarAbaEscala('sem')" style="flex:1;padding:11px;border:none;background:#f0f0ee;color:#666;font-size:13px;font-weight:700;cursor:pointer">📅 Semanal</button>
+    <div class="esc-seg">
+      <button id="aba-esc-dom" onclick="trocarAbaEscala('dom')" style="background:#085041;color:white">⛪ Dominical</button>
+      <button id="aba-esc-sem" onclick="trocarAbaEscala('sem')" style="background:transparent;color:#5b6b65">📅 Semanal</button>
     </div>
-    <select id="esc-tipo" style="display:none">
-      <option value="dom">Missas dominicais</option>
-      <option value="sem">Missas semanais</option>
-    </select>
+  </div>
+  <select id="esc-tipo" style="display:none">
+    <option value="dom">Missas dominicais</option>
+    <option value="sem">Missas semanais</option>
+  </select>
 
-    <!-- ===== PAINEL DOMINICAL ===== -->
+  <!-- ===== CONFIGURAÇÃO DO MÊS ===== -->
+  <div class="card esc-cfg">
+    <p id="esc-info" class="esc-info" style="display:none"></p>
+
+    <!-- PAINEL DOMINICAL -->
     <div id="painel-esc-dom">
-      <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
-        <span style="font-size:12px;color:#555;font-weight:600;white-space:nowrap">Semanas de serviço:</span>
-        <div style="display:flex;gap:4px;flex:1">
+      <div class="cfg-row">
+        <div class="cfg-l"><b>Semanas de serviço</b><span>Quantos domingos tem a escala</span></div>
+        <div class="cfg-r" style="display:flex;gap:6px;min-width:178px">
           <button id="btn-sem4" onclick="definirSemanas(4)" style="flex:1;padding:8px;border:1.5px solid #ddd;border-radius:8px;background:white;color:#555;font-size:13px;font-weight:600;cursor:pointer">4 semanas</button>
           <button id="btn-sem5" onclick="definirSemanas(5)" style="flex:1;padding:8px;border:1.5px solid #085041;border-radius:8px;background:#e1f5ee;color:#085041;font-size:13px;font-weight:600;cursor:pointer">5 semanas ✓</button>
         </div>
       </div>
       <div id="aviso-semanas" style="display:none;margin-bottom:8px"></div>
-
-      <!-- CONTROLE MANUAL DE DOMINGOS -->
-      <div style="background:#fdf6e3;border:1.5px solid #E8C66B;border-radius:10px;padding:10px 12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <p style="font-size:12px;font-weight:700;color:#a07d2a;margin:0">📅 Domingos desta escala</p>
-          <button onclick="abrirEditarDomingos()" style="font-size:11px;padding:4px 10px;border:1px solid #BA7517;border-radius:16px;background:white;color:#BA7517;cursor:pointer;font-weight:600">✏️ Editar</button>
+      <div class="cfg-row cfg-col">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div class="cfg-l"><b>Domingos desta escala</b></div>
+          <button class="cfg-btn" onclick="abrirEditarDomingos()">✏️ Editar</button>
         </div>
-        <div id="domingos-chips" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+        <div id="domingos-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
       </div>
-
-      <!-- REFORÇOS (mesmo cadastro da escala semanal — vale para qualquer missa) -->
-      <div style="background:#fffdf0;border:1.5px solid #f0d53a;border-radius:12px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <p style="font-size:13px;font-weight:700;color:#8a6d0c;margin:0">⭐ Reforços por missa e evento</p>
-          <button onclick="abrirModalReforcosEspeciais()" style="font-size:11px;padding:5px 12px;border:1.5px solid #f0c000;border-radius:16px;background:white;color:#8a6d0c;cursor:pointer;font-weight:700">✏️ Gerenciar</button>
-        </div>
-        <p style="font-size:11px;color:#8a6d0c;margin:6px 0 0">Marque reforço em qualquer missa de domingo: Manual (um domingo) ou Automático (todo domingo do mês). Cada evento aparece no seu quadrado.</p>
+      <div class="cfg-row">
+        <div class="cfg-l"><b>⭐ Reforços por missa e evento</b><span>Manual (um domingo) ou automático (todo domingo)</span></div>
+        <button class="cfg-btn cfg-ouro" onclick="abrirModalReforcosEspeciais()">✏️ Gerenciar</button>
       </div>
     </div>
 
-    <!-- ===== PAINEL SEMANAL ===== -->
+    <!-- PAINEL SEMANAL -->
     <div id="painel-esc-sem" style="display:none">
-
-      <!-- PAINEL LIMPO DE SEMANAS -->
-      <div style="background:#e6f1fb;border:1.5px solid #185FA5;border-radius:12px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <p style="font-size:13px;font-weight:700;color:#185FA5;margin:0">📅 Semanas escaladas</p>
-          <button onclick="abrirEditarPeriodoSemana()" style="font-size:11px;padding:5px 12px;border:1.5px solid #185FA5;border-radius:16px;background:white;color:#185FA5;cursor:pointer;font-weight:700">✏️ Definir datas</button>
+      <div class="cfg-row cfg-col">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div class="cfg-l"><b>📅 Semanas escaladas</b></div>
+          <button class="cfg-btn cfg-azul" onclick="abrirEditarPeriodoSemana()">✏️ Definir datas</button>
         </div>
-        <div id="painel-semanas-cards" style="display:flex;flex-direction:column;gap:6px"></div>
+        <div id="painel-semanas-cards" style="display:flex;flex-direction:column;gap:6px;margin-top:10px"></div>
       </div>
-
-      <!-- REFORÇOS DE DATAS ESPECIAIS (cadastro genérico) -->
-      <div style="background:#fffdf0;border:1.5px solid #f0d53a;border-radius:12px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <p style="font-size:13px;font-weight:700;color:#8a6d0c;margin:0">⭐ Reforços por missa e evento</p>
-          <button onclick="abrirModalReforcosEspeciais()" style="font-size:11px;padding:5px 12px;border:1.5px solid #f0c000;border-radius:16px;background:white;color:#8a6d0c;cursor:pointer;font-weight:700">✏️ Gerenciar</button>
-        </div>
-        <p style="font-size:11px;color:#8a6d0c;margin:6px 0 0">Marque reforço em QUALQUER missa (qualquer dia da semana e horário): Manual para um dia só, ou Automático para valer o mês todo. Cada evento aparece no seu quadrado na escala.</p>
+      <div class="cfg-row">
+        <div class="cfg-l"><b>⭐ Reforços por missa e evento</b><span>Qualquer missa e horário: manual (um dia) ou automático (mês todo)</span></div>
+        <button class="cfg-btn cfg-ouro" onclick="abrirModalReforcosEspeciais()">✏️ Gerenciar</button>
       </div>
-
-      <!-- Select oculto — usado internamente para compatibilidade com renderEscala -->
       <div id="esc-sem-wrap" style="display:none">
         <select id="esc-sem" onchange="renderEscala();atualizarCardsSemanas();" style="margin:0;width:100%">
         </select>
       </div>
       <div id="periodo-semana-chip" style="display:none"></div>
     </div>
-    <p id="esc-info" style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:10px;font-weight:500;color:#085041;background:#f0faf5;display:none">
-      📌 Escala mensal — mesmos ministros em todos os domingos de junho
-    </p>
-    <button onclick="verTodasEscalas()" style="width:100%;padding:10px;border:1.5px dashed #085041;border-radius:8px;background:transparent;color:#085041;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px">
-      👁 Visualizar todas as escalas do mês
-    </button>
-    <button onclick="abrirModalNaoEscalados()" style="width:100%;padding:10px;border:1.5px solid #BA7517;border-radius:8px;background:#fff9ec;color:#856404;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
-      📋 Radar de Escalação (quem falta, automático)
-    </button>
-    <div id="indicador-nao-salvo" style="display:none;align-items:center;gap:6px;background:#fff4e0;border:1.5px solid #BA7517;border-radius:8px;padding:8px 12px;margin-bottom:10px">
-      <span style="font-size:14px">⚠️</span>
-      <span style="font-size:12px;color:#a05c10;font-weight:700">Você tem alterações não salvas! Clique em "Salvar Escala" para não perder.</span>
-    </div>
-
-    <!-- AÇÃO PRINCIPAL -->
-    <button class="btn-g" onclick="salvarEscala()" style="width:100%;margin:0 0 10px;padding:14px;font-size:15px">💾 Salvar Escala</button>
-
-    <!-- FINALIZAÇÃO — destaque próprio, é a ação que trava para impressão -->
-    <div style="border:1.5px solid #0A6E58;background:#f0faf7;border-radius:12px;padding:12px;margin-bottom:10px">
-      <p style="font-size:12px;font-weight:700;color:#0A6E58;margin:0 0 8px">✅ Finalização para impressão</p>
-      <div style="display:flex;gap:6px">
-        <button onclick="finalizarEscalaAtual()" style="flex:1;padding:11px;border:none;border-radius:8px;background:#0A6E58;color:white;font-size:13px;font-weight:700;cursor:pointer">✅ Finalizar Escala</button>
-        <button onclick="nav('finalizadas')" style="flex:1;padding:11px;border:1.5px solid #0A6E58;border-radius:8px;background:white;color:#0A6E58;font-size:13px;font-weight:700;cursor:pointer">📌 Ver Finalizadas</button>
-      </div>
-    </div>
-
-    <!-- IMPRESSÃO RÁPIDA — secundária, não travada -->
-    <button onclick="imprimirEscala()" style="width:100%;margin:0 0 10px;padding:11px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:13px;font-weight:700;cursor:pointer">🖨️ Imprimir rascunho (não finalizado)</button>
-
-    <!-- COMPARTILHAR — agrupado, fora do caminho principal -->
-    <details style="margin-bottom:10px">
-      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:#555;padding:11px 12px;background:#f7f9f8;border-radius:8px;list-style:none">📤 Mais opções de envio e imagem</summary>
-      <div style="padding:10px 2px 0">
-        <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
-          <button onclick="copiarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #128C7E;border-radius:8px;background:white;color:#128C7E;font-size:12px;font-weight:700;cursor:pointer">📸 Copiar imagem</button>
-          <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #1D9E75;border-radius:8px;background:white;color:#1D9E75;font-size:12px;font-weight:600;cursor:pointer">🖼️ Baixar imagem(ns)</button>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button onclick="compartilharEscala()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #999;border-radius:8px;background:white;color:#555;font-size:12px;font-weight:600;cursor:pointer">📋 Copiar texto</button>
-          <button onclick="enviarEscalaIndividual()" style="margin:0;flex:1;min-width:80px;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:white;color:#1ba34d;font-size:12px;font-weight:700;cursor:pointer">📲 Enviar a cada ministro</button>
-        </div>
-      </div>
-    </details>
-
-    <p style="font-size:11px;color:#1D9E75;margin-bottom:8px;padding:6px 10px;background:#f0faf5;border-radius:6px">
-      ✓ Autocomplete filtra apenas ministros disponíveis para cada horário
-    </p>
-    <div id="esc-body"></div>
   </div>
-  <!-- Reforço movido para aba dedicada -->
+
+  <!-- ===== FERRAMENTAS ===== -->
+  <div class="esc-tools">
+    <button onclick="verTodasEscalas()"><span>👁</span>Ver todas do mês</button>
+    <button onclick="abrirModalNaoEscalados()" class="destaque"><span>📋</span>Radar de Escalação</button>
+    <button onclick="imprimirEscala()"><span>🖨️</span>Imprimir rascunho</button>
+    <button onclick="nav('finalizadas')"><span>📌</span>Ver finalizadas</button>
+  </div>
+
+  <div id="indicador-nao-salvo" style="display:none;align-items:center;gap:6px;background:#fff4e0;border:1.5px solid #BA7517;border-radius:12px;padding:10px 14px;margin-bottom:12px">
+    <span style="font-size:14px">⚠️</span>
+    <span style="font-size:13px;color:#a05c10;font-weight:700">Você tem alterações não salvas! Toque em "Salvar escala" para não perder.</span>
+  </div>
+
+  <!-- ===== HORÁRIOS (montados pelo sistema) ===== -->
+  <div id="esc-body"></div>
+
+  <!-- ===== ENVIO E IMAGEM ===== -->
+  <details class="esc-envio">
+    <summary>📤 Enviar, copiar e baixar imagem</summary>
+    <div style="padding:10px 2px 4px">
+      <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+        <button onclick="copiarImagemEscala()" style="margin:0;flex:1;min-width:120px;padding:12px;border:1.5px solid #128C7E;border-radius:10px;background:white;color:#128C7E;font-size:13px;font-weight:700;cursor:pointer">📸 Copiar imagem</button>
+        <button onclick="gerarImagemEscala()" style="margin:0;flex:1;min-width:120px;padding:12px;border:1.5px solid #1D9E75;border-radius:10px;background:white;color:#1D9E75;font-size:13px;font-weight:700;cursor:pointer">🖼️ Baixar imagem(ns)</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="compartilharEscala()" style="margin:0;flex:1;min-width:120px;padding:12px;border:1.5px solid #999;border-radius:10px;background:white;color:#555;font-size:13px;font-weight:700;cursor:pointer">📋 Copiar texto</button>
+        <button onclick="enviarEscalaIndividual()" style="margin:0;flex:1;min-width:120px;padding:12px;border:1.5px solid #25D366;border-radius:10px;background:white;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Enviar a cada ministro</button>
+      </div>
+    </div>
+  </details>
+
+  <!-- ===== BARRA DE AÇÃO FIXA ===== -->
+  <div class="esc-barra">
+    <button class="eb-salvar" onclick="salvarEscala()">💾 Salvar escala</button>
+    <button class="eb-final" onclick="finalizarEscalaAtual()">✅ Finalizar</button>
   </div>
 </div>
 <!-- PRESENÇA -->
@@ -19479,6 +19454,58 @@ details.tec[open] > summary{border-bottom:1px solid var(--linha);margin-bottom:1
   .header{padding:16px 32px}
   .sec{max-width:980px;margin:0 auto;padding:26px 28px 48px}
   .header-title{font-size:22px}
+}
+
+/* ===== TELA MONTAR ESCALA (v21.1) ===== */
+.esc-ctl{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.esc-periodo{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--linha);border-radius:14px;padding:4px 14px;box-shadow:0 1px 2px rgba(16,36,29,.04)}
+.esc-periodo select{flex:2 1 0;min-width:0;margin:0;font-weight:800;color:var(--verde-800);border:none;background:transparent;font-size:16px;padding:12px 2px;box-shadow:none!important}
+.esc-sep{width:1px;height:24px;background:var(--linha)}
+.esc-seg{display:flex;gap:4px;background:#e4ebe7;border-radius:15px;padding:4px}
+.esc-seg button{flex:1;padding:13px 8px;border:none;border-radius:11px;font-size:15px;font-weight:800;cursor:pointer;transition:background .15s,color .15s}
+.esc-cfg{padding:6px 16px}
+.esc-info{font-size:12.5px;padding:9px 12px;border-radius:10px;margin:10px 0 4px;font-weight:600}
+.cfg-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #eef2f0}
+.cfg-row:last-child{border-bottom:none}
+.cfg-col{display:block}
+.cfg-l{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cfg-l b{font-size:14px;font-weight:700;color:var(--tinta)}
+.cfg-l span{font-size:12px;color:var(--tinta-2);line-height:1.35}
+.cfg-btn{flex-shrink:0;font-size:13px;padding:9px 14px;border:1.5px solid #BA7517;border-radius:12px;background:#fff;color:#BA7517;cursor:pointer;font-weight:700;min-height:40px}
+.cfg-ouro{border-color:#e0b100;color:#8a6d0c;background:#fffaf0}
+.cfg-azul{border-color:#185FA5;color:#185FA5}
+.esc-cfg #btn-sem4,.esc-cfg #btn-sem5{min-height:42px;border-radius:12px!important;font-size:13.5px!important;font-weight:700!important}
+.esc-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.esc-tools button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:50px;padding:10px 12px;border:1.5px solid var(--linha);border-radius:14px;background:#fff;color:var(--verde-800);font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 1px 2px rgba(16,36,29,.04)}
+.esc-tools button span{font-size:17px}
+.esc-tools button.destaque{border-color:#BA7517;background:#fff8ea;color:#7a4a06}
+.esc-envio{margin:6px 0 14px;background:#fff;border:1px solid var(--linha);border-radius:14px;padding:2px 14px}
+.esc-envio summary{cursor:pointer;font-size:14px;font-weight:700;color:var(--tinta-2);padding:14px 0;list-style:none}
+.esc-envio summary::-webkit-details-marker{display:none}
+.esc-barra{position:sticky;bottom:78px;z-index:60;display:flex;gap:8px;padding:10px;margin:8px -4px 0;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border:1px solid var(--linha);border-radius:18px;box-shadow:0 8px 28px rgba(6,36,29,.18)}
+.esc-barra button{min-height:52px;border:none;border-radius:13px;font-size:15.5px;font-weight:800;cursor:pointer}
+.eb-salvar{flex:1.6;background:linear-gradient(135deg,#1D9E75,#0a6e57);color:#fff;box-shadow:0 3px 10px rgba(29,158,117,.35)}
+.eb-final{flex:1;background:#fff;color:var(--verde-700);border:2px solid var(--verde-700)!important}
+/* cartão de horário */
+.hc{background:#fff;border:1px solid var(--linha);border-radius:18px;padding:14px;margin-bottom:14px;box-shadow:0 1px 2px rgba(16,36,29,.04),0 6px 18px rgba(16,36,29,.05)}
+.hc-top{color:#fff;margin:-14px -14px 12px;padding:12px 14px;border-radius:17px 17px 0 0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.hc-top > div:first-child span:first-child{font-size:18px!important;font-weight:800!important}
+.hc-min{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #eef2f0}
+.hc-min > span{font-size:14px!important;line-height:1.35}
+.hc-min img,.hc-min > div:not([style*="flex"]){flex-shrink:0}
+.hc input[type=text]{font-size:15px!important;padding:11px 12px!important;border-radius:12px!important;border:1.5px solid #d6dfdb!important;min-height:44px}
+.hc button[onclick^="abrirSugestoes"]{font-size:13px!important;padding:8px 14px!important;min-height:36px}
+.hc button[onclick^="verDisponiveis"]{font-size:12.5px!important;padding:8px 12px!important;min-height:36px}
+.hc button[onclick^="remMin"]{font-size:24px!important;padding:2px 8px!important;color:#b7c2bd!important}
+@media (min-width:1000px){
+  #esc-body{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  #esc-body > #sug-banner{grid-column:1/-1}
+  .hc{margin-bottom:0}
+  .esc-ctl{flex-direction:row;align-items:stretch}
+  .esc-periodo{flex:1}
+  .esc-seg{flex:1}
+  .esc-tools{grid-template-columns:repeat(4,1fr)}
+  .esc-barra{bottom:16px;margin:14px 0 0}
 }
 </style>
 <script>
