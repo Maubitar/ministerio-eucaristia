@@ -105,7 +105,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.9.0';
+const APP_VERSAO = '21.9.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -463,10 +463,10 @@ window.addEventListener('load', async()=>{
   }
 
   // Define logos imediatamente (independem do Firebase)
-  ['logo-basilica-splash','logo-basilica-loading','logo-basilica-pres','logo-basilica-header','logo-basilica-hero'].forEach(id=>{
+  ['logo-basilica-splash','logo-basilica-loading','logo-basilica-pres','logo-basilica-header'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.src=LOGO_BASILICA;
   });
-  ['logo-mesce-splash','logo-mesce-pres','logo-mesce-header','logo-mesce-hero'].forEach(id=>{
+  ['logo-mesce-splash','logo-mesce-pres','logo-mesce-header'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.src=LOGO_MESCE;
   });
 
@@ -18005,7 +18005,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <p class="dash-saudacao" id="dash-saudacao">Bem-vindo</p>
         <p class="dash-data" id="dash-data"></p>
       </div>
-      <div class="dash-logos"><img id="logo-mesce-hero" alt="MESCE" class="dl"><img id="logo-basilica-hero" alt="Basílica de Nazaré" class="dl"></div>
+      
     </div>
     <div class="dash-proxima" id="dash-proxima"></div>
   </div>
@@ -19832,6 +19832,12 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 #s-inicio .acao-card .ac-sub{font-size:11.5px}
 @media(max-width:600px){#s-inicio .metric .v{font-size:24px!important}}
 @media(min-width:1000px){#s-inicio .metric .v{font-size:30px}}
+
+/* v21.9.1 — logos só no cabeçalho; faixa de boas-vindas limpa */
+#s-inicio .dash-hero{padding:22px 24px 18px}
+#s-inicio .dash-saudacao{font-size:24px;letter-spacing:-.5px}
+#s-inicio .dash-data{font-size:13px}
+.hd-logo{width:44px!important;height:44px!important}
 </style>
 <script>
 (function(){
