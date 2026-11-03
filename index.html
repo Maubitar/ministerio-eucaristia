@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.4.0';
+const APP_VERSAO = '21.4.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -8558,8 +8558,20 @@ window.renderEscalasFinalizadas = async function(){
   cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Carregando...</p>';
   try{
     const snap = await getDocs(collection(db,'escalas_finalizadas'));
-    const itens = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=> (b.mesKey||'').localeCompare(a.mesKey||''));
-    if(!itens.length){
+    const itens = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    // ORDEM: 1º o mês atual / em andamento (a ser salvo), depois os meses seguintes em ordem crescente,
+    // e por último os meses já passados (do mais recente para o mais antigo). Dentro do mês: Dominical, depois Semanal.
+    const mkAtual = getMesAtual();
+    const ordDe = mk=>{ const m=(mk||'').match(/^([a-z]{3})(\d{4})$/); return m ? _sugOrdMes(m[1],m[2]) : -1; };
+    const ordAtual = ordDe(mkAtual);
+    itens.sort((a,b)=>{
+      const oa = ordDe(a.mesKey), ob = ordDe(b.mesKey);
+      const fa = oa>=ordAtual, fb = ob>=ordAtual;
+      if(fa!==fb) return fa ? -1 : 1;
+      if(oa!==ob) return fa ? oa-ob : ob-oa;
+      return (a.tipo==='dom'?0:1) - (b.tipo==='dom'?0:1);
+    });
+    if(!itens.length && !mkAtual){
       cont.innerHTML = '<p style="font-size:12px;color:#888;text-align:center;padding:20px">Nenhuma escala finalizada ainda.</p>';
       return;
     }
@@ -8571,10 +8583,17 @@ window.renderEscalasFinalizadas = async function(){
       if(!porMes[mk]){ porMes[mk] = []; ordemMeses.push(mk); }
       porMes[mk].push(it);
     });
+    // o mês em andamento aparece sempre em primeiro, mesmo que ainda não tenha sido finalizado
+    if(mkAtual && !porMes[mkAtual]){ porMes[mkAtual] = []; ordemMeses.unshift(mkAtual); }
 
     cont.innerHTML = ordemMeses.map(mk=>{
       const grupo = porMes[mk];
-      const mesLabel = grupo[0]?.mesNome ? `${grupo[0].mesNome}/${grupo[0].ano}` : mk;
+      const mesLabel = grupo[0]?.mesNome ? `${grupo[0].mesNome}/${grupo[0].ano}` : finMesKeyLegivel(mk).replace(' / ','/');
+      if(!grupo.length){
+        return `<p class="fin-mes">📅 ${mesLabel} <span class="fin-tag fin-tag-and">em andamento</span></p>
+          <div class="fin-card fin-vazio"><p>Este mês ainda não foi finalizado.</p><button onclick="irPara('escala')" class="fin-zap" style="background:linear-gradient(135deg,#085041,#1D9E75)">📅 Ir para Montar escala</button></div>`;
+      }
+      const tagMes = (mk===mkAtual) ? ' <span class="fin-tag fin-tag-and">mês atual</span>' : (ordDe(mk)>ordAtual ? ' <span class="fin-tag fin-tag-prox">próximo</span>' : '');
       const botaoTudo = grupo.length>1
         ? `<button onclick="transmitirTudoEscalaWhats('${mk}')" style="width:100%;padding:13px;border:none;border-radius:10px;background:linear-gradient(135deg,#085041,#1D9E75);color:white;font-size:13.5px;font-weight:800;cursor:pointer;margin-bottom:12px;box-shadow:0 2px 8px rgba(8,80,65,.22)">✨ Enviar ${mesLabel} inteiro (Dominical + Semanal) de uma vez</button>`
         : '';
@@ -8600,7 +8619,7 @@ window.renderEscalasFinalizadas = async function(){
           </div>` : ''}
         </div>`;
       }).join('');
-      return `<p class="fin-mes">📅 ${mesLabel}</p>` + botaoTudo + cards;
+      return `<p class="fin-mes">📅 ${mesLabel}${tagMes}</p>` + botaoTudo + cards;
     }).join('');
   }catch(e){
     cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: ${e.message}</p>`;
@@ -19525,6 +19544,11 @@ details.tec[open] > summary{border-bottom:1px solid var(--linha);margin-bottom:1
 .fin-top p{font-size:13px;color:var(--tinta-2);line-height:1.45;flex:1 1 220px}
 .fin-top button{min-height:46px;padding:10px 18px;border:none;border-radius:13px;background:#25D366;color:#fff;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(37,211,102,.3)}
 .fin-mes{font-size:20px;font-weight:800;color:var(--verde-800);margin:18px 2px 10px;letter-spacing:-.02em}
+.fin-tag{display:inline-block;vertical-align:middle;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;margin-left:8px;letter-spacing:.02em}
+.fin-tag-and{background:#fff3d6;color:#8a5a00}
+.fin-tag-prox{background:#e1f0fb;color:#185FA5}
+.fin-vazio{text-align:center;border-style:dashed}
+.fin-vazio p{font-size:14px;color:var(--tinta-2);margin-bottom:12px}
 .fin-card{background:#fff;border:1px solid var(--linha);border-radius:18px;padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(16,36,29,.04),0 6px 18px rgba(16,36,29,.05)}
 .fin-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .fin-card-top p{font-size:16px;font-weight:800;color:var(--verde-800)}
