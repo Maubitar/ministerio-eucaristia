@@ -105,7 +105,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.11.0';
+const APP_VERSAO = '21.11.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2530,6 +2530,15 @@ window.irRelatorio = function(tipo){
   },150);
 };
 
+function atualizarDataHoraInicio(){
+  const el = document.getElementById('dash-data');
+  if(!el) return;
+  const d = new Date();
+  const data = d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+  const hora = d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  el.textContent = `${data} · ${hora}`;
+}
+
 async function renderInicio(){
   // Saudação por horário
   const agora = new Date();
@@ -2537,22 +2546,8 @@ async function renderInicio(){
   const saud = h<12 ? 'Bom dia' : (h<18 ? 'Boa tarde' : 'Boa noite');
   const elSaud = document.getElementById('dash-saudacao');
   if(elSaud) elSaud.textContent = `${saud}! 🙏`;
-  const elData = document.getElementById('dash-data');
-  if(elData) elData.textContent = agora.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
-
-  // Próxima missa com escala
-  const elProx = document.getElementById('dash-proxima');
-  if(elProx){
-    const datas = (typeof proximasDatasComMissa==='function') ? proximasDatasComMissa() : [];
-    const hojeISO = agora.toISOString().split('T')[0];
-    const futuras = datas.filter(d=>d.iso>=hojeISO);
-    const prox = futuras.find(d=>d.diaSemana==='Domingo') || futuras[0];
-    if(prox){
-      elProx.innerHTML = `📍 <strong>Próxima missa:</strong> ${prox.diaSemana}, ${prox.data} — confira a escala e marque a presença.`;
-    } else {
-      elProx.innerHTML = `📍 Monte a escala do mês para começar.`;
-    }
-  }
+  atualizarDataHoraInicio();
+  if(!window._relogioInicio) window._relogioInicio = setInterval(atualizarDataHoraInicio, 30000);
 
   // Métricas
   const ativos = ministros.filter(m=>m.ativo!==false);
@@ -18022,7 +18017,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       </div>
       
     </div>
-    <div class="dash-proxima" id="dash-proxima"></div>
   </div>
 
   <div class="metrics">
@@ -19907,6 +19901,10 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 #s-responsaveis button[onclick^="usarModeloResp"]{min-height:40px;padding:0 14px!important;font-size:13px!important;border-radius:10px!important}
 #s-responsaveis textarea{border-radius:14px!important;font-size:15px!important}
 @media(min-width:1000px){.sec{max-width:1060px;margin-left:auto;margin-right:auto}}
+
+/* v21.11.1 — faixa de boas-vindas só com a saudação */
+#s-inicio .dash-hero{padding:20px 24px}
+#s-inicio .dash-saudacao{font-size:24px}
 </style>
 <script>
 (function(){
