@@ -105,7 +105,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.8.1';
+const APP_VERSAO = '21.8.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1340,7 +1340,7 @@ async function modoIdentificacao(id){
         </div>
         <!-- QR Code grande e centralizado (fácil de escanear no quiosque) -->
         <div style="display:flex;flex-direction:column;align-items:center;margin-top:10px;padding:8px;background:white;border-radius:12px;border:1.5px solid #085041">
-          <div id="ident-qr" onclick="ampliarQR()" style="background:#ffffff;padding:14px;border-radius:10px;line-height:0;cursor:pointer;border:1px solid #e5e5e5"></div>
+          <div id="ident-qr" onclick="ampliarQR()" style="background:#ffffff;padding:10px;border-radius:8px;line-height:0;cursor:pointer;border:1px solid #e5e5e5"></div>
           <p class="no-print" style="font-size:11px;font-weight:600;color:#085041;margin:6px 0 0">Toque no QR para ampliar</p>
           <p style="font-size:10.5px;font-weight:800;color:#000;margin:5px 0 0;text-align:center">Apresente este QR Code à Coordenação<br>para registrar sua presença</p>
         </div>
@@ -1385,13 +1385,13 @@ async function modoIdentificacao(id){
   try{
     const url = `${APP_URL}/?ministro=${id}`;
     new QRCode(document.getElementById('ident-qr'), {
-      text: url, width: 176, height: 176,
+      text: url, width: 140, height: 140,
       colorDark: '#000000', colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M
     });
     // na tela o QR fica grande e com margem branca (zona de silêncio); na impressão volta ao tamanho compacto
     const _stq = document.createElement('style');
-    _stq.textContent = '#ident-qr img,#ident-qr canvas{width:176px!important;height:176px!important;display:block}@media print{#ident-qr{padding:8px!important}#ident-qr img,#ident-qr canvas{width:112px!important;height:112px!important}}';
+    _stq.textContent = '#ident-qr img,#ident-qr canvas{width:140px!important;height:140px!important;display:block}@media print{#ident-qr{padding:8px!important}#ident-qr img,#ident-qr canvas{width:112px!important;height:112px!important}}';
     document.head.appendChild(_stq);
   }catch(e){}
 }
