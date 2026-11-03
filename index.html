@@ -105,7 +105,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.8.2';
+const APP_VERSAO = '21.9.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -463,10 +463,10 @@ window.addEventListener('load', async()=>{
   }
 
   // Define logos imediatamente (independem do Firebase)
-  ['logo-basilica-splash','logo-basilica-loading','logo-basilica-pres','logo-basilica-header'].forEach(id=>{
+  ['logo-basilica-splash','logo-basilica-loading','logo-basilica-pres','logo-basilica-header','logo-basilica-hero'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.src=LOGO_BASILICA;
   });
-  ['logo-mesce-splash','logo-mesce-pres','logo-mesce-header'].forEach(id=>{
+  ['logo-mesce-splash','logo-mesce-pres','logo-mesce-header','logo-mesce-hero'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.src=LOGO_MESCE;
   });
 
@@ -17981,8 +17981,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <p class="header-title" id="h-pagina">Início</p>
       <p class="header-sub">Ministério da Eucaristia · <span id="h-total">0</span> ministros</p>
     </div>
-    <img id="logo-basilica-header" alt="Basílica de Nazaré" style="display:none">
-    <img id="logo-mesce-header" alt="MESCE" class="hd-logo">
+    <div class="hd-logos"><img id="logo-mesce-header" alt="MESCE" class="hd-logo"><img id="logo-basilica-header" alt="Basílica de Nazaré" class="hd-logo"></div>
   </div>
   <div id="barra-papel" style="display:none;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">
     <span id="papel-badge" style="display:none;align-items:center;gap:5px;font-size:11px;font-weight:700;color:white;padding:3px 10px;border-radius:20px"></span>
@@ -18006,7 +18005,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
         <p class="dash-saudacao" id="dash-saudacao">Bem-vindo</p>
         <p class="dash-data" id="dash-data"></p>
       </div>
-      <div class="dash-selo">MESCE</div>
+      <div class="dash-logos"><img id="logo-mesce-hero" alt="MESCE" class="dl"><img id="logo-basilica-hero" alt="Basílica de Nazaré" class="dl"></div>
     </div>
     <div class="dash-proxima" id="dash-proxima"></div>
   </div>
@@ -19807,6 +19806,32 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 .cart-vazio.ok{border-color:#9bd7bf;background:#f2fbf7}
 @media(max-width:520px){.cl{flex-wrap:wrap}.cl-acoes{width:100%}.cl-b.cl-env{flex:1}}
 @media(min-width:1000px){#s-envio-cart{max-width:900px;margin:0 auto}}
+
+/* ===== v21.9.0 — Logos em destaque + Início mais enxuto ===== */
+.hd-logos{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.hd-logo{width:46px!important;height:46px!important;border-radius:50%;object-fit:cover;background:#fff;border:2px solid rgba(255,255,255,.7)!important;box-shadow:0 0 0 3px rgba(255,255,255,.12),0 4px 14px rgba(0,0,0,.35),0 0 18px rgba(255,255,255,.18);transition:transform .25s}
+.hd-logo:hover{transform:scale(1.1) rotate(-3deg)}
+@media(max-width:420px){.hd-logo{width:38px!important;height:38px!important}.hd-logos{gap:6px}}
+#s-inicio .dash-logos{display:flex;gap:14px;align-items:center;position:relative;z-index:1}
+#s-inicio .dash-logos .dl{width:76px;height:76px;border-radius:50%;object-fit:cover;background:#fff;border:3px solid rgba(255,255,255,.85);box-shadow:0 0 0 6px rgba(255,255,255,.1),0 10px 28px rgba(0,0,0,.4),0 0 34px rgba(255,255,255,.25);transition:transform .3s,box-shadow .3s;animation:logoFlut 6s ease-in-out infinite}
+#s-inicio .dash-logos .dl:nth-child(2){animation-delay:-3s}
+#s-inicio .dash-logos .dl:hover{transform:scale(1.12) rotate(-4deg);box-shadow:0 0 0 8px rgba(255,255,255,.16),0 14px 34px rgba(0,0,0,.45),0 0 46px rgba(255,255,255,.4)}
+@keyframes logoFlut{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@media(max-width:520px){#s-inicio .dash-logos .dl{width:62px;height:62px;border-width:2px}#s-inicio .dash-logos{gap:10px}}
+/* o resto fica mais discreto para as logos aparecerem */
+#s-inicio .dash-hero{padding:20px 22px 16px}
+#s-inicio .dash-saudacao{font-size:21px}
+#s-inicio .dash-data{font-size:12px}
+#s-inicio .dash-proxima{font-size:13px;padding:11px 14px;margin-top:12px}
+#s-inicio .metric{padding:14px 16px 12px}
+#s-inicio .metric .v{font-size:28px}
+#s-inicio .metric .l{font-size:11px;margin-top:6px}
+#s-inicio .acao-card{min-height:88px;padding:14px 16px}
+#s-inicio .acao-card .ac-ic{width:34px;height:34px;font-size:16px}
+#s-inicio .acao-card .ac-tx{font-size:15px;margin-top:8px}
+#s-inicio .acao-card .ac-sub{font-size:11.5px}
+@media(max-width:600px){#s-inicio .metric .v{font-size:24px!important}}
+@media(min-width:1000px){#s-inicio .metric .v{font-size:30px}}
 </style>
 <script>
 (function(){
