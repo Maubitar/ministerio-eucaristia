@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="color-scheme" content="only light">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -104,7 +105,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.7.0';
+const APP_VERSAO = '21.8.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1339,7 +1340,8 @@ async function modoIdentificacao(id){
         </div>
         <!-- QR Code grande e centralizado (fácil de escanear no quiosque) -->
         <div style="display:flex;flex-direction:column;align-items:center;margin-top:10px;padding:8px;background:white;border-radius:12px;border:1.5px solid #085041">
-          <div id="ident-qr" style="background:#f2f2f2;padding:16px;border-radius:10px;line-height:0"></div>
+          <div id="ident-qr" onclick="ampliarQR()" style="background:#ffffff;padding:14px;border-radius:10px;line-height:0;cursor:pointer;border:1px solid #e5e5e5"></div>
+          <p class="no-print" style="font-size:11px;font-weight:600;color:#085041;margin:6px 0 0">Toque no QR para ampliar</p>
           <p style="font-size:10.5px;font-weight:800;color:#000;margin:5px 0 0;text-align:center">Apresente este QR Code à Coordenação<br>para registrar sua presença</p>
         </div>
       </div>
@@ -1383,16 +1385,39 @@ async function modoIdentificacao(id){
   try{
     const url = `${APP_URL}/?ministro=${id}`;
     new QRCode(document.getElementById('ident-qr'), {
-      text: url, width: 200, height: 200,
-      colorDark: '#000000', colorLight: '#f2f2f2',
+      text: url, width: 176, height: 176,
+      colorDark: '#000000', colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M
     });
     // na tela o QR fica grande e com margem branca (zona de silêncio); na impressão volta ao tamanho compacto
     const _stq = document.createElement('style');
-    _stq.textContent = '#ident-qr img,#ident-qr canvas{width:200px!important;height:200px!important;display:block}@media print{#ident-qr{padding:8px!important}#ident-qr img,#ident-qr canvas{width:112px!important;height:112px!important}}';
+    _stq.textContent = '#ident-qr img,#ident-qr canvas{width:176px!important;height:176px!important;display:block}@media print{#ident-qr{padding:8px!important}#ident-qr img,#ident-qr canvas{width:112px!important;height:112px!important}}';
     document.head.appendChild(_stq);
   }catch(e){}
 }
+
+// Tela cheia, fundo branco e QR enorme: é o jeito mais rápido e seguro de ser lido no quiosque.
+window.ampliarQR = function(){
+  const id = new URLSearchParams(location.search).get('ministro');
+  if(!id) return;
+  const ov = document.createElement('div');
+  ov.id = 'qr-ampliado';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#ffffff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:16px;cursor:pointer';
+  const lado = Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.82);
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#fff;line-height:0';
+  ov.appendChild(box);
+  const tx = document.createElement('p');
+  tx.style.cssText = 'font:700 16px sans-serif;color:#333;margin:0;text-align:center';
+  tx.innerHTML = 'Aproxime do leitor · aumente o brilho da tela<br><span style="font-weight:500;color:#888;font-size:13px">Toque para fechar</span>';
+  ov.appendChild(tx);
+  document.body.appendChild(ov);
+  new QRCode(box, { text: `${APP_URL}/?ministro=${id}`, width: lado, height: lado, colorDark:'#000000', colorLight:'#ffffff', correctLevel: QRCode.CorrectLevel.M });
+  box.querySelectorAll('img,canvas').forEach(e=>{ e.style.width = lado+'px'; e.style.height = lado+'px'; e.style.display='block'; });
+  let wl = null;
+  try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(w=>{ wl=w; }).catch(()=>{}); }catch(e){}
+  ov.onclick = ()=>{ try{ if(wl) wl.release(); }catch(e){} ov.remove(); };
+};
 
 async function modoDisponibilidade(id){
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
@@ -12713,15 +12738,15 @@ window.verQRCode = function(id){
   qrMinistroAtual = m;
   document.getElementById('qr-nome').textContent = m.nome;
   document.getElementById('qr-canvas').innerHTML = '';
-  { const qc = document.getElementById('qr-canvas'); qc.style.background = '#f2f2f2'; qc.style.padding = '14px'; qc.style.display = 'inline-block'; qc.style.borderRadius = '10px'; qc.style.lineHeight = '0'; }
+  { const qc = document.getElementById('qr-canvas'); qc.style.background = '#ffffff'; qc.style.padding = '18px'; qc.style.display = 'inline-block'; qc.style.borderRadius = '10px'; qc.style.lineHeight = '0'; }
   const url = `${APP_URL}/?ministro=${id}`;
   new QRCode(document.getElementById('qr-canvas'), {
     text: url,
     width: 220,
     height: 220,
     colorDark: '#000000',
-    colorLight: '#f2f2f2',
-    correctLevel: QRCode.CorrectLevel.H
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M
   });
   document.getElementById('modal-qr').style.display='flex';
 };
@@ -15703,7 +15728,7 @@ async function qLerFrame(video){
             qSalvarParcial();
             qFeedback(m,false);
           }
-        }
+        } else { qDesconhecido(); }
       }
     }
   }catch(e){}
@@ -15793,6 +15818,15 @@ window.confirmarPresencaManualQuiosque = function(id){
   }
 };
 
+let _qDescTs = 0;
+function qDesconhecido(){
+  const agora = Date.now();
+  if(agora - _qDescTs < 2500) return;
+  _qDescTs = agora;
+  try{ tocarBeep('duplicado'); }catch(e){}
+  toast('⚠️ QR lido, mas esse ministro não está cadastrado ou está inativo. Procure o nome na lista.','warn');
+}
+
 function qFeedback(m, jaLido){
   _qPausado=true;
   tocarBeep(jaLido ? 'duplicado' : 'ok');
@@ -15808,7 +15842,7 @@ function qFeedback(m, jaLido){
     <p style="color:white;font-size:20px;font-weight:600;margin:0">${jaLido?'⚠️ Já registrado':'✓ Presença confirmada'}</p>`;
   fb.style.display='flex';
   document.getElementById('q-contador-tela').textContent = `${_qLidos.size} presença(s) registrada(s)`;
-  setTimeout(()=>{ fb.style.display='none'; _qPausado=false; }, 2200);
+  setTimeout(()=>{ fb.style.display='none'; _qPausado=false; }, 1300);
 }
 
 // Salva incrementalmente no Firestore (cada leitura), para nada se perder
