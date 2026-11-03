@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.4.1';
+const APP_VERSAO = '21.6.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2674,7 +2674,7 @@ function pararAtualizacaoAutomaticaPresencaPendente(){
   clearTimeout(_debouncePresencaPendente);
 }
 
-function iniciais(nome){ return nome.split(' ').map(x=>x[0]).slice(0,2).join(''); }
+function iniciais(nome){ const P=['da','de','do','das','dos','e']; const w=String(nome||'').trim().split(/\s+/).filter(x=>x&&!P.includes(x.toLowerCase())); return (w.length>1?w[0][0]+w[w.length>2?1:1][0]:(w[0]||'?')[0]).toUpperCase(); }
 
 // Comprime uma imagem (File) para um JPEG pequeno em base64, ideal para foto de carteirinha.
 // Reduz para no máximo maxW x maxH mantendo proporção, e qualidade ~0.7. Resultado ~30-60KB.
@@ -12210,31 +12210,52 @@ O WhatsApp abrirá para cada um. Toque "Enviar" em cada conversa.`);
 };
 
 window.filtrarMin = function(){ renderMinistros(document.getElementById('busca-min').value); };
+let _minFiltro='todos';
+window.setMinFiltro=function(f){ _minFiltro=f; filtrarMin(); };
 function renderMinistros(filtro){
-  const lista=ministros.filter(m=>normalizarBusca(m.nome).includes(normalizarBusca(filtro)));
-  const semDisp=lista.filter(m=>!(m.dispDom?.length||m.dispSem?.length)).length;
-  document.getElementById('min-sem-disp').textContent=semDisp>0?`${semDisp} sem disponibilidade`:'';
-  // Contador total (sempre o total real de ministros ativos, não o filtrado)
+  filtro = filtro==null ? '' : filtro;
+  const _semD=m=>!(m.dispDom?.length||m.dispSem?.length);
+  const _falt=m=>(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+  const base=ministros.filter(m=>normalizarBusca(m.nome).includes(normalizarBusca(filtro)));
+  const regras={
+    todos:()=>true,
+    semdisp:_semD,
+    plantao:m=>!!m.plantao,
+    faltas:m=>_falt(m)>=3
+  };
+  const lista=base.filter(regras[_minFiltro]||regras.todos);
+  const semDisp=base.filter(_semD).length;
+  const elSD=document.getElementById('min-sem-disp');
+  if(elSD) elSD.textContent=semDisp>0?`${semDisp} sem disponibilidade informada`:'';
   const totalAtivos = ministros.filter(m=>m.ativo!==false).length;
   const elCont = document.getElementById('min-contador');
   if(elCont) elCont.textContent = totalAtivos;
-  const cabecalho = `<p style="font-size:11px;color:#888;padding:2px 0 8px">${filtro?`${lista.length} encontrado(s) para "${filtro}"`:`${totalAtivos} ministros no total`}</p>`;
-  document.getElementById('min-body').innerHTML= cabecalho + (lista.length ? lista.map(m=>{
-    const semD=!(m.dispDom?.length||m.dispSem?.length);
-    const faltas=(m.faltasReuniao||0)+(m.faltasAdoracao||0);
+  const chips=[
+    ['todos','Todos',base.length],
+    ['semdisp','Sem disponibilidade',base.filter(_semD).length],
+    ['plantao','Plantonistas',base.filter(regras.plantao).length],
+    ['faltas','Com faltas',base.filter(regras.faltas).length]
+  ];
+  const elF=document.getElementById('min-filtros');
+  if(elF) elF.innerHTML=chips.map(c=>`<button type="button" class="min-chip${_minFiltro===c[0]?' on':''}" onclick="setMinFiltro('${c[0]}')">${c[1]} <b>${c[2]}</b></button>`).join('');
+  const cab=`<p class="min-res">${filtro?`${lista.length} encontrado(s) para "${filtro}"`:`Mostrando ${lista.length} de ${totalAtivos} ministros`}</p>`;
+  const vazio=`<div class="min-vazio"><div class="min-vazio-ic">🔎</div><b>Nenhum ministro encontrado</b><span>${filtro?'Confira a grafia do nome ou toque em "Todos".':'Não há ministros neste filtro.'}</span>${(filtro||_minFiltro!=='todos')?'<button type="button" class="min-limpar" onclick="document.getElementById(\'busca-min\').value=\'\';setMinFiltro(\'todos\')">Limpar busca</button>':''}</div>`;
+  document.getElementById('min-body').innerHTML= cab + (lista.length ? lista.map(m=>{
+    const semD=_semD(m);
+    const faltas=_falt(m);
     const avatar = m.foto
-      ? `<img src="${m.foto}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0">`
-      : `<div style="width:34px;height:34px;border-radius:50%;background:${semD?'#f5f5f3':'#e1f5ee'};color:${semD?'#888':'#085041'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${iniciais(m.nome)}</div>`;
-    return `<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #eee;gap:8px;cursor:pointer" onclick="abrirPerfil('${m.id}')">
+      ? `<img class="mc-av" src="${m.foto}" alt="">`
+      : `<div class="mc-av mc-av-i${semD?' sem':''}">${iniciais(m.nome)}</div>`;
+    const disp=semD?'<span class="mc-tag mc-tag-aviso">Sem disponibilidade</span>':`<span class="mc-disp">${[...(m.dispDom||[]),...(m.dispSem||[])].slice(0,3).join(' · ')}</span>`;
+    return `<div class="mc" role="button" tabindex="0" onclick="abrirPerfil('${m.id}')">
       ${avatar}
-      <div style="flex:1">
-        <p style="font-size:13px;font-weight:500;margin:0">${m.nome}${m.plantao?' <span style="font-size:9px;color:#185FA5;font-weight:600">🔔</span>':''}</p>
-        <p style="font-size:11px;color:#888;margin:0">${semD?'⚠️ Sem disponibilidade':[...(m.dispDom||[]),...(m.dispSem||[])].slice(0,3).join(' · ')}</p>
+      <div class="mc-tx">
+        <p class="mc-nome">${m.nome}</p>
+        <div class="mc-sub">${disp}${m.plantao?'<span class="mc-tag mc-tag-plantao">🔔 Plantonista</span>':''}${faltas>=3?`<span class="mc-tag mc-tag-falta">${faltas} faltas</span>`:''}</div>
       </div>
-      ${faltas>=3?`<span style="font-size:10px;padding:2px 6px;background:#fcebeb;color:#A32D2D;border-radius:20px">🟡</span>`:''}
-      <span style="color:#ccc;font-size:18px">›</span>
+      <span class="mc-seta">›</span>
     </div>`;
-  }).join('') : '<p style="font-size:13px;color:#888;padding:12px 0">Nenhum ministro encontrado.</p>');
+  }).join('') : vazio);
 }
 
 // Coordenação adiciona/troca a foto do ministro direto pelo perfil.
@@ -18323,20 +18344,21 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <!-- MINISTROS -->
 <div id="s-ministros" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
-  <div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <p class="ct" style="margin:0">👥 Ministros</p>
-      <span id="min-contador" style="font-size:15px;font-weight:800;color:white;background:#085041;padding:4px 14px;border-radius:20px">0</span>
+  <div class="min-topo">
+    <div class="min-topo-l">
+      <p class="min-titulo">Ministros</p>
+      <p id="min-sem-disp" class="min-aviso"></p>
     </div>
-    <p id="min-sem-disp" style="font-size:11px;color:#BA7517;margin:0 0 10px"></p>
-    <button onclick="nav('tel-rapido')" style="width:100%;padding:10px;border:none;border-radius:9px;background:#25D366;color:white;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px">📱 Preencher telefones em massa</button>
-    <div style="position:relative;margin-bottom:8px">
-      <input type="text" id="busca-min" placeholder="Buscar por nome..." oninput="filtrarMin()" style="margin-bottom:0;padding-right:66px">
-      <button onclick="iniciarDitadoTexto('busca-min', this)" title="Falar o nome"
-        style="position:absolute;top:50%;right:6px;transform:translateY(-50%);padding:5px 9px;border:1px solid #cde8d8;border-radius:6px;background:#e6f1fb;color:#185FA5;cursor:pointer;font-size:12px;font-weight:600">🎤</button>
-    </div>
-    <div id="min-body"></div>
+    <span id="min-contador" class="min-cont">0</span>
   </div>
+  <div class="min-busca">
+    <span class="min-busca-ic">🔍</span>
+    <input type="text" id="busca-min" placeholder="Digite o nome do ministro" oninput="filtrarMin()" autocomplete="off">
+    <button type="button" class="min-mic" onclick="iniciarDitadoTexto('busca-min', this)" title="Falar o nome" aria-label="Falar o nome">🎤</button>
+  </div>
+  <div id="min-filtros" class="min-filtros"></div>
+  <div id="min-body" class="min-lista"></div>
+  <button class="min-massa" onclick="nav('tel-rapido')">📱 Preencher telefones em massa</button>
 </div>
 
 <!-- MAIS -->
@@ -19564,6 +19586,131 @@ details.tec[open] > summary{border-bottom:1px solid var(--linha);margin-bottom:1
 #transm-lista input[type=checkbox]{width:24px!important;height:24px!important}
 #s-transmissao button[onclick="montarFilaTransmissao()"]{min-height:54px;font-size:15.5px!important;border-radius:14px!important}
 @media (min-width:1000px){ #lista-finalizadas{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;align-items:start} #lista-finalizadas > .fin-mes,#lista-finalizadas > button{grid-column:1/-1} }
+
+/* ===== v21.5.0 — Ministros premium + Início painel de comando ===== */
+.min-topo{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 2px 12px}
+.min-titulo{font-size:24px;font-weight:800;color:var(--tinta);margin:0;letter-spacing:-.4px}
+.min-aviso{font-size:13px;color:var(--ouro);margin:2px 0 0;font-weight:600}
+.min-aviso:empty{display:none}
+.min-cont{min-width:52px;text-align:center;font-size:20px;font-weight:800;color:#fff;background:var(--verde-700);padding:8px 16px;border-radius:999px;box-shadow:0 2px 8px rgba(8,80,65,.25)}
+.min-busca{position:relative;display:flex;align-items:center;background:#fff;border:2px solid var(--linha);border-radius:16px;padding:0 6px 0 14px;min-height:56px;box-shadow:0 1px 4px rgba(0,0,0,.04);transition:border-color .15s,box-shadow .15s;position:sticky;top:70px;z-index:20}
+.min-busca:focus-within{border-color:var(--verde-500);box-shadow:0 0 0 4px rgba(29,158,117,.15)}
+.min-busca-ic{font-size:18px;opacity:.6}
+.min-busca input{flex:1;border:none!important;outline:none;background:transparent;font-size:17px;padding:14px 10px;margin:0!important;box-shadow:none!important;color:var(--tinta);min-width:0}
+.min-mic{width:46px;height:46px;border:none;border-radius:12px;background:#e6f1fb;color:#185FA5;font-size:19px;cursor:pointer}
+.min-filtros{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.min-filtros::-webkit-scrollbar{display:none}
+.min-chip{flex:0 0 auto;min-height:44px;padding:0 16px;border:1.5px solid var(--linha);border-radius:999px;background:#fff;color:var(--tinta-2);font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.min-chip b{margin-left:4px;font-weight:800;color:var(--tinta)}
+.min-chip.on{background:var(--verde-700);border-color:var(--verde-700);color:#fff}
+.min-chip.on b{color:#fff}
+.min-res{font-size:13px;color:var(--tinta-2);margin:6px 4px 8px}
+.min-lista{display:flex;flex-direction:column;gap:8px}
+.mc{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--linha);border-radius:16px;padding:12px 14px;min-height:72px;cursor:pointer;transition:transform .12s,box-shadow .12s,border-color .12s;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.mc:hover{border-color:var(--verde-500);box-shadow:0 4px 14px rgba(8,80,65,.1)}
+.mc:active{transform:scale(.985)}
+.mc:focus-visible{outline:3px solid var(--verde-500);outline-offset:2px}
+.mc-av{width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #e1f5ee}
+.mc-av-i{display:flex;align-items:center;justify-content:center;background:#e1f5ee;color:var(--verde-700);font-size:17px;font-weight:800}
+.mc-av-i.sem{background:#f3f1ec;color:#8a8577;border-color:#ece8df}
+.mc-tx{flex:1;min-width:0}
+.mc-nome{font-size:16.5px;font-weight:700;color:var(--tinta);margin:0;line-height:1.25}
+.mc-sub{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:5px}
+.mc-disp{font-size:13px;color:var(--tinta-2)}
+.mc-tag{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+.mc-tag-aviso{background:#fdf1dc;color:#8a5a0c}
+.mc-tag-plantao{background:#e6f1fb;color:#185FA5}
+.mc-tag-falta{background:#fcebeb;color:#A32D2D}
+.mc-seta{color:#b9c4bf;font-size:26px;flex-shrink:0}
+.min-vazio{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border:2px dashed var(--linha);border-radius:18px;padding:32px 20px}
+.min-vazio-ic{font-size:34px}
+.min-vazio b{font-size:17px;color:var(--tinta)}
+.min-vazio span{font-size:14px;color:var(--tinta-2)}
+.min-limpar{margin-top:10px;min-height:48px;padding:0 24px;border:none;border-radius:12px;background:var(--verde-700);color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+.min-massa{width:100%;min-height:52px;margin-top:16px;border:none;border-radius:14px;background:#25D366;color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+@media(min-width:1000px){
+  .min-lista{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .min-res{grid-column:1/-1}
+  .min-vazio{grid-column:1/-1}
+  .min-busca{top:12px}
+}
+/* Início — painel de comando */
+#s-inicio .metrics{gap:10px}
+#s-inicio .metric{border-radius:16px;padding:16px 10px;border:1px solid var(--linha)}
+#s-inicio .metric .v{font-size:30px;font-weight:800;letter-spacing:-.5px}
+#s-inicio .metric .l{font-size:12.5px;color:var(--tinta-2);font-weight:600;margin-top:4px}
+#s-inicio .dash-proxima{font-size:15px;padding:14px 16px;border-radius:14px}
+#s-inicio .dash-saudacao{font-size:22px;letter-spacing:-.3px}
+#s-inicio .acao-card{min-height:118px;border-radius:20px}
+#s-inicio .acao-card .ac-tx{font-size:17px}
+#s-inicio .acao-card .ac-sub{font-size:12.5px}
+#s-inicio .hm-item{min-height:60px}
+#s-inicio .hm-tx b{font-size:15px}
+#s-inicio .hm-tx span{font-size:12.5px;color:var(--tinta-2)}
+#s-inicio .home-sec-titulo{font-size:13px;color:var(--tinta-2);letter-spacing:.8px}
+#s-inicio .card{border-radius:18px;border:1px solid var(--linha)}
+#s-inicio .card .ct{font-size:16px}
+@media(min-width:1000px){
+  #s-inicio .home-acoes{grid-template-columns:repeat(4,1fr)}
+  /* a barra lateral já traz esses menus */
+  #s-inicio .home-sec-titulo,#s-inicio .home-menu{display:none}
+}
+/* foco visível e movimento reduzido (acessibilidade) */
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--verde-500);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ===== v21.6.0 — Visual moderno (uso da coordenação / apresentação) ===== */
+:root{--sombra-1:0 1px 2px rgba(16,40,32,.06),0 1px 3px rgba(16,40,32,.04);--sombra-2:0 4px 12px rgba(16,40,32,.07),0 1px 3px rgba(16,40,32,.05);--sombra-3:0 12px 32px rgba(16,40,32,.12);--raio:16px}
+body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),transparent 60%),var(--fundo);letter-spacing:-.005em;-webkit-font-smoothing:antialiased}
+.card{border-radius:var(--raio)!important;border:1px solid var(--linha)!important;box-shadow:var(--sombra-1)!important}
+.ct{letter-spacing:-.01em}
+.header{backdrop-filter:saturate(1.4) blur(14px);background:linear-gradient(120deg,rgba(6,36,29,.97),rgba(10,110,87,.95))!important;box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 8px 24px rgba(6,36,29,.25)!important}
+/* Hero */
+#s-inicio .dash-hero{border-radius:22px;padding:24px 24px 20px;background:linear-gradient(135deg,#06241d 0%,#085041 45%,#1D9E75 120%);box-shadow:var(--sombra-3);overflow:hidden}
+#s-inicio .dash-hero::before{content:"";position:absolute;inset:0;background:radial-gradient(500px 220px at 85% 0,rgba(255,255,255,.14),transparent 70%),repeating-linear-gradient(135deg,rgba(255,255,255,.025) 0 2px,transparent 2px 14px);pointer-events:none}
+#s-inicio .dash-hero::after{display:none}
+#s-inicio .dash-saudacao{font-size:26px;font-weight:800;letter-spacing:-.6px}
+#s-inicio .dash-data{font-size:13px;opacity:.75;letter-spacing:.2px;text-transform:none!important}
+#s-inicio .dash-data::first-letter{text-transform:uppercase}
+@media(max-width:600px){#s-inicio .metric{padding:14px 12px 12px}#s-inicio .metric .v{font-size:30px}#s-inicio .metric .l{font-size:10px!important;letter-spacing:.2px!important}#s-inicio .metric .v{font-size:28px!important}}
+#s-inicio .dash-selo{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);letter-spacing:2px}
+#s-inicio .dash-proxima{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(8px);font-size:14px;border-radius:14px}
+/* KPIs */
+#s-inicio .metrics{gap:12px;margin-bottom:16px}
+#s-inicio .metric{position:relative;text-align:left;padding:18px 18px 16px;border-radius:var(--raio);background:#fff;border:1px solid var(--linha);box-shadow:var(--sombra-1);overflow:hidden}
+#s-inicio .metric::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(var(--verde-500),var(--verde-700))}
+#s-inicio .metric:nth-child(2)::before{background:linear-gradient(#3b8fd6,#185FA5)}
+#s-inicio .metric:nth-child(3)::before{background:linear-gradient(#e4b04a,var(--ouro))}
+#s-inicio .metric .v{font-size:34px;font-weight:800;letter-spacing:-1.2px;line-height:1;font-variant-numeric:tabular-nums}
+#s-inicio .metric .l{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--tinta-2);margin-top:8px}
+/* Ações rápidas */
+#s-inicio .home-acoes{gap:12px}
+#s-inicio .acao-card{min-height:104px;border-radius:var(--raio);padding:18px;box-shadow:var(--sombra-2);display:flex;flex-direction:column;justify-content:space-between}
+#s-inicio .acao-card:hover{transform:translateY(-3px);box-shadow:var(--sombra-3)}
+#s-inicio .acao-card .ac-ic{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:19px;margin:0}
+#s-inicio .acao-card .ac-tx{font-size:16px;margin-top:12px;letter-spacing:-.2px}
+#s-inicio .acao-card .ac-sub{font-size:12px}
+#s-inicio .acao-card::after{display:none}
+/* Menus e listas */
+.home-menu{border-radius:var(--raio)!important;border:1px solid var(--linha);box-shadow:var(--sombra-1)!important}
+.hm-item:hover{background:#f3f7f5}
+/* Ministros */
+.mc{border-radius:14px;box-shadow:var(--sombra-1)}
+.mc:hover{transform:translateY(-1px);box-shadow:var(--sombra-2)}
+.mc-nome{font-size:15.5px;letter-spacing:-.01em}
+.min-titulo{font-size:26px;letter-spacing:-.8px}
+.min-busca{border-radius:14px;border-width:1.5px;box-shadow:var(--sombra-1)}
+.min-chip{border-radius:10px;min-height:40px;font-size:13.5px}
+.min-chip.on{box-shadow:0 4px 10px rgba(8,80,65,.25)}
+.min-cont{border-radius:12px;font-size:18px;padding:8px 16px}
+/* entrada suave dos cartões */
+@keyframes cardUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+#s-inicio>*,.min-lista>*{animation:cardUp .45s cubic-bezier(.2,.7,.2,1) both}
+#s-inicio>*:nth-child(2){animation-delay:.04s}#s-inicio>*:nth-child(3){animation-delay:.08s}#s-inicio>*:nth-child(4){animation-delay:.12s}
+@media(min-width:1000px){
+  #s-inicio{max-width:1120px;margin:0 auto}
+  #s-inicio .metric .v{font-size:38px}
+}
 </style>
 <script>
 (function(){
