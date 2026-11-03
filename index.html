@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.6.0';
+const APP_VERSAO = '21.7.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -12756,46 +12756,69 @@ function _motivoTelInvalido(m){
 window.renderEnvioCarteirinhas = function(){
   const cont = document.getElementById('ec-lista');
   if(!cont) return;
-  const filtro = document.getElementById('ec-filtro')?.value || 'pendentes';
+  const filtro = document.getElementById('ec-filtro')?.value || 'atencao';
+  const busca = (document.getElementById('ec-busca')?.value || '').trim();
   const ativos = ministros.filter(m=>m.ativo!==false);
   const enviados = ativos.filter(m=>m.carteirinhaEnviadaEm);
   const confirmados = ativos.filter(m=>m.carteiraEmitidaEm);
   const enviadosSemConfirmar = enviados.filter(m=>!m.carteiraEmitidaEm);
+  const pendentesTodos = ativos.filter(m=>!m.carteirinhaEnviadaEm);
   const total = ativos.length;
 
   const pct = total ? Math.round(confirmados.length/total*100) : 0;
   const txtEl = document.getElementById('ec-progresso-texto');
   const pctEl = document.getElementById('ec-progresso-pct');
   const barraEl = document.getElementById('ec-progresso-barra');
-  if(txtEl) txtEl.textContent = `${confirmados.length} de ${total} confirmadas (${enviados.length} enviadas)`;
+  if(txtEl) txtEl.textContent = `${confirmados.length} de ${total} confirmadas`;
   if(pctEl) pctEl.textContent = pct+'%';
   if(barraEl) barraEl.style.width = pct+'%';
+  const kp = document.getElementById('cart-kpis');
+  if(kp) kp.innerHTML = `<div><b>${confirmados.length}</b><span>Confirmadas</span></div><div><b>${enviadosSemConfirmar.length}</b><span>Aguardando</span></div><div><b>${pendentesTodos.length}</b><span>Nunca enviadas</span></div>`;
+  const emDia = pendentesTodos.length===0 && enviadosSemConfirmar.length===0;
+  const hero = document.getElementById('cart-hero');
+  if(hero) hero.classList.toggle('em-dia', emDia);
+  const sub = document.getElementById('cart-sub');
+  if(sub) sub.textContent = emDia ? '✓ Tudo em dia — todos os ministros já têm a carteirinha' : 'Acompanhe quem já recebeu e confirmou';
+  const btn = document.getElementById('ec-btn-proxima');
+  if(btn) btn.style.display = pendentesTodos.length ? '' : 'none';
 
-  let lista = ativos;
-  if(filtro==='pendentes') lista = ativos.filter(m=>!m.carteirinhaEnviadaEm);
-  else if(filtro==='enviados') lista = enviados;
+  let lista;
+  if(busca){
+    const q = normalizarBusca(busca);
+    lista = ativos.filter(m=>normalizarBusca(m.nome).includes(q));
+  } else if(filtro==='pendentes') lista = pendentesTodos;
   else if(filtro==='naoconfirmaram') lista = enviadosSemConfirmar;
   else if(filtro==='confirmados') lista = confirmados;
+  else if(filtro==='todos') lista = ativos;
+  else lista = ativos.filter(m=>!m.carteirinhaEnviadaEm || !m.carteiraEmitidaEm);
   lista = [...lista].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+
+  const vazio = busca
+    ? '<div class="cart-vazio"><div>🔎</div><b>Nenhum ministro encontrado</b><span>Confira a grafia do nome.</span></div>'
+    : (filtro==='atencao' && emDia
+        ? '<div class="cart-vazio ok"><div>✅</div><b>Tudo em dia</b><span>Todas as carteirinhas foram enviadas e confirmadas. Para reenviar a alguém, digite o nome na busca acima.</span></div>'
+        : '<div class="cart-vazio"><div>📭</div><b>Ninguém neste filtro</b><span>Use a busca ou escolha outro filtro.</span></div>');
 
   cont.innerHTML = lista.length ? lista.map(m=>{
     const semTel = !_telValido(m);
     const enviado = !!m.carteirinhaEnviadaEm;
     const confirmado = !!m.carteiraEmitidaEm;
     let status;
-    if(confirmado) status = `<span style="color:#0A6E58">✓✓ Confirmada em ${new Date(m.carteiraEmitidaEm).toLocaleDateString('pt-BR')}</span>`;
-    else if(enviado) status = `<span style="color:#BA7517">✓ Enviada, aguardando confirmação</span>`;
-    else status = 'Pendente';
-    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
-      <div style="flex:1;min-width:0">
-        <p style="font-size:13px;font-weight:600;margin:0;${semTel?'color:#A32D2D':''}">${primeiroNomes(m.nome)}${semTel?' ⚠️ '+_motivoTelInvalido(m):''}</p>
-        <p style="font-size:10px;margin:1px 0 0">${status}</p>
+    if(confirmado) status = `<span class="cs ok">✓✓ Confirmada em ${new Date(m.carteiraEmitidaEm).toLocaleDateString('pt-BR')}</span>`;
+    else if(enviado) status = `<span class="cs aguarda">✓ Enviada em ${new Date(m.carteirinhaEnviadaEm).toLocaleDateString('pt-BR')} · aguardando confirmação</span>`;
+    else status = '<span class="cs pend">Ainda não enviada</span>';
+    const aviso = semTel ? `<span class="cs erro">⚠️ ${_motivoTelInvalido(m)}</span>` : '';
+    return `<div class="cl">
+      <div class="cl-tx">
+        <p class="cl-nome">${primeiroNomes(m.nome)}</p>
+        <div class="cl-st">${status}${aviso}</div>
       </div>
-      ${enviado
-        ? `<button onclick="desmarcarCarteirinhaEnviada('${m.id}')" style="font-size:11px;padding:6px 10px;border:1.5px solid #999;border-radius:16px;background:white;color:#666;cursor:pointer">Desmarcar</button>`
-        : `<button onclick="enviarCarteirinhaPara('${m.id}')" ${semTel?'disabled':''} style="font-size:11px;padding:6px 10px;border:1.5px solid ${semTel?'#ccc':'#0A6E58'};border-radius:16px;background:${semTel?'#f5f5f5':'white'};color:${semTel?'#bbb':'#0A6E58'};cursor:${semTel?'not-allowed':'pointer'};font-weight:600">📲 Enviar</button>`}
+      <div class="cl-acoes">
+        <button class="cl-b cl-qr" onclick="verQRCode('${m.id}')" title="Ver QR Code" aria-label="Ver QR Code">▦</button>
+        <button class="cl-b cl-env${enviado?' re':''}" onclick="enviarCarteirinhaPara('${m.id}')" ${semTel?'disabled':''}>${enviado?'↻ Reenviar':'📲 Enviar'}</button>
+      </div>
     </div>`;
-  }).join('') : '<p style="font-size:12px;color:#888;padding:12px 0;text-align:center">Nenhum ministro nesse filtro.</p>';
+  }).join('') : vazio;
 };
 
 async function _marcarEnviada(id){
@@ -18401,35 +18424,34 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 
 <div id="s-envio-cart" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
-  <div class="card" style="border:1.5px solid #0A6E58;background:#f0faf7">
-    <p class="ct" style="color:#0A6E58">📲 Envio em Lote de Carteirinhas</p>
-    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Toque em <strong>"Enviar próxima"</strong>: abre o WhatsApp já com a mensagem e o link prontos pra aquele ministro — você só confirma o envio. Ao voltar aqui, ele já fica marcado como enviado e o botão pula pro próximo sozinho.</p>
-    <div id="ec-progresso" style="background:white;border-radius:10px;padding:12px;margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:6px">
-        <span id="ec-progresso-texto">0 de 0 enviadas</span>
-        <span id="ec-progresso-pct">0%</span>
+  <div class="cart-hero" id="cart-hero">
+    <div class="cart-hero-top">
+      <div>
+        <p class="cart-titulo">Carteirinhas digitais</p>
+        <p class="cart-sub" id="cart-sub">Acompanhe quem já recebeu e confirmou</p>
       </div>
-      <div style="height:10px;background:#eee;border-radius:20px;overflow:hidden">
-        <div id="ec-progresso-barra" style="height:100%;width:0%;background:linear-gradient(90deg,#1D9E75,#0A6E58);border-radius:20px"></div>
-      </div>
+      <div class="cart-pct" id="ec-progresso-pct">0%</div>
     </div>
-    <button id="ec-btn-proxima" onclick="enviarProximaCarteirinha()" style="width:100%;padding:14px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">🚀 Enviar próxima carteirinha</button>
-    <p style="font-size:11px;color:#999;text-align:center;margin:0">Ministros com telefone vazio ou sem DDD ficam marcados em vermelho — corrija em "Editar dados" antes de enviar.</p>
+    <div class="cart-barra"><div id="ec-progresso-barra"></div></div>
+    <p class="cart-prog" id="ec-progresso-texto">0 de 0 confirmadas</p>
+    <div class="cart-kpis" id="cart-kpis"></div>
+    <button id="ec-btn-proxima" class="cart-cta" onclick="enviarProximaCarteirinha()">🚀 Enviar próxima carteirinha pendente</button>
   </div>
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <p class="ct" style="margin:0">Lista de ministros</p>
-      <select id="ec-filtro" onchange="renderEnvioCarteirinhas()" style="margin:0;font-size:12px;padding:6px 8px">
-        <option value="pendentes">Só pendentes (nunca enviei)</option>
-        <option value="naoconfirmaram">⚠️ Enviei mas não confirmaram</option>
-        <option value="confirmados">✓✓ Já confirmaram</option>
-        <option value="enviados">Todos que já enviei</option>
-        <option value="todos">Todos</option>
-      </select>
-    </div>
-    <p style="font-size:11px;color:#888;margin:0 0 4px">✓ = você enviou a mensagem · ✓✓ = ele abriu o link e confirmou de verdade</p>
-    <div id="ec-lista"></div>
+  <div class="cart-busca">
+    <span>🔍</span>
+    <input type="text" id="ec-busca" placeholder="Buscar ministro para enviar ou reenviar" oninput="renderEnvioCarteirinhas()" autocomplete="off">
   </div>
+  <div class="cart-filtros">
+    <select id="ec-filtro" onchange="renderEnvioCarteirinhas()">
+      <option value="atencao">Precisam de atenção</option>
+      <option value="pendentes">Nunca enviei</option>
+      <option value="naoconfirmaram">Enviei, falta confirmar</option>
+      <option value="confirmados">Já confirmaram</option>
+      <option value="todos">Todos os ministros</option>
+    </select>
+  </div>
+  <p class="cart-leg">✓ enviada pelo WhatsApp · ✓✓ ministro abriu o link e confirmou</p>
+  <div id="ec-lista" class="cart-lista"></div>
 </div>
 
 <div id="s-cirio" class="sec">
@@ -19711,6 +19733,46 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
   #s-inicio{max-width:1120px;margin:0 auto}
   #s-inicio .metric .v{font-size:38px}
 }
+
+/* ===== v21.7.0 — Central de Carteirinhas ===== */
+.cart-hero{background:linear-gradient(135deg,#06241d,#085041 55%,#1D9E75 130%);color:#fff;border-radius:20px;padding:20px;box-shadow:var(--sombra-3);margin-bottom:14px}
+.cart-hero.em-dia{background:linear-gradient(135deg,#064e3b,#0a6e57 60%,#34b98a 130%)}
+.cart-hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.cart-titulo{font-size:22px;font-weight:800;letter-spacing:-.4px;margin:0}
+.cart-sub{font-size:13px;opacity:.85;margin:3px 0 0}
+.cart-pct{font-size:30px;font-weight:800;letter-spacing:-1px}
+.cart-barra{height:8px;background:rgba(255,255,255,.2);border-radius:99px;overflow:hidden;margin:14px 0 6px}
+.cart-barra #ec-progresso-barra{height:100%;width:0;background:#fff;border-radius:99px;transition:width .6s}
+.cart-prog{font-size:12.5px;opacity:.85;margin:0 0 14px}
+.cart-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cart-kpis div{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);border-radius:12px;padding:10px 12px}
+.cart-kpis b{display:block;font-size:22px;font-weight:800;line-height:1}
+.cart-kpis span{font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:.5px}
+.cart-cta{width:100%;min-height:50px;margin-top:14px;border:none;border-radius:12px;background:#fff;color:var(--verde-800);font-size:15px;font-weight:800;cursor:pointer}
+.cart-busca{display:flex;align-items:center;gap:8px;background:#fff;border:1.5px solid var(--linha);border-radius:14px;padding:0 14px;min-height:52px;box-shadow:var(--sombra-1)}
+.cart-busca:focus-within{border-color:var(--verde-500);box-shadow:0 0 0 4px rgba(29,158,117,.15)}
+.cart-busca input{flex:1;border:none!important;outline:none;background:transparent;font-size:16px;margin:0!important;padding:12px 0;box-shadow:none!important;min-width:0}
+.cart-filtros{margin:10px 0 4px}
+.cart-filtros select{width:100%;min-height:46px;border:1.5px solid var(--linha);border-radius:12px;background:#fff;font-size:14px;font-weight:600;padding:0 12px;margin:0}
+.cart-leg{font-size:12px;color:var(--tinta-2);margin:6px 4px 10px}
+.cart-lista{display:flex;flex-direction:column;gap:8px}
+.cl{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--linha);border-radius:14px;padding:12px 14px;box-shadow:var(--sombra-1)}
+.cl-tx{flex:1;min-width:0}
+.cl-nome{font-size:15px;font-weight:700;margin:0;color:var(--tinta)}
+.cl-st{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px}
+.cs{font-size:12px;font-weight:600}
+.cs.ok{color:var(--verde-600)}.cs.aguarda{color:var(--ouro)}.cs.pend{color:var(--tinta-2)}.cs.erro{color:#A32D2D}
+.cl-acoes{display:flex;gap:6px;flex-shrink:0}
+.cl-b{min-height:42px;border-radius:11px;border:1.5px solid var(--verde-700);background:#fff;color:var(--verde-700);font-size:13px;font-weight:700;padding:0 14px;cursor:pointer}
+.cl-b.cl-env{background:var(--verde-700);color:#fff}
+.cl-b.cl-env.re{background:#fff;color:var(--verde-700)}
+.cl-b.cl-qr{padding:0;width:42px;font-size:18px;border-color:var(--linha);color:var(--tinta-2)}
+.cl-b:disabled{opacity:.4;cursor:not-allowed}
+.cart-vazio{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border:2px dashed var(--linha);border-radius:18px;padding:30px 20px}
+.cart-vazio>div{font-size:34px}.cart-vazio b{font-size:17px}.cart-vazio span{font-size:14px;color:var(--tinta-2);max-width:420px}
+.cart-vazio.ok{border-color:#9bd7bf;background:#f2fbf7}
+@media(max-width:520px){.cl{flex-wrap:wrap}.cl-acoes{width:100%}.cl-b.cl-env{flex:1}}
+@media(min-width:1000px){#s-envio-cart{max-width:900px;margin:0 auto}}
 </style>
 <script>
 (function(){
