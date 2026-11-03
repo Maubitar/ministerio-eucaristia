@@ -105,7 +105,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.10.0';
+const APP_VERSAO = '21.10.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2647,7 +2647,6 @@ async function renderInicio(){
   // Card de Presença Pendente — só aparece se houver missa já realizada sem presença completa
   await atualizarCardPresencaPendente();
   iniciarAtualizacaoAutomaticaPresencaPendente();
-  atualizarRoteiroMes();
 }
 
 // ===== ROTEIRO DO MÊS — a tela Início diz sozinha qual é o próximo passo =====
@@ -2661,27 +2660,26 @@ async function atualizarRoteiroMes(){
     const ativos = ministros.filter(m=>m.ativo!==false);
     const semDisp = ativos.filter(m=>!(m.dispDom?.length||m.dispSem?.length)).length;
 
+    // FONTE DA VERDADE: escala FINALIZADA (é o que o app salva e transmite). Só se não houver
+    // finalizada é que olha o rascunho montado — e só as semanas que o mês realmente usa.
     const temMin = e => !!e && Object.values(e).some(g=>(g?.ministros||[]).length);
     const lerEsc = async k => { let e=escalas[k]; if(!e){ try{ const d=await getDoc(doc(db,'escalas',k)); e=d.exists()?d.data():{}; escalas[k]=e; }catch(x){ e={}; } } return e; };
-    const domOk = temMin(await lerEsc(`escala_dom_${mk}`));
-    const semKeys = Object.keys(SEMANAS_MES||{});
-    let semFeitas = 0;
-    for(const sk of semKeys){ if(temMin(await lerEsc(`escala_sem_sem${sk}_${mk}`))) semFeitas++; }
-    const semOk = semKeys.length>0 && semFeitas===semKeys.length;
-
     let finDom=false, finSem=false;
     try{ finDom = (await getDoc(doc(db,'escalas_finalizadas',`${mk}_dom`))).exists(); }catch(e){}
     try{ finSem = (await getDoc(doc(db,'escalas_finalizadas',`${mk}_sem`))).exists(); }catch(e){}
-    const finOk = finDom && finSem;
+    const domRascunho = finDom ? true : temMin(await lerEsc(`escala_dom_${mk}`));
+    const semKeys = Object.keys(SEMANAS_MES||{}).slice(0, SEMANAS_SERVICO||5);
+    let semFeitas = 0;
+    if(!finSem){ for(const sk of semKeys){ if(temMin(await lerEsc(`escala_sem_sem${sk}_${mk}`))) semFeitas++; } }
 
     let pend = 0;
     try{ const r = await calcularAlertaPresenca(); pend = r.naoPreenchido.length + r.parcial.length; }catch(e){}
 
+    const detEsc = (fin, rasc, texto) => fin ? 'Finalizada' : (rasc ? texto : 'Ainda não montada');
     const passos = [
       {ok: semDisp===0, t:'Disponibilidade dos ministros', d: semDisp===0 ? 'Todos informaram' : `${semDisp} ministro(s) sem disponibilidade`, ir:'ministros', b:'Ver'},
-      {ok: domOk, t:'Escala dominical', d: domOk ? 'Montada' : 'Ainda não montada', ir:'escala', b:'Montar'},
-      {ok: semOk, t:'Escala semanal', d: semKeys.length ? `${semFeitas} de ${semKeys.length} semanas montadas` : 'Sem semanas definidas', ir:'escala', b:'Montar'},
-      {ok: finOk, t:'Finalizar e salvar escalas', d: finOk ? 'Dominical e semanal finalizadas' : (finDom||finSem ? 'Falta finalizar '+(finDom?'a semanal':'a dominical') : 'Nada finalizado'), ir:'finalizadas', b:'Abrir'},
+      {ok: finDom, t:'Escala dominical', d: detEsc(finDom, domRascunho, 'Montada · falta finalizar'), ir:'escala', b: domRascunho?'Finalizar':'Montar'},
+      {ok: finSem, t:'Escala semanal', d: finSem ? 'Finalizada' : (semFeitas ? `${semFeitas} de ${semKeys.length} semanas montadas · falta finalizar` : 'Ainda não montada'), ir:'escala', b: semFeitas?'Finalizar':'Montar'},
       {ok: pend===0, t:'Presença das missas realizadas', d: pend===0 ? 'Tudo registrado' : `${pend} missa(s) com presença pendente`, ir:'alerta-presenca', b:'Resolver'}
     ];
     const feitos = passos.filter(p=>p.ok).length;
@@ -2703,30 +2701,8 @@ async function atualizarRoteiroMes(){
 // chamado sozinho, em intervalo, sem precisar redesenhar a tela toda — é o que mantém o alerta
 // "ao vivo" enquanto o coordenador estiver com a tela Início aberta.
 async function atualizarCardPresencaPendente(){
-  try{
-    const { naoPreenchido, parcial } = await calcularAlertaPresenca();
-    const totalPendente = naoPreenchido.length + parcial.length;
-    const cardPendenteEl = document.getElementById('card-presenca-pendente');
-    if(totalPendente > 0 && cardPendenteEl){
-      cardPendenteEl.style.display = 'block';
-      document.getElementById('m-presenca-pendente').textContent = totalPendente;
-      const todos = [...naoPreenchido, ...parcial].slice(0,3);
-      const linha = r => {
-        const tipoLabel = r.tipo==='dom' ? 'Dominical' : `Semanal (${r.semanaLabel})`;
-        return `<div style="padding:6px 0;border-bottom:1px solid #f5e0e0;font-size:12.5px;color:#7a2020">
-          <strong>${r.hora}</strong> ${tipoLabel} — ${r.ddmm} · ${r.totalMarcados} de ${r.totalEscalados} marcados
-        </div>`;
-      };
-      document.getElementById('dash-presenca-pendente').innerHTML = todos.map(linha).join('') +
-        (totalPendente > 3 ? `<p style="font-size:11px;color:#a06565;margin:6px 0 0">+ ${totalPendente-3} outra(s)...</p>` : '') +
-        `<button onclick="nav('alerta-presenca')" style="width:100%;margin-top:10px;padding:9px;border:1.5px solid #A32D2D;border-radius:8px;background:white;color:#A32D2D;font-size:12px;font-weight:700;cursor:pointer">Ver todas e cobrar</button>`;
-    } else if(cardPendenteEl){
-      cardPendenteEl.style.display = 'none';
-    }
-  }catch(e){
-    const cardPendenteEl = document.getElementById('card-presenca-pendente');
-    if(cardPendenteEl) cardPendenteEl.style.display = 'none';
-  }
+  // A presença pendente agora é um passo do Roteiro do mês (sem card próprio, sem faixa vermelha).
+  return atualizarRoteiroMes();
 }
 
 // Mantém o card de Presença Pendente "ao vivo" de verdade, reagindo NO INSTANTE em que
@@ -7354,18 +7330,7 @@ async function _radarAtualizar(){
     const { naoPreenchido, parcial } = await calcularAlertaPresenca();
     const total = naoPreenchido.length + parcial.length;
     try{ if(window._shellBadge) window._shellBadge('alerta-presenca', total); }catch(e){}
-    const header = document.querySelector('.header'); if(!header) return;
-    let bar = document.getElementById('radar-presenca-global');
-    if(!total){ if(bar) bar.style.display = 'none'; return; }
-    if(!bar){
-      bar = document.createElement('div'); bar.id = 'radar-presenca-global';
-      bar.style.cssText = 'margin:6px 10px 2px;padding:9px 12px;border-radius:10px;background:#A32D2D;color:white;font-size:13px;font-weight:800;text-align:center;cursor:pointer;line-height:1.35';
-      bar.onclick = ()=>nav('alerta-presenca');
-      header.appendChild(bar);
-    }
-    const prim = [...naoPreenchido, ...parcial].sort((a,b)=>(a.dataISO+a.hora).localeCompare(b.dataISO+b.hora))[0];
-    bar.innerHTML = `🔴 RADAR: ${total} missa${total>1?'s':''} sem presença completa${naoPreenchido.length?` (${naoPreenchido.length} sem nada marcado)`:''} — toque para ver<br><span style="font-weight:600;font-size:11.5px;opacity:.95">mais antiga: ${prim.hora} · ${prim.ddmm} · resp.: ${prim.responsavel}</span>`;
-    bar.style.display = 'block';
+    const barAntiga = document.getElementById('radar-presenca-global'); if(barAntiga) barAntiga.style.display = 'none';
   }catch(e){ console.warn('[SOGI] radar de presença', e); }
   finally{ _radarRodando = false; }
 }
@@ -18070,7 +18035,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <div class="rot" id="card-roteiro">
     <div class="rot-top">
       <div><p class="rot-tit">Roteiro de <span id="rot-mes">—</span></p><p class="rot-sub" id="rot-sub">Calculando...</p></div>
-      <div class="rot-pct" id="rot-pct">0/5</div>
+      <div class="rot-pct" id="rot-pct">0/4</div>
     </div>
     <div class="rot-barra"><div id="rot-barra-i"></div></div>
     <div id="dash-roteiro" class="rot-lista"></div>
@@ -18157,10 +18122,6 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </button>
   </div>
 
-  <div class="card" id="card-presenca-pendente" style="display:none;border:1.5px solid #E9A8A8;background:linear-gradient(135deg,#fffafa 0%,#fdf3f3 100%)">
-    <p class="ct" style="color:#A32D2D">🚨 Presença pendente <span id="m-presenca-pendente" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
-    <div id="dash-presenca-pendente"></div>
-  </div>
   <div class="card" id="card-alertas">
     <p class="ct">⚠️ Ministros com faltas <span id="m-alertas" style="font-size:11px;background:#fcebeb;color:#A32D2D;padding:1px 8px;border-radius:20px;margin-left:6px">0</span></p>
     <div id="dash-alertas"></div>
