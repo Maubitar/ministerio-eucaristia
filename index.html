@@ -104,7 +104,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.3.1';
+const APP_VERSAO = '21.4.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -8583,16 +8583,16 @@ window.renderEscalasFinalizadas = async function(){
         const titulo = (it.tipo==='dom'?'Dominical':'Semanal') + ' — ' + (it.mesNome||'') + '/' + (it.ano||'');
         const idIndividual = `ind-${it.id}`;
         const temVarias = (it.semanas||[]).length>1;
-        return `<div class="card" style="border:1.5px solid #e1f5ee;margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <p class="ct" style="margin:0">${icone} ${titulo}</p>
-            <button onclick="excluirEscalaFinalizada('${it.id}')" style="border:none;background:none;color:#c99;font-size:16px;cursor:pointer;padding:4px" title="Excluir">🗑️</button>
+        return `<div class="fin-card">
+          <div class="fin-card-top">
+            <p>${icone} ${titulo}</p>
+            <button onclick="excluirEscalaFinalizada('${it.id}')" class="fin-del" title="Excluir">🗑️</button>
           </div>
-          <div style="display:flex;gap:8px;margin-bottom:8px">
-            <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#085041;color:white;font-size:12.5px;font-weight:700;cursor:pointer">🖨️ Imprimir Escala</button>
-            <button onclick="imprimirEscalaFinalizada('${it.id}')" style="flex:1;padding:10px;border:1.5px solid #185FA5;border-radius:8px;background:white;color:#185FA5;font-size:12.5px;font-weight:700;cursor:pointer">🖨️ Imprimir Presença</button>
+          <button onclick="compartilharEscalaFinalizada('${it.id}')" class="fin-zap">📲 Enviar via WhatsApp</button>
+          <div class="fin-par">
+            <button onclick="imprimirEscalaFinalizadaComoEscala('${it.id}')">🖨️ Imprimir escala</button>
+            <button onclick="imprimirEscalaFinalizada('${it.id}')">🖨️ Imprimir presença</button>
           </div>
-          <button onclick="compartilharEscalaFinalizada('${it.id}')" style="width:100%;padding:10px;border:1.5px solid #25D366;border-radius:8px;background:#f0fdf5;color:#1ba34d;font-size:13px;font-weight:700;cursor:pointer">📲 Enviar via WhatsApp</button>
           ${temVarias ? `
           <button onclick="const el=document.getElementById('${idIndividual}'); el.style.display = el.style.display==='none' ? 'flex' : 'none';" style="width:100%;padding:7px;border:none;background:none;color:#999;font-size:11px;cursor:pointer;margin-top:2px">Enviar por semana, uma de cada vez ▾</button>
           <div id="${idIndividual}" style="display:none;flex-wrap:wrap;gap:6px;margin-top:4px">
@@ -8600,8 +8600,8 @@ window.renderEscalasFinalizadas = async function(){
           </div>` : ''}
         </div>`;
       }).join('');
-      return botaoTudo + cards;
-    }).join('<div style="height:6px"></div>');
+      return `<p class="fin-mes">📅 ${mesLabel}</p>` + botaoTudo + cards;
+    }).join('');
   }catch(e){
     cont.innerHTML = `<p style="font-size:12px;color:#A32D2D;text-align:center;padding:20px">Erro ao carregar: ${e.message}</p>`;
   }
@@ -18563,14 +18563,9 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <!-- ESCALAS FINALIZADAS -->
 <div id="s-finalizadas" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
-  <div class="card" style="border:1.5px solid #0A6E58;background:#f0faf7">
-    <p class="ct" style="color:#0A6E58">✅ Escalas Finalizadas</p>
-    <p style="font-size:12px;color:#666;line-height:1.6;margin:0">Aqui ficam as escalas que você travou (finalizou). Elas não mudam mais sozinhas — imprima direto daqui sempre que precisar, sem editar data nenhuma.</p>
-  </div>
-  <div class="card" style="border:1.5px solid #25D366;background:#f6fff9">
-    <p class="ct" style="color:#1ba34d">📤 Transmissão Central (novo)</p>
-    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Marque de uma vez só o que quer transmitir — Dominical, Semanal, Eventos Especiais e Círio, tudo num lugar só.</p>
-    <button onclick="nav('transmissao')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer">📤 Abrir Transmissão Central</button>
+  <div class="fin-top">
+    <p>Escalas travadas para impressão — não mudam sozinhas. Imprima ou envie direto daqui.</p>
+    <button onclick="nav('transmissao')">📤 Transmitir escalas</button>
   </div>
   <div id="lista-finalizadas"></div>
 </div>
@@ -18578,9 +18573,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 <!-- TRANSMISSÃO CENTRAL: reúne Dominical, Semanal, Eventos e Círio num lugar só pra transmitir -->
 <div id="s-transmissao" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
-  <div class="card" style="background:linear-gradient(135deg,#0A6E58,#25D366);border:none">
-    <p style="font-size:17px;font-weight:700;color:white;margin:0">📤 Transmissão Central</p>
-    <p style="font-size:12px;color:rgba(255,255,255,.9);margin:4px 0 0">Marque tudo que quer transmitir hoje e envie um de cada vez, na ordem — sem precisar procurar em várias telas.</p>
+  <div class="fin-top">
+    <p>Marque o que quer enviar hoje. O sistema monta a fila e você toca em "Enviar", um de cada vez.</p>
   </div>
   <div class="card" style="border:1.5px solid #e1f5ee">
     <p class="ct">✅ O que transmitir</p>
@@ -19525,6 +19519,27 @@ details.tec[open] > summary{border-bottom:1px solid var(--linha);margin-bottom:1
   #pres-body button[onclick$="'P')"]{margin-left:42px}
   #pres-body button[onclick^="setPres"]{width:46px!important;height:44px!important}
 }
+
+/* ===== FINALIZADAS / TRANSMISSÃO (v21.4) ===== */
+.fin-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding:2px 2px}
+.fin-top p{font-size:13px;color:var(--tinta-2);line-height:1.45;flex:1 1 220px}
+.fin-top button{min-height:46px;padding:10px 18px;border:none;border-radius:13px;background:#25D366;color:#fff;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(37,211,102,.3)}
+.fin-mes{font-size:20px;font-weight:800;color:var(--verde-800);margin:18px 2px 10px;letter-spacing:-.02em}
+.fin-card{background:#fff;border:1px solid var(--linha);border-radius:18px;padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(16,36,29,.04),0 6px 18px rgba(16,36,29,.05)}
+.fin-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.fin-card-top p{font-size:16px;font-weight:800;color:var(--verde-800)}
+.fin-del{border:none;background:none;font-size:19px;cursor:pointer;padding:6px 8px;opacity:.55}
+.fin-zap{width:100%;min-height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,#1ba34d,#25D366);color:#fff;font-size:15.5px;font-weight:800;cursor:pointer;margin-bottom:8px;box-shadow:0 3px 10px rgba(37,211,102,.3)}
+.fin-par{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fin-par button{min-height:48px;border:1.5px solid var(--linha);border-radius:13px;background:#fff;color:var(--verde-700);font-size:13.5px;font-weight:700;cursor:pointer}
+#s-finalizadas .fin-card > button[onclick^="const el"]{min-height:40px;font-size:13px!important;color:#5b6b65!important}
+#s-finalizadas .fin-card > div[id^="ind-"] button{min-height:38px;padding:8px 14px!important;font-size:12.5px!important}
+#lista-finalizadas > button{min-height:52px;font-size:14.5px!important;border-radius:14px!important}
+#transm-lista label{display:flex;align-items:center;gap:14px;padding:15px 14px!important;margin-bottom:8px;border:1.5px solid var(--linha)!important;border-radius:14px;background:#fff;cursor:pointer}
+#transm-lista label span{font-size:15px!important;font-weight:600}
+#transm-lista input[type=checkbox]{width:24px!important;height:24px!important}
+#s-transmissao button[onclick="montarFilaTransmissao()"]{min-height:54px;font-size:15.5px!important;border-radius:14px!important}
+@media (min-width:1000px){ #lista-finalizadas{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;align-items:start} #lista-finalizadas > .fin-mes,#lista-finalizadas > button{grid-column:1/-1} }
 </style>
 <script>
 (function(){
