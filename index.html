@@ -105,7 +105,7 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.9.1';
+const APP_VERSAO = '21.10.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2647,6 +2647,56 @@ async function renderInicio(){
   // Card de Presença Pendente — só aparece se houver missa já realizada sem presença completa
   await atualizarCardPresencaPendente();
   iniciarAtualizacaoAutomaticaPresencaPendente();
+  atualizarRoteiroMes();
+}
+
+// ===== ROTEIRO DO MÊS — a tela Início diz sozinha qual é o próximo passo =====
+async function atualizarRoteiroMes(){
+  const box = document.getElementById('dash-roteiro');
+  if(!box) return;
+  try{
+    const mk = getMesAtual();
+    const mIdx = MESES_KEY.indexOf(mk.replace(/\d+$/,''));
+    const nomeMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][mIdx] || mk;
+    const ativos = ministros.filter(m=>m.ativo!==false);
+    const semDisp = ativos.filter(m=>!(m.dispDom?.length||m.dispSem?.length)).length;
+
+    const temMin = e => !!e && Object.values(e).some(g=>(g?.ministros||[]).length);
+    const lerEsc = async k => { let e=escalas[k]; if(!e){ try{ const d=await getDoc(doc(db,'escalas',k)); e=d.exists()?d.data():{}; escalas[k]=e; }catch(x){ e={}; } } return e; };
+    const domOk = temMin(await lerEsc(`escala_dom_${mk}`));
+    const semKeys = Object.keys(SEMANAS_MES||{});
+    let semFeitas = 0;
+    for(const sk of semKeys){ if(temMin(await lerEsc(`escala_sem_sem${sk}_${mk}`))) semFeitas++; }
+    const semOk = semKeys.length>0 && semFeitas===semKeys.length;
+
+    let finDom=false, finSem=false;
+    try{ finDom = (await getDoc(doc(db,'escalas_finalizadas',`${mk}_dom`))).exists(); }catch(e){}
+    try{ finSem = (await getDoc(doc(db,'escalas_finalizadas',`${mk}_sem`))).exists(); }catch(e){}
+    const finOk = finDom && finSem;
+
+    let pend = 0;
+    try{ const r = await calcularAlertaPresenca(); pend = r.naoPreenchido.length + r.parcial.length; }catch(e){}
+
+    const passos = [
+      {ok: semDisp===0, t:'Disponibilidade dos ministros', d: semDisp===0 ? 'Todos informaram' : `${semDisp} ministro(s) sem disponibilidade`, ir:'ministros', b:'Ver'},
+      {ok: domOk, t:'Escala dominical', d: domOk ? 'Montada' : 'Ainda não montada', ir:'escala', b:'Montar'},
+      {ok: semOk, t:'Escala semanal', d: semKeys.length ? `${semFeitas} de ${semKeys.length} semanas montadas` : 'Sem semanas definidas', ir:'escala', b:'Montar'},
+      {ok: finOk, t:'Finalizar e salvar escalas', d: finOk ? 'Dominical e semanal finalizadas' : (finDom||finSem ? 'Falta finalizar '+(finDom?'a semanal':'a dominical') : 'Nada finalizado'), ir:'finalizadas', b:'Abrir'},
+      {ok: pend===0, t:'Presença das missas realizadas', d: pend===0 ? 'Tudo registrado' : `${pend} missa(s) com presença pendente`, ir:'alerta-presenca', b:'Resolver'}
+    ];
+    const feitos = passos.filter(p=>p.ok).length;
+    const prox = passos.findIndex(p=>!p.ok);
+    document.getElementById('rot-mes').textContent = nomeMes;
+    document.getElementById('rot-pct').textContent = `${feitos}/${passos.length}`;
+    document.getElementById('rot-barra-i').style.width = Math.round(feitos/passos.length*100)+'%';
+    document.getElementById('rot-sub').textContent = prox===-1 ? '✓ Mês em dia — nada pendente' : `Próximo passo: ${passos[prox].t}`;
+    document.getElementById('card-roteiro').classList.toggle('em-dia', prox===-1);
+    box.innerHTML = passos.map((p,i)=>`<div class="rot-item${p.ok?' ok':''}${i===prox?' prox':''}">
+      <span class="rot-ic">${p.ok?'✓':(i+1)}</span>
+      <div class="rot-tx"><b>${p.t}</b><span>${p.d}</span></div>
+      ${p.ok ? '' : `<button type="button" class="rot-b" onclick="irPara('${p.ir}')">${p.b} ›</button>`}
+    </div>`).join('');
+  }catch(e){ box.innerHTML = '<p class="rot-erro">Não foi possível calcular o roteiro agora.</p>'; }
 }
 
 // Atualiza o card de Presença Pendente na tela Início. Separado de renderInicio() pra poder ser
@@ -18016,6 +18066,16 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <div class="metric"><div class="v" id="m-aniv">0</div><div class="l">Aniversários no mês</div></div>
   </div>
 
+  <!-- ROTEIRO DO MÊS — automação guiada -->
+  <div class="rot" id="card-roteiro">
+    <div class="rot-top">
+      <div><p class="rot-tit">Roteiro de <span id="rot-mes">—</span></p><p class="rot-sub" id="rot-sub">Calculando...</p></div>
+      <div class="rot-pct" id="rot-pct">0/5</div>
+    </div>
+    <div class="rot-barra"><div id="rot-barra-i"></div></div>
+    <div id="dash-roteiro" class="rot-lista"></div>
+  </div>
+
   <!-- AÇÕES PRINCIPAIS — destaque premium -->
   <div class="home-acoes">
     <button class="acao-card ac-verde" onclick="irPara('escala')">
@@ -19838,6 +19898,29 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 #s-inicio .dash-saudacao{font-size:24px;letter-spacing:-.5px}
 #s-inicio .dash-data{font-size:13px}
 .hd-logo{width:44px!important;height:44px!important}
+
+/* ===== v21.10.0 — Roteiro do mês ===== */
+.rot{background:#fff;border:1px solid var(--linha);border-radius:18px;padding:18px 18px 8px;box-shadow:var(--sombra-2);margin-bottom:16px}
+.rot.em-dia{border-color:#9bd7bf;background:linear-gradient(135deg,#fff,#f2fbf7)}
+.rot-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.rot-tit{font-size:17px;font-weight:800;letter-spacing:-.3px;margin:0;color:var(--tinta)}
+.rot-sub{font-size:13px;color:var(--ouro);font-weight:700;margin:3px 0 0}
+.rot.em-dia .rot-sub{color:var(--verde-600)}
+.rot-pct{font-size:22px;font-weight:800;color:var(--verde-700);font-variant-numeric:tabular-nums}
+.rot-barra{height:6px;background:#e9efec;border-radius:99px;overflow:hidden;margin:12px 0 6px}
+.rot-barra #rot-barra-i{height:100%;width:0;background:linear-gradient(90deg,var(--verde-500),var(--verde-700));border-radius:99px;transition:width .6s}
+.rot-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid #eef2f0}
+.rot-item:first-child{border-top:none}
+.rot-ic{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;background:#eef2f0;color:var(--tinta-2)}
+.rot-item.ok .rot-ic{background:var(--verde-500);color:#fff}
+.rot-item.prox .rot-ic{background:var(--ouro);color:#fff;box-shadow:0 0 0 4px rgba(186,117,23,.18)}
+.rot-tx{flex:1;min-width:0}
+.rot-tx b{display:block;font-size:14.5px;color:var(--tinta);font-weight:700}
+.rot-tx span{font-size:12.5px;color:var(--tinta-2)}
+.rot-item.ok .rot-tx b{color:var(--tinta-2);font-weight:600}
+.rot-b{min-height:40px;padding:0 14px;border:1.5px solid var(--verde-700);border-radius:10px;background:#fff;color:var(--verde-700);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+.rot-item.prox .rot-b{background:var(--verde-700);color:#fff}
+.rot-erro{font-size:13px;color:var(--tinta-2);padding:10px 0}
 </style>
 <script>
 (function(){
