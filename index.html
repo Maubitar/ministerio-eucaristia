@@ -105,7 +105,31 @@ const REFORCO_TIPOS = [
 const _hoje = new Date();
 const _MESES_KEY_INIT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
-const APP_VERSAO = '21.11.2';
+// ===== WHATSAPP NO COMPUTADOR: emojis chegando como "?" =====
+// O aplicativo do WhatsApp para Windows perde os emojis (viram "?") quando o texto chega por
+// wa.me. No computador, o app passa a abrir o WhatsApp Web, que entrega os emojis corretamente.
+// No celular nada muda (wa.me abre direto o WhatsApp). Cobre botões, links e janelas já existentes.
+(function(){
+  const ehCelular = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  window._waParaDesktop = function(url){
+    try{
+      if(ehCelular || typeof url !== 'string' || !/^https:\/\/wa\.me\//i.test(url)) return url;
+      const u = new URL(url);
+      const fone = u.pathname.replace(/\D/g,'');
+      let texto = u.searchParams.get('text') || '';
+      if(texto.toWellFormed) texto = texto.toWellFormed();
+      return 'https://web.whatsapp.com/send?' + (fone ? 'phone='+fone+'&' : '') + 'text=' + encodeURIComponent(texto);
+    }catch(e){ return url; }
+  };
+  const abrirOriginal = window.open.bind(window);
+  window.open = function(url, ...resto){ return abrirOriginal(window._waParaDesktop(url), ...resto); };
+  document.addEventListener('click', function(ev){
+    const a = ev.target && ev.target.closest ? ev.target.closest('a[href^="https://wa.me/"]') : null;
+    if(a) a.setAttribute('href', window._waParaDesktop(a.getAttribute('href')));
+  }, true);
+})();
+
+const APP_VERSAO = '21.11.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
