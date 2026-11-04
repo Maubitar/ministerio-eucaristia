@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.12.0';
+const APP_VERSAO = '21.12.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -2956,9 +2956,9 @@ async function renderInicio(){
           <p style="font-size:11px;color:#888;margin:0">${(m.nascimento.startsWith('1900-')? m.nascimento.slice(5).split('-').reverse().join('/') : m.nascimento.split('-').reverse().join('/'))}</p></div>
           <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:5px 10px;border:1.5px solid #e1f5ee;border-radius:20px;background:#f5faf8;color:#085041;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
         </div>`).join('')
-      + (aniv.length>8 ? `<button onclick="abrirTodosAniversariantes()" style="width:100%;margin-top:8px;padding:8px;border:none;background:none;color:#085041;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline">Ver todos os ${aniv.length} aniversariantes do mês →</button>` : '')
+      + `<button onclick="abrirTodosAniversariantes(${new Date().getMonth()+1})" style="width:100%;margin-top:8px;min-height:46px;border:1.5px solid #085041;border-radius:12px;background:#fff;color:#085041;font-size:14px;font-weight:700;cursor:pointer">📅 Ver todos e outros meses (Dez, Jan…) →</button>`
       + (aniv.length ? `<button onclick="compartilharAniversariosWhats()" style="width:100%;margin-top:6px;padding:9px;border:1.5px solid #1D9E75;border-radius:9px;background:white;color:#1D9E75;font-size:12px;font-weight:700;cursor:pointer">📤 Enviar lista por WhatsApp</button>` : '')
-    : '<p style="font-size:12px;color:#888">Cadastre nascimentos para ver aniversariantes.</p>';
+    : '<p style="font-size:12px;color:#888">Nenhum aniversariante neste mês.</p><button onclick="abrirTodosAniversariantes('+(new Date().getMonth()+1)+')" style="width:100%;margin-top:8px;min-height:46px;border:1.5px solid #085041;border-radius:12px;background:#fff;color:#085041;font-size:14px;font-weight:700;cursor:pointer">📅 Ver outros meses →</button>';
 
   document.getElementById('dash-alertas').innerHTML = alertas.length
     ? alertas.slice(0,5).map(m=>{
@@ -12950,65 +12950,99 @@ window.importarAniversarios = async function(){
   if(typeof renderInicio==='function') renderInicio();
 };
 
-// Abre um modal com TODOS os aniversariantes do mês, ordenados por dia (não corta em 8, ao contrário do resumo da página inicial)
-window.abrirTodosAniversariantes = function(){
-  const agora = new Date();
-  const mes = agora.getMonth()+1, diaHoje = agora.getDate();
-  const doMes = ministros.filter(m=>{
+// ===== ANIVERSARIANTES — qualquer mês =====
+const _NOMES_MESES_ANIV = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+let _anivMesSel = null;
+function _anivDoMes(mes){
+  return ministros.filter(m=>{
     if(!m.nascimento) return false;
     const partes = m.nascimento.split('-');
-    if(partes.length<3) return false;
-    return parseInt(partes[1])===mes;
+    return partes.length>=3 && parseInt(partes[1])===mes;
   }).sort((a,b)=>parseInt(a.nascimento.split('-')[2]) - parseInt(b.nascimento.split('-')[2]));
+}
+function _anivTexto(mes){
+  const lista = _anivDoMes(mes);
+  let t = `🎂 *Aniversariantes de ${_NOMES_MESES_ANIV[mes-1]}* — Ministério da Eucaristia\n\n`;
+  lista.forEach(m=>{ t += `${String(parseInt(m.nascimento.split('-')[2])).padStart(2,'0')}/${String(mes).padStart(2,'0')} — ${m.nome}\n`; });
+  return t;
+}
 
-  const nomesMeses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-  const linhas = doMes.map(m=>{
-    const dia = parseInt(m.nascimento.split('-')[2]);
-    const ehHoje = dia===diaHoje;
-    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0;${ehHoje?'background:#fffdf7':''}">
-      <div style="width:32px;height:32px;border-radius:8px;background:${ehHoje?'#BA7517':'#f0e6da'};color:${ehHoje?'white':'#BA7517'};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">${dia}</div>
-      <span style="flex:1;font-size:13px;${ehHoje?'font-weight:700;color:#BA7517':''}">${m.nome}${ehHoje?' 🎉':''}</span>
-      <button onclick="gerarCartaoAniversario('${m.id}')" style="padding:5px 10px;border:1.5px solid #e1f5ee;border-radius:20px;background:#f5faf8;color:#085041;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
-    </div>`;
-  }).join('') || '<p style="font-size:12px;color:#888">Nenhum aniversariante neste mês.</p>';
-
+// Janela com os aniversariantes de QUALQUER mês: setas para avançar/voltar, lista do mês e ações
+window.abrirTodosAniversariantes = function(mesInicial){
+  const agora = new Date();
+  if(typeof mesInicial === 'number') _anivMesSel = mesInicial;
+  else if(_anivMesSel===null) _anivMesSel = agora.getMonth()+1;
   const existente = document.getElementById('modal-todos-aniv');
   if(existente) existente.remove();
   const modal = document.createElement('div');
   modal.id = 'modal-todos-aniv';
   modal.className = 'modal-bg';
   modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
-  modal.innerHTML = `<div class="modal-box">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <p style="font-size:16px;font-weight:700">🎂 Aniversariantes de ${nomesMeses[mes-1]} (${doMes.length})</p>
-      <button onclick="document.getElementById('modal-todos-aniv').remove()" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button>
-    </div>
-    <div style="max-height:55vh;overflow-y:auto;margin-bottom:12px">${linhas}</div>
-    <button onclick="compartilharAniversariosWhats()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#1D9E75;color:white;font-size:13px;font-weight:700;cursor:pointer">📤 Enviar lista por WhatsApp</button>
-  </div>`;
+  modal.innerHTML = '<div class="modal-box" id="aniv-box"></div>';
   document.body.appendChild(modal);
   modal.style.display='flex';
+  _anivDesenhar();
 };
+function _anivDesenhar(){
+  const box = document.getElementById('aniv-box'); if(!box) return;
+  const agora = new Date(), mes = _anivMesSel, ehMesAtual = mes===agora.getMonth()+1, diaHoje = agora.getDate();
+  const lista = _anivDoMes(mes);
+  const linhas = lista.map(m=>{
+    const dia = parseInt(m.nascimento.split('-')[2]);
+    const ehHoje = ehMesAtual && dia===diaHoje;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f0;${ehHoje?'background:#fffdf7':''}">
+      <div style="width:38px;height:38px;border-radius:10px;background:${ehHoje?'#BA7517':'#f0e6da'};color:${ehHoje?'white':'#BA7517'};display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;flex-shrink:0">${dia}</div>
+      <span style="flex:1;font-size:15px;${ehHoje?'font-weight:700;color:#BA7517':'font-weight:600;color:#16231f'}">${m.nome}${ehHoje?' 🎉':''}</span>
+      <button onclick="gerarCartaoAniversario('${m.id}')" style="min-height:40px;padding:0 12px;border:1.5px solid #cde8d8;border-radius:12px;background:#f5faf8;color:#085041;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">🎂 Cartão</button>
+    </div>`;
+  }).join('') || '<p style="font-size:14px;color:#888;padding:14px 0;text-align:center">Nenhum aniversariante neste mês.</p>';
+  const opcoes = _NOMES_MESES_ANIV.map((n,i)=>`<option value="${i+1}" ${i+1===mes?'selected':''}>${n}</option>`).join('');
+  const setaCss = 'width:48px;height:48px;border:1.5px solid #cde8d8;border-radius:12px;background:#fff;color:#085041;font-size:24px;font-weight:700;cursor:pointer;flex-shrink:0';
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <p style="font-size:17px;font-weight:800;margin:0">🎂 Aniversariantes (${lista.length})</p>
+      <button onclick="document.getElementById('modal-todos-aniv').remove()" style="border:none;background:none;font-size:26px;cursor:pointer;color:#aaa" aria-label="Fechar">×</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <button onclick="anivTrocarMes(-1)" style="${setaCss}" aria-label="Mês anterior">‹</button>
+      <select onchange="anivIrMes(this.value)" style="flex:1;min-height:48px;border:1.5px solid #cde8d8;border-radius:12px;font-size:16px;font-weight:700;color:#085041;padding:0 12px;margin:0;background:#fff">${opcoes}</select>
+      <button onclick="anivTrocarMes(1)" style="${setaCss}" aria-label="Próximo mês">›</button>
+    </div>
+    <div style="max-height:48vh;overflow-y:auto;margin-bottom:12px">${linhas}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button onclick="compartilharAniversariosWhats(${mes})" style="min-height:48px;border:none;border-radius:12px;background:#1D9E75;color:white;font-size:13px;font-weight:700;cursor:pointer">📤 WhatsApp</button>
+      <button onclick="copiarAniversarios(${mes})" style="min-height:48px;border:1.5px solid #1D9E75;border-radius:12px;background:#fff;color:#1D9E75;font-size:13px;font-weight:700;cursor:pointer">📋 Copiar lista</button>
+    </div>
+    <button onclick="imprimirAniversarios(${mes})" style="width:100%;min-height:48px;margin-top:8px;border:1.5px solid #085041;border-radius:12px;background:#fff;color:#085041;font-size:14px;font-weight:700;cursor:pointer">🖨️ Imprimir para a reunião</button>`;
+}
+window.anivTrocarMes = function(d){ _anivMesSel = ((_anivMesSel-1+d+12)%12)+1; _anivDesenhar(); };
+window.anivIrMes = function(v){ _anivMesSel = parseInt(v); _anivDesenhar(); };
 
-// Monta o texto da lista de aniversariantes do mês e abre o WhatsApp pra enviar
-window.compartilharAniversariosWhats = function(){
-  const agora = new Date();
-  const mes = agora.getMonth()+1;
-  const doMes = ministros.filter(m=>{
-    if(!m.nascimento) return false;
-    const partes = m.nascimento.split('-');
-    if(partes.length<3) return false;
-    return parseInt(partes[1])===mes;
-  }).sort((a,b)=>parseInt(a.nascimento.split('-')[2]) - parseInt(b.nascimento.split('-')[2]));
-
-  const nomesMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  if(!doMes.length){ toast('Nenhum aniversariante neste mês.','warn'); return; }
-  let texto = `🎂 *Aniversariantes de ${nomesMeses[mes-1]}* — Ministério da Eucaristia\n\n`;
-  doMes.forEach(m=>{
-    const dia = String(m.nascimento.split('-')[2]).padStart(2,'0');
-    texto += `${dia}/${String(mes).padStart(2,'0')} — ${m.nome}\n`;
-  });
-  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+// Texto da lista de aniversariantes do mês (padrão: mês atual) e abre o WhatsApp pra enviar
+window.compartilharAniversariosWhats = function(mes){
+  mes = (typeof mes==='number') ? mes : (new Date().getMonth()+1);
+  if(!_anivDoMes(mes).length){ toast('Nenhum aniversariante neste mês.','warn'); return; }
+  window.open(`https://wa.me/?text=${encodeURIComponent(_anivTexto(mes))}`, '_blank');
+};
+window.copiarAniversarios = async function(mes){
+  if(!_anivDoMes(mes).length){ toast('Nenhum aniversariante neste mês.','warn'); return; }
+  try{ await navigator.clipboard.writeText(_anivTexto(mes).replace(/\*/g,'')); toast('✓ Lista copiada.','ok'); }
+  catch(e){ toast('Não consegui copiar.','warn'); }
+};
+window.imprimirAniversarios = function(mes){
+  const lista = _anivDoMes(mes);
+  if(!lista.length){ toast('Nenhum aniversariante neste mês.','warn'); return; }
+  const w = window.open('','_blank');
+  if(!w){ toast('Permita a abertura de janelas para imprimir.','warn'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Aniversariantes de ${_NOMES_MESES_ANIV[mes-1]}</title>
+  <style>body{font-family:Arial,sans-serif;padding:28px;color:#16231f}h1{font-size:22px;color:#085041;margin:0 0 4px}p.s{color:#666;margin:0 0 18px;font-size:13px}
+  table{width:100%;border-collapse:collapse}td{padding:9px 6px;border-bottom:1px solid #ddd;font-size:15px}td.d{width:70px;font-weight:700;color:#BA7517}
+  @media print{button{display:none}}</style></head><body>
+  <h1>🎂 Aniversariantes de ${_NOMES_MESES_ANIV[mes-1]}</h1><p class="s">Ministério Extraordinário da Sagrada Comunhão Eucarística — Basílica de Nazaré · ${lista.length} aniversariante(s)</p>
+  <table>${lista.map(m=>`<tr><td class="d">${String(parseInt(m.nascimento.split('-')[2])).padStart(2,'0')}/${String(mes).padStart(2,'0')}</td><td>${m.nome}</td></tr>`).join('')}</table>
+  <button onclick="window.print()" style="margin-top:20px;padding:10px 22px;background:#085041;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨️ Imprimir</button>
+  <script>window.onload=()=>window.print();<\/script></body></html>`);
+  w.document.close();
 };
 
 // Gera um cartão de aniversário sereno/religioso (tons dourados) com o nome do ministro,
@@ -17959,7 +17993,7 @@ function secRenderAniversarios(){
     </div>
 
     <div class="card">
-      <p style="font-size:14px;font-weight:700;color:#085041;margin:0 0 10px">🎂 Aniversariantes do mês (${doMes.length})</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><p style="font-size:14px;font-weight:700;color:#085041;margin:0">🎂 Aniversariantes do mês (${doMes.length})</p><button onclick="abrirTodosAniversariantes(${mes})" style="min-height:40px;padding:0 14px;border:1.5px solid #085041;border-radius:12px;background:#fff;color:#085041;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">📅 Outros meses</button></div>
       ${doMes.length ? doMes.map(m=>{
         const dia = m.nascimento.split('-')[2];
         const ehHoje = parseInt(dia)===d;
