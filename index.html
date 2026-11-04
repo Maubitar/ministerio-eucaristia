@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.11.3';
+const APP_VERSAO = '21.12.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -473,6 +473,15 @@ window.addEventListener('load', async()=>{
     // BLINDAGEM: sem isso, quem já tinha o link salvo no celular podia ficar preso numa versão
     // antiga em cache do navegador, sem nenhum aviso — a mesma checagem automática da tela
     // principal também roda aqui, detectando e recarregando sozinho quando sai versão nova.
+    if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
+    return;
+  }
+  // LINK DA CONFRATERNIZAÇÃO: o ministro confirma (ou não) a presença, sem login
+  const confraId = params.get('confra');
+  if(confraId){
+    const app = initializeApp(FB);
+    db = _abrirDb(app);
+    modoConfraternizacao(confraId, params.get('m') || '');
     if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
   }
@@ -1442,6 +1451,315 @@ window.ampliarQR = function(){
   try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(w=>{ wl=w; }).catch(()=>{}); }catch(e){}
   ov.onclick = ()=>{ try{ if(wl) wl.release(); }catch(e){} ov.remove(); };
 };
+
+// ====================== CONFRATERNIZAÇÃO — CONFIRMAÇÃO DE PRESENÇA ======================
+// O coordenador cria o evento (data, local, prazo), manda a cada ministro um link PESSOAL e
+// acompanha quantas pessoas vão (ministros + acompanhantes) — número que o buffet cobra.
+// Evento ativo: config/confra · Respostas: confra_respostas/{eventoId}_{ministroId}
+let _confra = null, _confraResp = {}, _confraUnsub = null, _confraFiltro = 'todos', _confraBusca = '';
+
+function _confraDataLonga(iso){
+  if(!iso) return '';
+  try{ return new Date(iso+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }catch(e){ return iso; }
+}
+function _confraPrazoVencido(ev){
+  if(!ev || !ev.prazo) return false;
+  const fim = new Date(ev.prazo+'T23:59:59');
+  return Date.now() > fim.getTime();
+}
+function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}`; }
+function _confraMsgConvite(ev, m){
+  const nome = (m.nome||'').split(' ')[0];
+  return `Olá, ${nome}! 🙏\n\nA Coordenação MESCE convida você para a nossa *${ev.titulo||'Confraternização'}*:\n\n📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}\n📍 ${ev.local||'Local a definir'}\n\nPrecisamos saber quantas pessoas virão para organizar tudo. Toque no link e responda se você *vai* ou *não poderá ir*${ev.prazo?` até ${ev.prazo.split('-').reverse().join('/')}`:''}:\n\n${_confraLink(ev, m.id)}\n\nSua resposta é muito importante. Obrigado! 🕊️`;
+}
+
+async function carregarConfra(){
+  try{
+    const d = await getDoc(doc(db,'config','confra'));
+    _confra = d.exists() ? d.data() : null;
+  }catch(e){ _confra = null; }
+  return _confra;
+}
+
+window.renderConfra = async function(){
+  const cont = document.getElementById('confra-body');
+  if(!cont) return;
+  cont.innerHTML = '<p class="cf-vazio">Carregando...</p>';
+  await carregarConfra();
+  if(_confraUnsub){ try{ _confraUnsub(); }catch(e){} _confraUnsub = null; }
+  _confraResp = {};
+  if(_confra && _confra.id){
+    try{
+      _confraUnsub = onSnapshot(query(collection(db,'confra_respostas'), where('eventoId','==',_confra.id)), snap=>{
+        _confraResp = {};
+        snap.forEach(d=>{ const r = d.data(); _confraResp[r.ministroId] = r; });
+        if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
+      }, ()=>{});
+    }catch(e){}
+  }
+  desenharConfra();
+};
+
+function _confraTotais(){
+  const ativos = ministros.filter(m=>m.ativo!==false);
+  let sim=0, nao=0, acomp=0;
+  ativos.forEach(m=>{
+    const r = _confraResp[m.id];
+    if(!r) return;
+    if(r.status==='sim'){ sim++; acomp += (r.acompanhantes||0); }
+    else if(r.status==='nao') nao++;
+  });
+  // respostas de quem ficou inativo depois também contam como pessoa confirmada
+  Object.values(_confraResp).forEach(r=>{
+    if(!ativos.some(m=>m.id===r.ministroId)){ if(r.status==='sim'){ sim++; acomp += (r.acompanhantes||0); } else if(r.status==='nao') nao++; }
+  });
+  return { convidados: ativos.length, sim, nao, sem: Math.max(0, ativos.length - ativos.filter(m=>_confraResp[m.id]).length), acomp, total: sim+acomp };
+}
+
+function desenharConfra(){
+  const cont = document.getElementById('confra-body');
+  if(!cont) return;
+  const ev = _confra;
+  const form = `
+    <details class="cf-det" ${ev?'':'open'}>
+      <summary>${ev ? '⚙️ Dados do evento (tocar para editar)' : '🎉 Criar a confraternização'}</summary>
+      <div class="cf-form">
+        <label>Nome do evento<input id="cf-titulo" type="text" value="${(ev?.titulo||'Confraternização de Fim de Ano MESCE').replace(/"/g,'&quot;')}"></label>
+        <div class="cf-linha">
+          <label>Data<input id="cf-data" type="date" value="${ev?.data||''}"></label>
+          <label>Hora<input id="cf-hora" type="time" value="${ev?.hora||''}"></label>
+        </div>
+        <label>Local<input id="cf-local" type="text" placeholder="Ex.: Salão paroquial" value="${(ev?.local||'').replace(/"/g,'&quot;')}"></label>
+        <label>Responder até (prazo)<input id="cf-prazo" type="date" value="${ev?.prazo||''}"></label>
+        <label class="cf-chk"><input id="cf-acomp" type="checkbox" ${ev && ev.acomp===false ? '' : 'checked'}> Permitir acompanhantes</label>
+        <div class="cf-linha">
+          <label>Máx. de acompanhantes<input id="cf-max" type="number" min="1" max="10" value="${ev?.maxAcomp||4}"></label>
+          <label>Valor por pessoa (só você vê)<input id="cf-valor" type="number" min="0" step="0.01" placeholder="R$" value="${ev?.valor||''}"></label>
+        </div>
+        <button type="button" class="cf-btn cf-prim" onclick="confraSalvar()">Salvar evento</button>
+        ${ev ? '<button type="button" class="cf-btn cf-sec" onclick="confraNovo()">Começar um novo evento (zera as respostas)</button>' : ''}
+      </div>
+    </details>`;
+  if(!ev){ cont.innerHTML = form; return; }
+
+  const t = _confraTotais();
+  const custo = ev.valor ? `<div class="cf-k cf-k-ouro"><b>${(t.total*ev.valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</b><span>Custo estimado</span></div>` : '';
+  const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const q = normalizarBusca(_confraBusca);
+  const lista = ativos.filter(m=>{
+    const r = _confraResp[m.id];
+    const st = r ? r.status : 'sem';
+    if(_confraFiltro!=='todos' && st!==_confraFiltro) return false;
+    return !q || normalizarBusca(m.nome).includes(q);
+  });
+  const chip = (id,rot,n)=>`<button type="button" class="min-chip${_confraFiltro===id?' on':''}" onclick="confraFiltrar('${id}')">${rot} <b>${n}</b></button>`;
+  const linha = m=>{
+    const r = _confraResp[m.id];
+    const st = r ? r.status : 'sem';
+    const badge = st==='sim' ? `<span class="cf-b cf-b-sim">✓ Vai${r.acompanhantes?` + ${r.acompanhantes} acomp.`:''}</span>` : st==='nao' ? '<span class="cf-b cf-b-nao">✕ Não vai</span>' : '<span class="cf-b cf-b-sem">Sem resposta</span>';
+    const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : '';
+    const lembrar = (st==='sem' && tel) ? `<button type="button" class="cf-mini" onclick="confraConvidar('${m.id}')">📲 Convidar</button>` : (st==='sem' ? '<span class="cf-nt">sem telefone</span>' : '');
+    return `<div class="cf-row"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}</div><div class="cf-ac">${lembrar}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
+  };
+  cont.innerHTML = form + `
+    <div class="cf-evt"><b>${ev.titulo||'Confraternização'}</b><span>${_confraDataLonga(ev.data)}${ev.hora?` · ${ev.hora}`:''}${ev.local?` · ${ev.local}`:''}</span>${ev.prazo?`<span class="${_confraPrazoVencido(ev)?'cf-venc':''}">Responder até ${ev.prazo.split('-').reverse().join('/')}${_confraPrazoVencido(ev)?' · prazo encerrado':''}</span>`:''}</div>
+    <div class="cf-kpis">
+      <div class="cf-k cf-k-total"><b>${t.total}</b><span>Pessoas para o buffet</span></div>
+      <div class="cf-k"><b>${t.sim}</b><span>Ministros que vão</span></div>
+      <div class="cf-k"><b>${t.acomp}</b><span>Acompanhantes</span></div>
+      <div class="cf-k"><b>${t.nao}</b><span>Não vão</span></div>
+      <div class="cf-k"><b>${t.sem}</b><span>Sem resposta</span></div>
+      ${custo}
+    </div>
+    <div class="cf-acoes">
+      <button type="button" class="cf-btn cf-prim" onclick="confraConvidarTodos()" ${t.sem?'':'disabled'}>📲 Enviar convite a quem não respondeu (${t.sem})</button>
+      <button type="button" class="cf-btn cf-sec" onclick="confraCopiarResumo()">📋 Copiar resumo para o buffet</button>
+      <button type="button" class="cf-btn cf-sec" onclick="confraCSV()">📥 Baixar planilha</button>
+    </div>
+    <div class="min-busca" style="margin-top:6px"><span class="min-busca-ic">🔍</span><input type="text" placeholder="Buscar ministro" value="${_confraBusca.replace(/"/g,'&quot;')}" oninput="confraBuscar(this.value)"></div>
+    <div class="min-filtros">${chip('todos','Todos',ativos.length)}${chip('sim','Vão',t.sim)}${chip('nao','Não vão',t.nao)}${chip('sem','Sem resposta',t.sem)}</div>
+    <div class="cf-lista">${lista.length ? lista.map(linha).join('') : '<p class="cf-vazio">Nenhum ministro neste filtro.</p>'}</div>`;
+}
+
+window.confraFiltrar = f=>{ _confraFiltro = f; desenharConfra(); };
+window.confraBuscar = v=>{ _confraBusca = v||''; const pos = _confraBusca.length; desenharConfra(); const i = document.querySelector('#confra-body .min-busca input'); if(i){ i.focus(); i.setSelectionRange(pos,pos); } };
+
+window.confraSalvar = async function(){
+  const g = id => document.getElementById(id);
+  const data = g('cf-data').value, titulo = g('cf-titulo').value.trim();
+  if(!titulo || !data){ toast('Preencha o nome e a data do evento.','warn'); return; }
+  const dados = {
+    id: (_confra && _confra.id) || ('confra_'+Date.now()),
+    titulo, data, hora: g('cf-hora').value, local: g('cf-local').value.trim(),
+    prazo: g('cf-prazo').value, acomp: g('cf-acomp').checked,
+    maxAcomp: Math.max(1, Math.min(10, parseInt(g('cf-max').value)||4)),
+    valor: parseFloat(g('cf-valor').value)||0,
+    atualizadoEm: Date.now()
+  };
+  try{
+    await setDoc(doc(db,'config','confra'), dados);
+    _confra = dados;
+    toast('✓ Evento salvo.','ok');
+    renderConfra();
+  }catch(e){ toast('Não foi possível salvar. Tente de novo.','err'); }
+};
+
+window.confraNovo = async function(){
+  if(!confirm('Começar um NOVO evento? As respostas do evento atual continuam guardadas, mas a lista começa do zero.')) return;
+  _confra = null; _confraResp = {};
+  if(_confraUnsub){ try{ _confraUnsub(); }catch(e){} _confraUnsub = null; }
+  try{ await deleteDoc(doc(db,'config','confra')); }catch(e){}
+  desenharConfra();
+};
+
+window.confraConvidar = function(id){
+  const m = ministros.find(x=>x.id===id); if(!m || !_confra) return;
+  const tel = formatarTelBR(m.tel); if(!tel){ toast('Ministro sem telefone válido.','warn'); return; }
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(_confraMsgConvite(_confra, m))}`, 'sogi_zap_confra');
+};
+
+window.confraConvidarTodos = function(){
+  if(!_confra) return;
+  const pend = ministros.filter(m=>m.ativo!==false && !_confraResp[m.id]);
+  const comTel = pend.filter(m=>formatarTelBR(m.tel)).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const semTel = pend.length - comTel.length;
+  if(!comTel.length){ toast('Ninguém pendente com telefone válido.','warn'); return; }
+  if(!confirm(`Enviar o convite para ${comTel.length} ministro(s) que ainda não responderam?${semTel?`\n\n${semTel} sem telefone ficam de fora.`:''}\n\nO WhatsApp abre um por vez. Envie e toque em "Próximo" aqui.`)) return;
+  filaWhatsIniciar(comTel.map(m=>({ nome: primeiroNomes(m.nome), url:`https://wa.me/${formatarTelBR(m.tel)}?text=${encodeURIComponent(_confraMsgConvite(_confra, m))}` })), 'sogi_zap_confra');
+};
+
+window.confraResumoTexto = function(){
+  const t = _confraTotais(), ev = _confra;
+  const vao = ministros.filter(m=>_confraResp[m.id]?.status==='sim').sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  return `${ev.titulo} — ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}${ev.local?`\nLocal: ${ev.local}`:''}\n\nTOTAL PARA O BUFFET: ${t.total} pessoas\n• Ministros confirmados: ${t.sim}\n• Acompanhantes: ${t.acomp}\n• Não vão: ${t.nao}\n• Ainda sem resposta: ${t.sem}\n\nConfirmados:\n` + vao.map(m=>`- ${m.nome}${_confraResp[m.id].acompanhantes?` (+${_confraResp[m.id].acompanhantes})`:''}`).join('\n');
+};
+window.confraCopiarResumo = async function(){
+  try{ await navigator.clipboard.writeText(confraResumoTexto()); toast('✓ Resumo copiado. É só colar no WhatsApp ou e-mail.','ok'); }
+  catch(e){ toast('Não consegui copiar. Use a planilha.','warn'); }
+};
+window.confraCSV = function(){
+  const linhas = [['Nome','Resposta','Acompanhantes','Pessoas','Telefone']];
+  ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).forEach(m=>{
+    const r = _confraResp[m.id];
+    const st = r ? (r.status==='sim'?'Vai':'Não vai') : 'Sem resposta';
+    const ac = r && r.status==='sim' ? (r.acompanhantes||0) : 0;
+    linhas.push([m.nome, st, ac, r && r.status==='sim' ? 1+ac : 0, m.tel||'']);
+  });
+  const csv = '﻿' + linhas.map(l=>l.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download = 'confraternizacao.csv'; document.body.appendChild(a); a.click(); a.remove();
+};
+
+// Registro manual (ministro respondeu por telefone/pessoalmente)
+let _cfManId = null, _cfManStatus = null, _cfManAcomp = 0;
+window.confraManual = function(id){
+  const m = ministros.find(x=>x.id===id); if(!m) return;
+  _cfManId = id; const r = _confraResp[id];
+  _cfManStatus = r ? r.status : null; _cfManAcomp = r ? (r.acompanhantes||0) : 0;
+  document.getElementById('cfm-nome').textContent = m.nome;
+  desenharConfraManual();
+  document.getElementById('modal-confra-man').style.display = 'flex';
+};
+function desenharConfraManual(){
+  const maxA = _confra?.acomp===false ? 0 : (_confra?.maxAcomp||4);
+  document.getElementById('cfm-body').innerHTML = `
+    <div class="cfm-sn">
+      <button type="button" class="${_cfManStatus==='sim'?'on sim':''}" onclick="cfManSet('sim')">✅ Vai</button>
+      <button type="button" class="${_cfManStatus==='nao'?'on nao':''}" onclick="cfManSet('nao')">❌ Não vai</button>
+    </div>
+    ${_cfManStatus==='sim' && maxA ? `<div class="cfm-ac"><span>Acompanhantes</span>
+      <button type="button" onclick="cfManAc(-1)">−</button><b>${_cfManAcomp}</b>
+      <button type="button" onclick="cfManAc(1)">+</button></div>` : ''}
+    <button type="button" class="cf-btn cf-prim" onclick="confraManualSalvar()" ${_cfManStatus?'':'disabled'}>Salvar resposta</button>
+    ${_confraResp[_cfManId] ? '<button type="button" class="cf-btn cf-sec" onclick="confraManualLimpar()">Apagar resposta (volta a “sem resposta”)</button>' : ''}`;
+}
+window.cfManSet = st=>{ _cfManStatus = st; if(st==='nao') _cfManAcomp = 0; desenharConfraManual(); };
+window.cfManAc = d=>{ const maxA = _confra?.acomp===false ? 0 : (_confra?.maxAcomp||4); _cfManAcomp = Math.max(0, Math.min(maxA, _cfManAcomp+d)); desenharConfraManual(); };
+window.confraManualSalvar = async function(){
+  const m = ministros.find(x=>x.id===_cfManId); if(!m || !_cfManStatus || !_confra) return;
+  const dados = { eventoId:_confra.id, ministroId:m.id, nome:m.nome, status:_cfManStatus, acompanhantes: _cfManStatus==='sim' ? _cfManAcomp : 0, em:Date.now(), origem:'coordenacao' };
+  try{ await setDoc(doc(db,'confra_respostas',`${_confra.id}_${m.id}`), dados); _confraResp[m.id] = dados; fecharModal('modal-confra-man'); desenharConfra(); toast('✓ Resposta registrada.','ok'); }
+  catch(e){ console.warn('[SOGI] confra manual', e); toast('Não foi possível salvar.','err'); }
+};
+window.confraManualLimpar = async function(){
+  if(!_confra) return;
+  try{ await deleteDoc(doc(db,'confra_respostas',`${_confra.id}_${_cfManId}`)); delete _confraResp[_cfManId]; fecharModal('modal-confra-man'); desenharConfra(); }
+  catch(e){ toast('Não foi possível apagar.','err'); }
+};
+
+// ---------- Página pública: o ministro responde pelo link ----------
+async function modoConfraternizacao(eventoId, ministroId){
+  const caixa = (inner)=>`<div style="min-height:100vh;background:#f2f5f3;font-family:Inter,-apple-system,Segoe UI,sans-serif;padding:20px 16px 40px;display:flex;justify-content:center"><div style="width:100%;max-width:460px">
+    <div style="display:flex;justify-content:center;gap:12px;margin:6px 0 18px"><img src="${LOGO_MESCE}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)"><img src="${LOGO_BASILICA}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)"></div>${inner}</div></div>`;
+  const aviso = (ic,tit,txt)=>caixa(`<div style="background:#fff;border-radius:20px;padding:30px 22px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.08)"><div style="font-size:46px">${ic}</div><p style="font-size:20px;font-weight:800;color:#085041;margin:10px 0 8px">${tit}</p><p style="font-size:16px;color:#444;line-height:1.55;margin:0">${txt}</p></div>`);
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
+  let ev, m, resp=null;
+  try{
+    const [de, dm] = await Promise.all([ getDoc(doc(db,'config','confra')), getDoc(doc(db,'ministros',ministroId)) ]);
+    if(!de.exists() || de.data().id!==eventoId || !dm.exists()) throw new Error('inválido');
+    ev = de.data(); m = {id:dm.id, ...dm.data()};
+    const dr = await getDoc(doc(db,'confra_respostas',`${eventoId}_${ministroId}`));
+    if(dr.exists()) resp = dr.data();
+  }catch(e){
+    document.body.innerHTML = aviso('⚠️','Link inválido ou encerrado','Peça à Coordenação MESCE um novo link.');
+    return;
+  }
+  const primeiro = (m.nome||'').split(' ')[0];
+  const maxA = ev.acomp===false ? 0 : (ev.maxAcomp||4);
+  const venc = _confraPrazoVencido(ev);
+  const cartaEvento = `<div style="background:linear-gradient(135deg,#06241d,#0a6e57);color:#fff;border-radius:20px;padding:22px;box-shadow:0 8px 24px rgba(8,80,65,.3);margin-bottom:14px">
+    <p style="font-size:13px;letter-spacing:1.5px;opacity:.8;margin:0 0 6px;text-transform:uppercase">Você está convidado(a)</p>
+    <p style="font-size:24px;font-weight:800;margin:0 0 12px;line-height:1.2">${ev.titulo}</p>
+    <p style="font-size:17px;margin:0 0 4px">📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}</p>
+    ${ev.local?`<p style="font-size:17px;margin:0">📍 ${ev.local}</p>`:''}</div>`;
+
+  let status = resp ? resp.status : null, acomp = resp ? (resp.acompanhantes||0) : 0, editando = !resp;
+
+  const desenhar = ()=>{
+    if(!editando && resp){
+      const pessoas = resp.status==='sim' ? 1+(resp.acompanhantes||0) : 0;
+      document.body.innerHTML = caixa(cartaEvento + `<div style="background:#fff;border-radius:20px;padding:26px 22px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.08)">
+        <div style="font-size:50px">${resp.status==='sim'?'✅':'🙏'}</div>
+        <p style="font-size:21px;font-weight:800;color:#085041;margin:8px 0 6px">${resp.status==='sim'?'Presença confirmada!':'Resposta registrada'}</p>
+        <p style="font-size:17px;color:#333;line-height:1.55;margin:0">${primeiro}, ${resp.status==='sim' ? `anotamos <b>${pessoas} pessoa${pessoas>1?'s':''}</b> para você${resp.acompanhantes?` (você + ${resp.acompanhantes} acompanhante${resp.acompanhantes>1?'s':''})`:''}.` : 'anotamos que você <b>não poderá comparecer</b>. Sentiremos sua falta!'}</p>
+        ${venc ? '<p style="font-size:14px;color:#888;margin:16px 0 0">O prazo de resposta já encerrou. Para mudar, fale com a Coordenação.</p>' : '<button id="cf-mudar" style="margin-top:18px;min-height:52px;padding:0 24px;border:2px solid #085041;border-radius:14px;background:#fff;color:#085041;font-size:16px;font-weight:700;cursor:pointer">Mudar minha resposta</button>'}
+      </div>`);
+      const b = document.getElementById('cf-mudar'); if(b) b.onclick = ()=>{ editando = true; desenhar(); };
+      return;
+    }
+    if(venc && !resp){ document.body.innerHTML = aviso('⏰','Prazo encerrado','O prazo para responder já terminou. Fale com a Coordenação MESCE.'); return; }
+    const btn = (id,txt,cor,ativo)=>`<button id="${id}" style="width:100%;min-height:68px;border-radius:18px;border:3px solid ${cor};background:${ativo?cor:'#fff'};color:${ativo?'#fff':cor};font-size:20px;font-weight:800;cursor:pointer;margin-bottom:12px">${txt}</button>`;
+    document.body.innerHTML = caixa(cartaEvento + `<div style="background:#fff;border-radius:20px;padding:22px;box-shadow:0 4px 18px rgba(0,0,0,.08)">
+      <p style="font-size:19px;font-weight:700;color:#222;margin:0 0 16px;line-height:1.35">Olá, ${primeiro}! Você vai participar?</p>
+      ${btn('cf-sim','✅ Sim, eu vou','#0a6e57',status==='sim')}
+      ${btn('cf-nao','❌ Não poderei ir','#A32D2D',status==='nao')}
+      ${status==='sim' && maxA ? `<div style="background:#f2f9f6;border-radius:16px;padding:16px;margin:6px 0 14px;text-align:center">
+        <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 4px">Vai levar acompanhantes?</p>
+        <p style="font-size:14px;color:#555;margin:0 0 12px">Além de você. Cada pessoa conta para o buffet.</p>
+        <div style="display:flex;align-items:center;justify-content:center;gap:18px">
+          <button id="cf-menos" style="width:56px;height:56px;border-radius:50%;border:2px solid #085041;background:#fff;color:#085041;font-size:30px;font-weight:700;cursor:pointer">−</button>
+          <span style="font-size:38px;font-weight:800;color:#085041;min-width:50px">${acomp}</span>
+          <button id="cf-mais" style="width:56px;height:56px;border-radius:50%;border:2px solid #085041;background:#085041;color:#fff;font-size:30px;font-weight:700;cursor:pointer">+</button>
+        </div></div>` : ''}
+      <button id="cf-enviar" ${status?'':'disabled'} style="width:100%;min-height:62px;border:none;border-radius:16px;background:${status?'#085041':'#c9d3cf'};color:#fff;font-size:19px;font-weight:800;cursor:${status?'pointer':'not-allowed'}">Enviar minha resposta</button>
+      ${ev.prazo?`<p style="font-size:14px;color:#777;text-align:center;margin:14px 0 0">Responder até ${ev.prazo.split('-').reverse().join('/')}</p>`:''}
+    </div>`);
+    document.getElementById('cf-sim').onclick = ()=>{ status='sim'; desenhar(); };
+    document.getElementById('cf-nao').onclick = ()=>{ status='nao'; acomp=0; desenhar(); };
+    const mn = document.getElementById('cf-menos'), ms = document.getElementById('cf-mais');
+    if(mn) mn.onclick = ()=>{ acomp=Math.max(0,acomp-1); desenhar(); };
+    if(ms) ms.onclick = ()=>{ acomp=Math.min(maxA,acomp+1); desenhar(); };
+    document.getElementById('cf-enviar').onclick = async ()=>{
+      if(!status) return;
+      const bt = document.getElementById('cf-enviar'); bt.disabled = true; bt.textContent = 'Enviando...';
+      const dados = { eventoId, ministroId, nome:m.nome, status, acompanhantes: status==='sim' ? acomp : 0, em:Date.now(), origem:'link' };
+      try{ await setDoc(doc(db,'confra_respostas',`${eventoId}_${ministroId}`), dados); resp = dados; editando = false; desenhar(); }
+      catch(e){ bt.disabled = false; bt.textContent = 'Enviar minha resposta'; alert('Não foi possível enviar agora. Verifique a internet e tente de novo.'); }
+    };
+  };
+  desenhar();
+}
 
 async function modoDisponibilidade(id){
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
@@ -2508,6 +2826,7 @@ window.nav = function(id, btn){
     'tel-rapido': ()=>renderTelefonesRapido(),
     'envio-presenca': ()=>renderEnvioLinksPresenca(),
     'envio-cart': ()=>renderEnvioCarteirinhas(),
+    confra: ()=>renderConfra(),
     'alerta-presenca': ()=>renderAlertaPresenca(),
     cirio: ()=>renderCirioConfig(),
     'escala-cirio': ()=>renderEscalaCirio(),
@@ -12222,7 +12541,7 @@ window.enviarMensagemResp = function(nome, tel){
     .replace(/\{NOME\}/g, nome.split(' ')[0])
     .replace(/\{NOME_COMPLETO\}/g, nome)
     .replace(/\{HORARIO\}/g, horarioTexto);
-  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msgFinal)}`, '_blank');
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msgFinal)}`, 'sogi_zap_resp');
 };
 
 // Envia para TODOS os responsáveis em sequência
@@ -12248,24 +12567,55 @@ window.enviarParaTodosResp = async function(){
 
 ⚠️ ${semTel.length} sem telefone: ${semTel.join(', ')}` : ''}
 
-O WhatsApp abrirá para cada um. Toque "Enviar" em cada conversa.`);
+O WhatsApp abrirá um responsável por vez. Envie e toque em "Próximo" aqui.`);
   if(!ok) return;
 
-  // Abre sequencialmente com 1.5s de intervalo
-  comTel.forEach((nome, idx)=>{
-    setTimeout(()=>{
-      const m = buscarMinistroPorNome(nome);
-      const tel = typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
-      const horarios = resp[nome].map(h=>`${h.tipo} ${h.hora}`).join(', ');
-      const msgFinal = msg
-        .replace(/\{NOME\}/g, nome.split(' ')[0])
-        .replace(/\{NOME_COMPLETO\}/g, nome)
-        .replace(/\{HORARIO\}/g, horarios);
-      window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msgFinal)}`, '_blank');
-    }, idx * 1500);
-  });
+  filaWhatsIniciar(comTel.map(nome=>{
+    const m = buscarMinistroPorNome(nome);
+    const tel = typeof formatarTelBR==='function' ? formatarTelBR(m.tel) : (m.tel||'').replace(/\D/g,'');
+    const horarios = resp[nome].map(h=>`${h.tipo} ${h.hora}`).join(', ');
+    const msgFinal = msg
+      .replace(/\{NOME\}/g, nome.split(' ')[0])
+      .replace(/\{NOME_COMPLETO\}/g, nome)
+      .replace(/\{HORARIO\}/g, horarios);
+    return { nome, url:`https://wa.me/${tel}?text=${encodeURIComponent(msgFinal)}` };
+  }), 'sogi_zap_resp');
+};
 
-  toast(`✓ Abrindo WhatsApp para ${comTel.length} responsável(is)...`,'ok');
+// FILA DE WHATSAPP (usada por Responsáveis e Confraternização): uma única aba do WhatsApp, uma
+// pessoa por vez. Cada toque em "Próximo" abre a conversa já com a mensagem pronta. (Abrir várias
+// abas de uma vez trava o WhatsApp Web e o navegador bloqueia as abas abertas por temporizador.)
+window.filaWhatsIniciar = function(itens, aba){
+  window._filaW = { i:0, itens, aba: aba||'sogi_zap_envio' };
+  filaWhatsProximo();
+};
+window.filaWhatsProximo = function(){
+  const f = window._filaW;
+  if(!f) return;
+  let barra = document.getElementById('fila-whats-barra');
+  if(f.i >= f.itens.length){
+    if(barra) barra.remove();
+    window._filaW = null;
+    toast('✓ Todas as conversas foram abertas no WhatsApp.','ok');
+    return;
+  }
+  const it = f.itens[f.i];
+  window.open(it.url, f.aba);
+  f.i++;
+  if(!barra){
+    barra = document.createElement('div');
+    barra.id = 'fila-whats-barra';
+    barra.className = 'resp-fila';
+    document.body.appendChild(barra);
+  }
+  const falta = f.itens.length - f.i;
+  barra.innerHTML = `<div class="rf-tx"><b>${f.i} de ${f.itens.length}</b><span>Aberto: ${it.nome}. Envie no WhatsApp e volte aqui.</span></div>
+    <button type="button" class="rf-prox" onclick="filaWhatsProximo()">${falta ? `Próximo (${falta}) ›` : 'Concluir ✓'}</button>
+    <button type="button" class="rf-x" onclick="filaWhatsCancelar()" aria-label="Cancelar">✕</button>`;
+};
+window.filaWhatsCancelar = function(){
+  window._filaW = null;
+  const b = document.getElementById('fila-whats-barra'); if(b) b.remove();
 };
 
 window.filtrarMin = function(){ renderMinistros(document.getElementById('busca-min').value); };
@@ -18526,6 +18876,15 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
   <div id="ec-lista" class="cart-lista"></div>
 </div>
 
+<div id="s-confra" class="sec">
+  <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
+  <div class="card" style="background:linear-gradient(135deg,#085041,#0a6e57);border:none">
+    <p style="font-size:17px;font-weight:700;color:white;margin:0">🎉 Confraternização</p>
+    <p style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 0">Convite, confirmação de presença e total de pessoas para o buffet.</p>
+  </div>
+  <div id="confra-body"></div>
+</div>
+
 <div id="s-cirio" class="sec">
   <button class="btn-voltar" onclick="voltar()">‹ Voltar</button>
   <div class="card" style="background:linear-gradient(135deg,#085041,#0a6e57);border:none">
@@ -18884,6 +19243,9 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <input type="text" id="ed-cpf" placeholder="CPF" style="margin-bottom:12px">
     <button class="btn-g" onclick="salvarDados()">Salvar dados</button>
   </div>
+</div>
+<div id="modal-confra-man" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-confra-man')">
+  <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:17px;font-weight:800;margin:0" id="cfm-nome"></p><button onclick="fecharModal('modal-confra-man')" style="border:none;background:none;font-size:24px;cursor:pointer;color:#aaa" aria-label="Fechar">×</button></div><div id="cfm-body"></div></div>
 </div>
 <div id="modal-cad" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-cad')">
   <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Novo ministro</p><button onclick="fecharModal('modal-cad')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div>
@@ -19929,6 +20291,56 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 /* v21.11.1 — faixa de boas-vindas só com a saudação */
 #s-inicio .dash-hero{padding:20px 24px}
 #s-inicio .dash-saudacao{font-size:24px}
+
+/* fila de envio aos responsáveis */
+.resp-fila{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;z-index:300;width:min(560px,calc(100% - 24px));display:flex;align-items:center;gap:10px;background:#06241d;color:#fff;border-radius:16px;padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,.35)}
+@media(min-width:1000px){.resp-fila{bottom:24px;left:calc(50% + 142px)}}
+.rf-tx{flex:1;min-width:0}.rf-tx b{display:block;font-size:15px}.rf-tx span{font-size:12px;opacity:.8}
+.rf-prox{min-height:44px;padding:0 18px;border:none;border-radius:12px;background:#25D366;color:#06241d;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap}
+.rf-x{width:36px;height:36px;border:none;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;font-size:15px;cursor:pointer}
+
+/* ===== v21.12.0 — Confraternização ===== */
+#s-confra{max-width:900px}
+.cf-det{background:#fff;border:1px solid var(--linha);border-radius:16px;margin-bottom:14px;box-shadow:var(--sombra-1)}
+.cf-det summary{padding:16px 18px;font-size:15px;font-weight:700;cursor:pointer;color:var(--verde-700);list-style:none}
+.cf-form{padding:0 18px 18px;display:flex;flex-direction:column;gap:12px}
+.cf-form label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:600;color:var(--tinta-2);flex:1}
+.cf-form input[type=text],.cf-form input[type=date],.cf-form input[type=time],.cf-form input[type=number]{min-height:46px;border:1.5px solid var(--linha);border-radius:12px;padding:0 12px;font-size:15px;margin:0;background:#fff;color:var(--tinta)}
+.cf-linha{display:flex;gap:10px;flex-wrap:wrap}.cf-linha label{min-width:130px}
+.cf-chk{flex-direction:row!important;align-items:center;gap:10px!important;font-size:15px!important;color:var(--tinta)!important}
+.cf-chk input{width:22px;height:22px}
+.cf-btn{min-height:50px;border-radius:14px;border:1.5px solid var(--verde-700);font-size:15px;font-weight:700;padding:0 18px;cursor:pointer;width:100%}
+.cf-prim{background:var(--verde-700);color:#fff}.cf-prim:disabled{opacity:.45;cursor:not-allowed}
+.cf-sec{background:#fff;color:var(--verde-700)}
+.cf-evt{background:#fff;border:1px solid var(--linha);border-left:4px solid var(--ouro);border-radius:14px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:3px}
+.cf-evt b{font-size:17px;color:var(--tinta)}.cf-evt span{font-size:13.5px;color:var(--tinta-2)}.cf-venc{color:#A32D2D!important;font-weight:700}
+.cf-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+@media(min-width:700px){.cf-kpis{grid-template-columns:repeat(3,1fr)}}
+.cf-k{background:#fff;border:1px solid var(--linha);border-radius:14px;padding:14px 16px;box-shadow:var(--sombra-1)}
+.cf-k b{display:block;font-size:28px;font-weight:800;color:var(--verde-700);font-variant-numeric:tabular-nums;line-height:1.1}
+.cf-k span{font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--tinta-2);font-weight:600}
+.cf-k-total{grid-column:1/-1;background:linear-gradient(135deg,#06241d,#0a6e57);border:none}
+.cf-k-total b{color:#fff;font-size:40px}.cf-k-total span{color:rgba(255,255,255,.8)}
+.cf-k-ouro b{color:var(--ouro)}
+.cf-acoes{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+@media(min-width:700px){.cf-acoes{flex-direction:row}}
+.cf-lista{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.cf-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff;border:1px solid var(--linha);border-radius:14px;padding:10px 14px;min-height:60px}
+.cf-nm{display:flex;flex-direction:column;gap:4px;min-width:0}.cf-nm b{font-size:15px;color:var(--tinta)}
+.cf-b{font-size:12px;font-weight:700;padding:2px 10px;border-radius:99px;align-self:flex-start}
+.cf-b-sim{background:#e1f5ee;color:#085041}.cf-b-nao{background:#fcebeb;color:#A32D2D}.cf-b-sem{background:#f1f1ee;color:#777}
+.cf-ac{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.cf-mini{min-height:40px;padding:0 12px;border:1.5px solid var(--verde-700);border-radius:11px;background:#fff;color:var(--verde-700);font-size:13px;font-weight:700;cursor:pointer}
+.cf-edit{width:40px;padding:0;border-color:var(--linha);color:var(--tinta-2);font-size:17px}
+.cf-nt{font-size:12px;color:#BA7517;font-weight:600}
+.cf-vazio{text-align:center;color:var(--tinta-2);padding:18px;font-size:14px}
+.cfm-sn{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.cfm-sn button{min-height:60px;border-radius:14px;border:2px solid var(--linha);background:#fff;font-size:17px;font-weight:800;cursor:pointer}
+.cfm-sn button.on.sim{background:#0a6e57;border-color:#0a6e57;color:#fff}.cfm-sn button.on.nao{background:#A32D2D;border-color:#A32D2D;color:#fff}
+.cfm-ac{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:14px;font-weight:700}
+.cfm-ac button{width:48px;height:48px;border-radius:50%;border:2px solid var(--verde-700);background:#fff;color:var(--verde-700);font-size:24px;cursor:pointer}
+.cfm-ac b{font-size:28px;min-width:36px;text-align:center}
+#modal-confra-man .cf-btn{margin-top:8px}
 </style>
 <script>
 (function(){
@@ -19981,11 +20393,12 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
    {id:'relatorios',t:'Relatórios',i:'chart'},
    {id:'financeiro',t:'Financeiro',i:'wallet'},
    {id:'secretaria',t:'Secretaria',i:'file'},
+   {id:'confra',t:'Confraternização',i:'star'},
    {g:'Administração'},
    {id:'mais',t:'Acessos e configurações',i:'gear'},
    {a:'fazerLogout',t:'Sair',i:'out'}
   ];
-  var TITULOS={inicio:'Início',escala:'Montar escala',presenca:'Presença',relatorios:'Relatórios',responsaveis:'Responsáveis',ministros:'Ministros',mais:'Configurações',finalizadas:'Escalas finalizadas',transmissao:'Transmitir escalas',eventos:'Eventos especiais','evento-detalhe':'Evento especial',plantao:'Plantonistas',ausencias:'Ausências',financeiro:'Financeiro',secretaria:'Secretaria','tel-rapido':'Telefones rápidos','envio-presenca':'Links de presença','envio-cart':'Carteirinhas','alerta-presenca':'Radar de presença',cirio:'Grade do Círio','escala-cirio':'Escala do Círio'};
+  var TITULOS={inicio:'Início',escala:'Montar escala',presenca:'Presença',relatorios:'Relatórios',responsaveis:'Responsáveis',ministros:'Ministros',mais:'Configurações',finalizadas:'Escalas finalizadas',transmissao:'Transmitir escalas',eventos:'Eventos especiais','evento-detalhe':'Evento especial',plantao:'Plantonistas',ausencias:'Ausências',financeiro:'Financeiro',secretaria:'Secretaria',confra:'Confraternização','tel-rapido':'Telefones rápidos','envio-presenca':'Links de presença','envio-cart':'Carteirinhas','alerta-presenca':'Radar de presença',cirio:'Grade do Círio','escala-cirio':'Escala do Círio'};
   var _permitidas='todas', _atual='inicio', _badges={};
   function svg(k){return '<svg viewBox="0 0 24 24">'+(ICO[k]||ICO.list)+'</svg>';}
   function desenhar(){
