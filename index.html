@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.13.1';
+const APP_VERSAO = '21.13.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1473,7 +1473,7 @@ function _confraPrazoVencido(ev){
   const fim = new Date(ev.prazo+'T23:59:59');
   return Date.now() > fim.getTime();
 }
-function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}`; }
+function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}&v=${APP_VERSAO}`; }
 function _confraMsgConvite(ev, m){
   const nome = (m.nome||'').split(' ')[0];
   const brl = ev.valor>0 ? 'R$ '+Number(ev.valor).toFixed(2).replace('.',',') : '';
@@ -1789,14 +1789,18 @@ async function modoConfraternizacao(eventoId, ministroId){
   const aviso = (ic,tit,txt)=>caixa(`<div style="background:#fff;border-radius:20px;padding:30px 22px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.08)"><div style="font-size:46px">${ic}</div><p style="font-size:20px;font-weight:800;color:#085041;margin:10px 0 8px">${tit}</p><p style="font-size:16px;color:#444;line-height:1.55;margin:0">${txt}</p></div>`);
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
   let ev, m, resp=null;
+  const limite = (pr, ms)=>Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(Object.assign(new Error('tempo esgotado'),{code:'timeout'})), ms))]);
   try{
-    const [de, dm] = await Promise.all([ getDoc(doc(db,'config','confra')), getDoc(doc(db,'ministros',ministroId)) ]);
-    if(!de.exists() || de.data().id!==eventoId || !dm.exists()) throw new Error('inválido');
+    const [de, dm] = await limite(Promise.all([ getDoc(doc(db,'config','confra')), getDoc(doc(db,'ministros',ministroId)) ]), 15000);
+    if(!de.exists() || de.data().id!==eventoId || !dm.exists()) throw Object.assign(new Error('inválido'),{code:'link-invalido'});
     ev = de.data(); m = {id:dm.id, ...dm.data()};
-    const dr = await getDoc(doc(db,'confra_respostas',`${eventoId}_${ministroId}`));
-    if(dr.exists()) resp = dr.data();
+    try{ const dr = await limite(getDoc(doc(db,'confra_respostas',`${eventoId}_${ministroId}`)), 8000); if(dr.exists()) resp = dr.data(); }
+    catch(e2){ console.warn('[SOGI] confra leitura resposta', e2); }
   }catch(e){
-    document.body.innerHTML = aviso('⚠️','Link inválido ou encerrado','Peça à Coordenação MESCE um novo link.');
+    console.warn('[SOGI] confra abrir', e);
+    const motivo = e && e.code ? e.code : String(e && e.message || e);
+    const lento = e && e.code==='timeout';
+    document.body.innerHTML = aviso(lento?'📶':'⚠️', lento?'Não foi possível carregar':'Link inválido ou encerrado', (lento?'A conexão está lenta ou instável. Toque no botão para tentar de novo.':'Peça à Coordenação MESCE um novo link.') + `<br><br><button onclick="location.reload()" style="min-height:52px;padding:0 24px;border:2px solid #085041;border-radius:14px;background:#fff;color:#085041;font-size:17px;font-weight:700">🔄 Tentar de novo</button><br><span style="font-size:11px;color:#aaa">código: ${motivo} · v${APP_VERSAO}</span>`);
     return;
   }
   const primeiro = (m.nome||'').split(' ')[0];
@@ -1853,7 +1857,8 @@ async function modoConfraternizacao(eventoId, ministroId){
       catch(e){ bt.disabled = false; bt.textContent = 'Enviar minha resposta'; alert('Não foi possível enviar agora. Verifique a internet e tente de novo.'); }
     };
   };
-  desenhar();
+  try{ desenhar(); }
+  catch(e){ console.warn('[SOGI] confra desenhar', e); document.body.innerHTML = aviso('⚠️','Não foi possível mostrar o convite',`Toque para tentar de novo.<br><br><button onclick="location.reload()" style="min-height:52px;padding:0 24px;border:2px solid #085041;border-radius:14px;background:#fff;color:#085041;font-size:17px;font-weight:700">🔄 Tentar de novo</button><br><span style="font-size:11px;color:#aaa">código: ${String(e&&e.message||e).slice(0,80)} · v${APP_VERSAO}</span>`); }
 }
 
 async function modoDisponibilidade(id){
