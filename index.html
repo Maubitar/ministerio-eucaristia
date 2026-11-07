@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.13.4';
+const APP_VERSAO = '21.14.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1614,6 +1614,7 @@ function desenharConfra(){
     <div class="cf-acoes">
       <button type="button" class="cf-btn cf-prim" onclick="confraConvidarTodos()" ${t.sem?'':'disabled'}>📲 Enviar convite a quem não respondeu (${t.sem})</button>
       ${ev.valor ? `<button type="button" class="cf-btn cf-sec" onclick="confraCobrarTodos()" ${fin.devedores?'':'disabled'}>💬 Cobrar quem deve (${fin.devedores})</button>` : ''}
+      <button type="button" class="cf-btn cf-sec" onclick="confraSorteio()" ${t.sim?'':'disabled'}>🎁 Sorteio de prêmios (raspadinha)</button>
       <button type="button" class="cf-btn cf-sec" onclick="confraCopiarResumo()">📋 Copiar resumo para o buffet</button>
       <button type="button" class="cf-btn cf-sec" onclick="confraCSV()">📥 Baixar planilha</button>
     </div>
@@ -1690,6 +1691,165 @@ window.confraCSV = function(){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   a.download = 'confraternizacao.csv'; document.body.appendChild(a); a.click(); a.remove();
+};
+
+// ===== SORTEIO DE PRÊMIOS (raspadinha) — só entre ministros com presença confirmada =====
+// Fluxo: sorteia o ministro → o número do prêmio já fica definido e guardado → ele raspa → o número aparece.
+let _sorteio = null, _sorRaspando = false;
+function _sorteioVazio(){ return { eventoId: _confra ? _confra.id : '', premios: [], sorteados: [] }; }
+async function _sorteioCarregar(){
+  try{
+    const d = await getDoc(doc(db,'config','confra_sorteio'));
+    const x = d.exists() ? d.data() : null;
+    _sorteio = (x && _confra && x.eventoId===_confra.id) ? { eventoId:x.eventoId, premios:x.premios||[], sorteados:x.sorteados||[] } : _sorteioVazio();
+  }catch(e){ console.warn('[SOGI] sorteio carregar', e); _sorteio = _sorteioVazio(); }
+}
+async function _sorteioSalvar(){
+  await setDoc(doc(db,'config','confra_sorteio'), { eventoId:_sorteio.eventoId, premios:_sorteio.premios, sorteados:_sorteio.sorteados, atualizadoEm:Date.now() });
+}
+function _sorAleatorio(n){ const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; }
+function _sorElegiveis(){
+  const ja = new Set(_sorteio.sorteados.map(x=>x.ministroId));
+  return ministros.filter(m=>m.ativo!==false && _confraResp[m.id]?.status==='sim' && !ja.has(m.id));
+}
+function _sorNumerosLivres(){
+  const usados = new Set(_sorteio.sorteados.map(x=>x.n));
+  return _sorteio.premios.map((_,i)=>i+1).filter(n=>!usados.has(n));
+}
+
+window.confraSorteio = async function(){
+  if(!_confra) return;
+  await _sorteioCarregar();
+  let ov = document.getElementById('sorteio-ov'); if(ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'sorteio-ov';
+  document.body.appendChild(ov); document.body.style.overflow = 'hidden';
+  _sorDesenhar();
+};
+window.sorteioFechar = function(){ document.getElementById('sorteio-ov')?.remove(); document.body.style.overflow = ''; if(document.getElementById('s-confra')?.style.display==='block') desenharConfra(); };
+
+function _sorDesenhar(){
+  const ov = document.getElementById('sorteio-ov'); if(!ov) return;
+  const pend = _sorteio.sorteados.find(x=>!x.revealed);
+  const eleg = _sorElegiveis(), livres = _sorNumerosLivres();
+  const feitos = _sorteio.sorteados.filter(x=>x.revealed);
+  const lista = feitos.slice().reverse().map(x=>`<div class="sor-w"><span class="sor-n">${x.n}</span><div><b>${primeiroNomes(x.nome)}</b><small>${(_sorteio.premios[x.n-1]||'').replace(/</g,'&lt;')||'Prêmio nº '+x.n}</small></div></div>`).join('') || '<p class="sor-vazio">Nenhum prêmio sorteado ainda.</p>';
+  let centro;
+  if(pend){
+    centro = `<p class="sor-tit">🎉 ${primeiroNomes(pend.nome)}</p><p class="sor-sub">Raspe com o dedo para descobrir o seu prêmio!</p>
+      <div class="sor-card" id="sor-card"><div class="sor-premio"><small>Seu número</small><b>${pend.n}</b></div><canvas id="sor-cv"></canvas></div>
+      <button type="button" class="sor-link" onclick="sorteioRevelar()">Prefere revelar sem raspar? Toque aqui</button>`;
+  } else if(!_sorteio.premios.length){
+    centro = `<p class="sor-tit">Cadastre os prêmios</p><p class="sor-sub">Escreva um prêmio por linha. O número de cada um é a ordem da linha.</p>`;
+  } else if(!livres.length){
+    centro = `<p class="sor-tit">✅ Todos os prêmios foram sorteados</p>`;
+  } else if(!eleg.length){
+    centro = `<p class="sor-tit">Ninguém mais para sortear</p><p class="sor-sub">Todos os ministros confirmados já participaram.</p>`;
+  } else {
+    centro = `<p class="sor-sub">${eleg.length} ministro${eleg.length>1?'s':''} concorrendo · ${livres.length} prêmio${livres.length>1?'s':''} restante${livres.length>1?'s':''}</p>
+      <div class="sor-roleta" id="sor-roleta">🎁</div>
+      <button type="button" class="sor-btn" id="sor-sortear" onclick="sorteioSortear()">🎲 Sortear ministro</button>`;
+  }
+  ov.innerHTML = `<div class="sor-wrap">
+    <div class="sor-top"><b>🎁 Sorteio de Prêmios</b><button type="button" onclick="sorteioFechar()" aria-label="Fechar">×</button></div>
+    <div class="sor-centro">${centro}</div>
+    <details class="sor-det" ${_sorteio.premios.length?'':'open'}><summary>⚙️ Prêmios (${_sorteio.premios.length})</summary>
+      <textarea id="sor-txt" rows="6" placeholder="1 linha por prêmio. Ex.:&#10;Cesta de chocolates&#10;Terço de madeira&#10;Vale-presente">${_sorteio.premios.join('\n').replace(/</g,'&lt;')}</textarea>
+      <button type="button" class="sor-btn sor-btn2" onclick="sorteioSalvarPremios()">Salvar prêmios</button></details>
+    <div class="sor-lista"><p class="sor-lt">Ganhadores (${feitos.length})</p>${lista}
+      ${feitos.length?`<button type="button" class="sor-btn sor-btn2" onclick="sorteioCopiar()">📋 Copiar ganhadores</button>`:''}
+      ${_sorteio.sorteados.length?`<button type="button" class="sor-link" onclick="sorteioDesfazer()">Desfazer o último sorteio</button>`:''}</div>
+  </div>`;
+  if(pend) _sorIniciarRaspadinha();
+}
+
+window.sorteioSalvarPremios = async function(){
+  const linhas = (document.getElementById('sor-txt').value||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  const maxUsado = _sorteio.sorteados.reduce((a,x)=>Math.max(a,x.n),0);
+  if(linhas.length < maxUsado){ toast(`Já foram sorteados prêmios até o nº ${maxUsado}. Não dá para ter menos linhas que isso.`,'warn'); return; }
+  _sorteio.premios = linhas;
+  try{ await _sorteioSalvar(); toast('✓ Prêmios salvos.','ok'); _sorDesenhar(); }
+  catch(e){ console.warn('[SOGI] sorteio salvar', e); toast('Não foi possível salvar.','err'); }
+};
+
+window.sorteioSortear = async function(){
+  if(_sorRaspando) return;
+  const eleg = _sorElegiveis(), livres = _sorNumerosLivres();
+  if(!eleg.length || !livres.length) return;
+  // define AGORA o ministro e o número: fica guardado, então fechar a tela não permite "tentar de novo"
+  const m = eleg[_sorAleatorio(eleg.length)], n = livres[_sorAleatorio(livres.length)];
+  _sorRaspando = true;
+  const btn = document.getElementById('sor-sortear'); if(btn) btn.disabled = true;
+  const rol = document.getElementById('sor-roleta');
+  let i = 0, atraso = 60;
+  await new Promise(res=>{
+    const passo = ()=>{
+      if(rol) rol.textContent = primeiroNomes(eleg[_sorAleatorio(eleg.length)].nome);
+      i++; atraso *= 1.09;
+      if(atraso < 420) setTimeout(passo, atraso); else res();
+    };
+    passo();
+  });
+  if(rol){ rol.textContent = primeiroNomes(m.nome); rol.classList.add('sor-fim'); }
+  _sorteio.sorteados.push({ ministroId:m.id, nome:m.nome, n, revealed:false, em:Date.now() });
+  try{ await _sorteioSalvar(); }
+  catch(e){ _sorteio.sorteados.pop(); _sorRaspando = false; toast('Não foi possível registrar o sorteio. Tente de novo.','err'); _sorDesenhar(); return; }
+  await new Promise(r=>setTimeout(r,1100));
+  _sorRaspando = false; _sorDesenhar();
+};
+
+window.sorteioRevelar = async function(){
+  const pend = _sorteio.sorteados.find(x=>!x.revealed); if(!pend) return;
+  pend.revealed = true; pend.reveladoEm = Date.now();
+  const card = document.getElementById('sor-card'); if(card){ card.classList.add('sor-aberto'); }
+  const cv = document.getElementById('sor-cv'); if(cv) cv.style.opacity = '0';
+  try{ await _sorteioSalvar(); }catch(e){ console.warn('[SOGI] sorteio revelar', e); toast('Revelado, mas não consegui salvar. Anote o número.','warn'); }
+  const premio = _sorteio.premios[pend.n-1];
+  setTimeout(()=>{ _sorDesenhar(); const c = document.querySelector('.sor-centro'); if(c) c.insertAdjacentHTML('afterbegin', `<div class="sor-ganhou"><p>🎉 ${primeiroNomes(pend.nome)}</p><b>Prêmio nº ${pend.n}</b>${premio?`<span>${premio.replace(/</g,'&lt;')}</span>`:''}</div>`); }, 900);
+};
+
+function _sorIniciarRaspadinha(){
+  const cv = document.getElementById('sor-cv'), card = document.getElementById('sor-card'); if(!cv||!card) return;
+  const w = card.clientWidth, h = card.clientHeight, dpr = window.devicePixelRatio||1;
+  cv.width = w*dpr; cv.height = h*dpr; cv.style.width = w+'px'; cv.style.height = h+'px';
+  const g = cv.getContext('2d'); g.scale(dpr,dpr);
+  const gr = g.createLinearGradient(0,0,w,h); gr.addColorStop(0,'#c9ced1'); gr.addColorStop(.5,'#eef0f1'); gr.addColorStop(1,'#aeb4b8');
+  g.fillStyle = gr; g.fillRect(0,0,w,h);
+  g.fillStyle = 'rgba(0,0,0,.12)'; for(let i=0;i<160;i++){ g.fillRect(Math.random()*w, Math.random()*h, 2, 2); }
+  g.fillStyle = '#6b7378'; g.font = '800 22px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('✨ RASPE AQUI ✨', w/2, h/2);
+  g.globalCompositeOperation = 'destination-out';
+  let preso = false, ult = null, cont = 0;
+  const pos = e=>{ const r = cv.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x:t.clientX-r.left, y:t.clientY-r.top }; };
+  const risca = e=>{
+    if(!preso) return; e.preventDefault();
+    const p = pos(e); g.lineWidth = 46; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.beginPath(); if(ult){ g.moveTo(ult.x, ult.y); g.lineTo(p.x, p.y); } else { g.moveTo(p.x, p.y); g.lineTo(p.x+.1, p.y+.1); }
+    g.stroke(); ult = p;
+    if(++cont % 6 === 0) verifica();
+  };
+  const verifica = ()=>{
+    const d = g.getImageData(0,0,cv.width,cv.height).data; let claros = 0, tot = 0;
+    for(let y=0;y<cv.height;y+=12) for(let x=0;x<cv.width;x+=12){ tot++; if(d[(y*cv.width+x)*4+3] < 40) claros++; }
+    if(claros/tot > .5) sorteioRevelar();
+  };
+  cv.addEventListener('mousedown', e=>{ preso = true; ult = null; risca(e); });
+  cv.addEventListener('mousemove', risca);
+  window.addEventListener('mouseup', ()=>{ preso = false; ult = null; });
+  cv.addEventListener('touchstart', e=>{ preso = true; ult = null; risca(e); }, { passive:false });
+  cv.addEventListener('touchmove', risca, { passive:false });
+  cv.addEventListener('touchend', ()=>{ preso = false; ult = null; verifica(); });
+}
+
+window.sorteioCopiar = async function(){
+  const feitos = _sorteio.sorteados.filter(x=>x.revealed);
+  const t = `🎁 Sorteio — ${_confra.titulo||'Confraternização'}\n\n` + feitos.map(x=>`Nº ${x.n} — ${x.nome}${_sorteio.premios[x.n-1]?' — '+_sorteio.premios[x.n-1]:''}`).join('\n');
+  try{ await navigator.clipboard.writeText(t); toast('✓ Lista copiada.','ok'); } catch(e){ toast('Não consegui copiar.','warn'); }
+};
+window.sorteioDesfazer = async function(){
+  const ult = _sorteio.sorteados[_sorteio.sorteados.length-1]; if(!ult) return;
+  if(!confirm(`Desfazer o sorteio de ${primeiroNomes(ult.nome)} (prêmio nº ${ult.n})? Ele volta a concorrer e o número volta a ficar livre.`)) return;
+  _sorteio.sorteados.pop();
+  try{ await _sorteioSalvar(); _sorDesenhar(); }catch(e){ toast('Não foi possível desfazer.','err'); }
 };
 
 // ---- Carrinho de débito do ministro ----
@@ -20535,6 +20695,32 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 .cf-cart>div{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--linha);font-size:15px}
 .cf-cart>div:last-child{border-bottom:none}
 .cf-cart b{font-size:17px}.cf-cart-tot{font-weight:800}.cf-cart-tot b{font-size:20px}
+#sorteio-ov{position:fixed;inset:0;z-index:9000;background:linear-gradient(160deg,#06241d,#0a6e57);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sor-wrap{max-width:520px;margin:0 auto;padding:14px 16px 40px;color:#fff}
+.sor-top{display:flex;justify-content:space-between;align-items:center;font-size:18px;margin-bottom:10px}
+.sor-top button{border:none;background:rgba(255,255,255,.15);color:#fff;font-size:26px;width:44px;height:44px;border-radius:12px;cursor:pointer}
+.sor-centro{text-align:center;padding:10px 0 6px}
+.sor-tit{font-size:28px;font-weight:800;margin:6px 0}.sor-sub{font-size:15px;opacity:.85;margin:0 0 14px}
+.sor-roleta{font-size:34px;font-weight:800;min-height:110px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.1);border-radius:20px;margin:0 0 16px;padding:10px;line-height:1.15}
+.sor-roleta.sor-fim{background:#BA7517;animation:sorpop .5s}
+@keyframes sorpop{0%{transform:scale(.9)}60%{transform:scale(1.06)}100%{transform:scale(1)}}
+.sor-btn{width:100%;min-height:60px;border:none;border-radius:16px;background:#BA7517;color:#fff;font-size:20px;font-weight:800;cursor:pointer}
+.sor-btn:disabled{opacity:.6}.sor-btn2{background:rgba(255,255,255,.16);min-height:50px;font-size:15px;margin-top:10px}
+.sor-card{position:relative;width:100%;max-width:340px;height:200px;margin:8px auto 10px;border-radius:20px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.35);background:#fff}
+.sor-card canvas{position:absolute;inset:0;touch-action:none;transition:opacity .8s;cursor:pointer}
+.sor-premio{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#085041;background:radial-gradient(circle,#fff,#fdf3e2)}
+.sor-premio small{font-size:14px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#8a5a0c}.sor-premio b{font-size:92px;line-height:1;color:#BA7517}
+.sor-aberto{animation:sorpop .6s}
+.sor-link{border:none;background:none;color:#cfe9df;font-size:13px;text-decoration:underline;cursor:pointer;padding:10px;min-height:44px}
+.sor-ganhou{background:#fff;color:#085041;border-radius:20px;padding:16px;margin-bottom:14px;animation:sorpop .5s}
+.sor-ganhou p{margin:0;font-size:22px;font-weight:800}.sor-ganhou b{display:block;font-size:30px;color:#BA7517}.sor-ganhou span{font-size:17px}
+.sor-det{background:rgba(255,255,255,.08);border-radius:14px;padding:10px 14px;margin:14px 0}.sor-det summary{cursor:pointer;font-weight:700;min-height:36px;display:flex;align-items:center}
+.sor-det textarea{width:100%;box-sizing:border-box;border:none;border-radius:12px;padding:10px;font-size:15px;margin-top:8px}
+.sor-lt{font-weight:800;margin:8px 0}
+.sor-w{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.1);border-radius:14px;padding:10px 12px;margin-bottom:8px;text-align:left}
+.sor-w div{display:flex;flex-direction:column}.sor-w small{opacity:.8;font-size:13px}
+.sor-n{min-width:42px;height:42px;border-radius:12px;background:#BA7517;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800}
+.sor-vazio{opacity:.7;font-size:14px}
 .cf-edit{width:40px;padding:0;border-color:var(--linha);color:var(--tinta-2);font-size:17px}
 .cf-nt{font-size:12px;color:#BA7517;font-weight:600}
 .cf-vazio{text-align:center;color:var(--tinta-2);padding:18px;font-size:14px}
