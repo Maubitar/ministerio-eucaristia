@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.14.0';
+const APP_VERSAO = '21.14.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1804,7 +1804,7 @@ window.sorteioRevelar = async function(){
   const cv = document.getElementById('sor-cv'); if(cv) cv.style.opacity = '0';
   try{ await _sorteioSalvar(); }catch(e){ console.warn('[SOGI] sorteio revelar', e); toast('Revelado, mas não consegui salvar. Anote o número.','warn'); }
   const premio = _sorteio.premios[pend.n-1];
-  setTimeout(()=>{ _sorDesenhar(); const c = document.querySelector('.sor-centro'); if(c) c.insertAdjacentHTML('afterbegin', `<div class="sor-ganhou"><p>🎉 ${primeiroNomes(pend.nome)}</p><b>Prêmio nº ${pend.n}</b>${premio?`<span>${premio.replace(/</g,'&lt;')}</span>`:''}</div>`); }, 900);
+  setTimeout(()=>{ _sorDesenhar(); const c = document.querySelector('.sor-centro'); if(c) c.insertAdjacentHTML('afterbegin', `<div class="sor-ganhou"><p>🎉 Parabéns, ${primeiroNomes(pend.nome)}!</p><b>Prêmio nº ${pend.n}</b>${premio?`<span>${premio.replace(/</g,'&lt;')}</span>`:''}<em>🎄 Que você e sua família tenham um Natal muito abençoado! 🙏</em></div>`); }, 900);
 };
 
 function _sorIniciarRaspadinha(){
@@ -20713,7 +20713,7 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 .sor-aberto{animation:sorpop .6s}
 .sor-link{border:none;background:none;color:#cfe9df;font-size:13px;text-decoration:underline;cursor:pointer;padding:10px;min-height:44px}
 .sor-ganhou{background:#fff;color:#085041;border-radius:20px;padding:16px;margin-bottom:14px;animation:sorpop .5s}
-.sor-ganhou p{margin:0;font-size:22px;font-weight:800}.sor-ganhou b{display:block;font-size:30px;color:#BA7517}.sor-ganhou span{font-size:17px}
+.sor-ganhou p{margin:0;font-size:22px;font-weight:800}.sor-ganhou b{display:block;font-size:30px;color:#BA7517}.sor-ganhou span{font-size:17px;display:block}.sor-ganhou em{display:block;font-style:normal;font-size:16px;line-height:1.4;color:#085041;margin-top:12px;padding-top:12px;border-top:1px dashed #e3c99b}
 .sor-det{background:rgba(255,255,255,.08);border-radius:14px;padding:10px 14px;margin:14px 0}.sor-det summary{cursor:pointer;font-weight:700;min-height:36px;display:flex;align-items:center}
 .sor-det textarea{width:100%;box-sizing:border-box;border:none;border-radius:12px;padding:10px;font-size:15px;margin-top:8px}
 .sor-lt{font-weight:800;margin:8px 0}
