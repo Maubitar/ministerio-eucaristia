@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.13.0';
+const APP_VERSAO = '21.13.1';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -907,6 +907,15 @@ window.fazerLogout = function(){
   }
 };
 
+// Monta o endereço de recarga MANTENDO os dados do link (ministro, confra, disp, presresp...).
+// Sem isso, quem abria um link público e caía numa atualização de versão perdia o link e ficava em "Carregando".
+function _urlRecarga(extra){
+  const u = new URL(location.href); u.hash = '';
+  ['v','t','nocache','r','cb','v_check'].forEach(k=>u.searchParams.delete(k));
+  Object.keys(extra).forEach(k=>u.searchParams.set(k, extra[k]));
+  return u.toString();
+}
+
 // Força o navegador a buscar a versão mais nova do app (contorna cache do GitHub Pages)
 window.forcarAtualizacao = async function(){
   toast('Buscando versão mais recente...');
@@ -918,8 +927,7 @@ window.forcarAtualizacao = async function(){
       await Promise.all(nomes.map(n=>caches.delete(n)));
     }
   }catch(e){}
-  const base = location.href.split('?')[0].split('#')[0];
-  location.replace(base + '?v=' + Date.now());
+  location.replace(_urlRecarga({ v: Date.now() }));
 };
 
 // ===== VERIFICAÇÃO AUTOMÁTICA DE NOVA VERSÃO NO SERVIDOR =====
@@ -928,8 +936,7 @@ window.forcarAtualizacao = async function(){
 let _checandoVersao = false;
 // Força a última versão IMEDIATAMENTE — ignora cache do navegador E do GitHub CDN
 window.forcarVersaoNova = function(){
-  const base = location.href.split('?')[0].split('#')[0];
-  const url = base + '?nocache=' + Date.now() + '&r=' + Math.random().toString(36).slice(2);
+  const url = _urlRecarga({ nocache: Date.now(), r: Math.random().toString(36).slice(2) });
   if('caches' in window){
     caches.keys().then(nomes=>Promise.all(nomes.map(n=>caches.delete(n)))).finally(()=>{
       location.replace(url);
@@ -1001,9 +1008,8 @@ async function mostrarBannerNovaVersao(novaVersao){
   }catch(e){}
   // Só recarrega sozinho se NÃO houver pendência — agilizado para 1.5s
   setTimeout(()=>{
-    const base = location.href.split('?')[0].split('#')[0];
     localStorage.setItem('sogi_atualizando', APP_VERSAO);
-    location.replace(base + '?v=' + novaVersao + '&t=' + Date.now());
+    location.replace(_urlRecarga({ v: novaVersao, t: Date.now() }));
   }, 1500);
 }
 
