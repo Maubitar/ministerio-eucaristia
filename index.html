@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.13.2';
+const APP_VERSAO = '21.13.4';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -259,6 +259,12 @@ const MISSAS_SEM_DIAS = {
 // diante o app e os links de presença abrem na hora com o cache e só baixam o que MUDOU.
 function _abrirDb(app){
   try{ return initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+  catch(e){ return getFirestore(app); }
+}
+// Banco para páginas PÚBLICAS (links enviados aos ministros): sem cache em disco (que trava em navegadores
+// internos de celular/WhatsApp) e com detecção automática de conexão bloqueada (usa conexão alternativa).
+function _abrirDbPublico(app){
+  try{ return initializeFirestore(app, { experimentalAutoDetectLongPolling: true }); }
   catch(e){ return getFirestore(app); }
 }
 // Lê os ministros priorizando o cache local (instantâneo) e atualiza só as mudanças em segundo plano.
@@ -480,7 +486,7 @@ window.addEventListener('load', async()=>{
   const confraId = params.get('confra');
   if(confraId){
     const app = initializeApp(FB);
-    db = _abrirDb(app);
+    db = _abrirDbPublico(app);
     modoConfraternizacao(confraId, params.get('m') || '');
     if(typeof iniciarVerificacaoAuto==='function') iniciarVerificacaoAuto();
     return;
@@ -1783,24 +1789,74 @@ window.confraManualLimpar = async function(){
 };
 
 // ---------- Página pública: o ministro responde pelo link ----------
+// ===== Plano B de conexão (HTTPS simples) =====
+// Alguns celulares/antivírus/DNS bloqueiam a conexão contínua do Firestore, mas deixam passar HTTPS comum.
+const _RESTBASE = `https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents`;
+function _restDec(v){
+  if(!v) return null;
+  if('stringValue' in v) return v.stringValue;
+  if('integerValue' in v) return Number(v.integerValue);
+  if('doubleValue' in v) return v.doubleValue;
+  if('booleanValue' in v) return v.booleanValue;
+  if('nullValue' in v) return null;
+  if('timestampValue' in v) return v.timestampValue;
+  return null;
+}
+function _restEnc(x){
+  if(x===null || x===undefined) return { nullValue:null };
+  if(typeof x==='boolean') return { booleanValue:x };
+  if(typeof x==='number') return Number.isInteger(x) ? { integerValue:String(x) } : { doubleValue:x };
+  return { stringValue:String(x) };
+}
+async function _restTempo(url, opts, ms){
+  const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), ms);
+  try{ return await fetch(url, { ...opts, signal: ctl.signal }); } finally{ clearTimeout(t); }
+}
+async function _restLer(col, id, campos){
+  const q = (campos||[]).map(c=>'mask.fieldPaths='+encodeURIComponent(c)).join('&');
+  const r = await _restTempo(`${_RESTBASE}/${col}/${encodeURIComponent(id)}?key=${FB.apiKey}${q?'&'+q:''}`, {}, 12000);
+  if(r.status===404) return null;
+  if(!r.ok) throw Object.assign(new Error('REST '+r.status), { code:'rest-'+r.status });
+  const j = await r.json(); const o = {};
+  Object.keys(j.fields||{}).forEach(k=>{ o[k] = _restDec(j.fields[k]); });
+  return o;
+}
+async function _restGravar(col, id, dados){
+  const campos = Object.keys(dados);
+  const q = campos.map(c=>'updateMask.fieldPaths='+encodeURIComponent(c)).join('&');
+  const fields = {}; campos.forEach(k=>{ fields[k] = _restEnc(dados[k]); });
+  const r = await _restTempo(`${_RESTBASE}/${col}/${encodeURIComponent(id)}?key=${FB.apiKey}&${q}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ fields }) }, 15000);
+  if(!r.ok) throw Object.assign(new Error('REST '+r.status), { code:'rest-'+r.status });
+}
+
 async function modoConfraternizacao(eventoId, ministroId){
   const caixa = (inner)=>`<div style="min-height:100vh;background:#f2f5f3;font-family:Inter,-apple-system,Segoe UI,sans-serif;padding:20px 16px 40px;display:flex;justify-content:center"><div style="width:100%;max-width:460px">
     <div style="display:flex;justify-content:center;gap:12px;margin:6px 0 18px"><img src="${LOGO_MESCE}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)"><img src="${LOGO_BASILICA}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)"></div>${inner}</div></div>`;
   const aviso = (ic,tit,txt)=>caixa(`<div style="background:#fff;border-radius:20px;padding:30px 22px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.08)"><div style="font-size:46px">${ic}</div><p style="font-size:20px;font-weight:800;color:#085041;margin:10px 0 8px">${tit}</p><p style="font-size:16px;color:#444;line-height:1.55;margin:0">${txt}</p></div>`);
   document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;color:#085041;font-weight:600">Carregando...</div>';
-  let ev, m, resp=null;
+  let ev, m, resp=null, viaRest=false;
   const limite = (pr, ms)=>Promise.race([pr, new Promise((_,rej)=>setTimeout(()=>rej(Object.assign(new Error('tempo esgotado'),{code:'timeout'})), ms))]);
   try{
-    const [de, dm] = await limite(Promise.all([ getDoc(doc(db,'config','confra')), getDoc(doc(db,'ministros',ministroId)) ]), 15000);
-    if(!de.exists() || de.data().id!==eventoId || !dm.exists()) throw Object.assign(new Error('inválido'),{code:'link-invalido'});
-    ev = de.data(); m = {id:dm.id, ...dm.data()};
-    try{ const dr = await limite(getDoc(doc(db,'confra_respostas',`${eventoId}_${ministroId}`)), 8000); if(dr.exists()) resp = dr.data(); }
-    catch(e2){ console.warn('[SOGI] confra leitura resposta', e2); }
+    let dEv, dMin;
+    try{
+      const [de, dm] = await limite(Promise.all([ getDoc(doc(db,'config','confra')), getDoc(doc(db,'ministros',ministroId)) ]), 9000);
+      dEv = de.exists() ? de.data() : null; dMin = dm.exists() ? dm.data() : null;
+    }catch(e1){
+      console.warn('[SOGI] confra: conexão principal falhou, usando plano B', e1);
+      viaRest = true;
+      [dEv, dMin] = await Promise.all([ _restLer('config','confra'), _restLer('ministros', ministroId, ['nome','ativo']) ]);
+    }
+    if(!dEv || dEv.id!==eventoId || !dMin) throw Object.assign(new Error('inválido'),{code:'link-invalido'});
+    ev = dEv; m = { id:ministroId, ...dMin };
+    try{
+      if(viaRest){ resp = await _restLer('confra_respostas', `${eventoId}_${ministroId}`); }
+      else{ const dr = await limite(getDoc(doc(db,'confra_respostas',`${eventoId}_${ministroId}`)), 8000); if(dr.exists()) resp = dr.data(); }
+    }catch(e2){ console.warn('[SOGI] confra leitura resposta', e2); }
   }catch(e){
     console.warn('[SOGI] confra abrir', e);
     const motivo = e && e.code ? e.code : String(e && e.message || e);
-    const lento = e && e.code==='timeout';
-    document.body.innerHTML = aviso(lento?'📶':'⚠️', lento?'Não foi possível carregar':'Link inválido ou encerrado', (lento?'A conexão está lenta ou instável. Toque no botão para tentar de novo.':'Peça à Coordenação MESCE um novo link.') + `<br><br><button onclick="location.reload()" style="min-height:52px;padding:0 24px;border:2px solid #085041;border-radius:14px;background:#fff;color:#085041;font-size:17px;font-weight:700">🔄 Tentar de novo</button><br><span style="font-size:11px;color:#aaa">código: ${motivo} · v${APP_VERSAO}</span>`);
+    const semNet = e && e.code!=='link-invalido';
+    document.body.innerHTML = aviso(semNet?'📶':'⚠️', semNet?'Não foi possível carregar':'Link inválido ou encerrado', (semNet?'Este aparelho não está conseguindo acessar o servidor. Se houver antivírus, VPN ou “DNS privado” ativado, desative por um instante, ou abra o link em outro navegador (Chrome ou Samsung Internet). Depois toque em tentar de novo.':'Peça à Coordenação MESCE um novo link.') + `<br><br><button onclick="location.reload()" style="min-height:52px;padding:0 24px;border:2px solid #085041;border-radius:14px;background:#fff;color:#085041;font-size:17px;font-weight:700">🔄 Tentar de novo</button><br><span style="font-size:11px;color:#aaa">código: ${motivo} · v${APP_VERSAO}</span>`);
     return;
   }
   const primeiro = (m.nome||'').split(' ')[0];
@@ -1853,8 +1909,15 @@ async function modoConfraternizacao(eventoId, ministroId){
       if(!status) return;
       const bt = document.getElementById('cf-enviar'); bt.disabled = true; bt.textContent = 'Enviando...';
       const dados = { eventoId, ministroId, nome:m.nome, status, acompanhantes: status==='sim' ? acomp : 0, em:Date.now(), origem:'link' };
-      try{ await setDoc(doc(db,'confra_respostas',`${eventoId}_${ministroId}`), dados, { merge:true }); resp = { ...(resp||{}), ...dados }; editando = false; desenhar(); }
-      catch(e){ bt.disabled = false; bt.textContent = 'Enviar minha resposta'; alert('Não foi possível enviar agora. Verifique a internet e tente de novo.'); }
+      const idDoc = `${eventoId}_${ministroId}`;
+      try{
+        if(viaRest) throw Object.assign(new Error('via rest'),{code:'rest'});
+        await limite(setDoc(doc(db,'confra_respostas',idDoc), dados, { merge:true }), 9000);
+      }catch(e1){
+        try{ await _restGravar('confra_respostas', idDoc, dados); }
+        catch(e2){ console.warn('[SOGI] confra enviar', e2); bt.disabled = false; bt.textContent = 'Enviar minha resposta'; alert('Não foi possível enviar agora. Verifique a internet (ou desative VPN/antivírus por um instante) e tente de novo.'); return; }
+      }
+      resp = { ...(resp||{}), ...dados }; editando = false; desenhar();
     };
   };
   try{ desenhar(); }
