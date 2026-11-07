@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.12.1';
+const APP_VERSAO = '21.12.2';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -1470,7 +1470,10 @@ function _confraPrazoVencido(ev){
 function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}`; }
 function _confraMsgConvite(ev, m){
   const nome = (m.nome||'').split(' ')[0];
-  return `Olá, ${nome}! 🙏\n\nA Coordenação MESCE convida você para a nossa *${ev.titulo||'Confraternização'}*:\n\n📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}\n📍 ${ev.local||'Local a definir'}\n\nPrecisamos saber quantas pessoas virão para organizar tudo. Toque no link e responda se você *vai* ou *não poderá ir*${ev.prazo?` até ${ev.prazo.split('-').reverse().join('/')}`:''}:\n\n${_confraLink(ev, m.id)}\n\nSua resposta é muito importante. Obrigado! 🕊️`;
+  const brl = ev.valor>0 ? 'R$ '+Number(ev.valor).toFixed(2).replace('.',',') : '';
+  const custo = (ev.acomp!==false && brl) ? ` Caso haja acompanhantes, o custo será de ${brl} por pessoa.` : '';
+  const prazo = ev.prazo ? ` até ${ev.prazo.split('-').reverse().join('/')}` : '';
+  return `Olá, ${nome}! 🙏\n\nA Coordenação MESCE convida você para a nossa *${ev.titulo||'Confraternização'}*:\n\n📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}\n📍 ${ev.local||'Local a definir'}\n\nPrecisamos saber quantas pessoas virão para organizar tudo.${custo}\n\nToque no link e responda se você *vai* ou *não poderá ir*${prazo}:\n\n${_confraLink(ev, m.id)}\n\nSua presença é muito importante! Venha confraternizar conosco, em um momento de agradecer a Deus por tudo o que vivemos neste ano.\n\nSua resposta é muito importante. Obrigado! 🕊️`;
 }
 
 async function carregarConfra(){
@@ -1534,7 +1537,7 @@ function desenharConfra(){
         <label class="cf-chk"><input id="cf-acomp" type="checkbox" ${ev && ev.acomp===false ? '' : 'checked'}> Permitir acompanhantes</label>
         <div class="cf-linha">
           <label>Máx. de acompanhantes<input id="cf-max" type="number" min="1" max="10" value="${ev?.maxAcomp||4}"></label>
-          <label>Valor por pessoa (só você vê)<input id="cf-valor" type="number" min="0" step="0.01" placeholder="R$" value="${ev?.valor||''}"></label>
+          <label>Valor por pessoa (aparece no convite)<input id="cf-valor" type="number" min="0" step="0.01" placeholder="R$" value="${ev?.valor||''}"></label>
         </div>
         <button type="button" class="cf-btn cf-prim" onclick="confraSalvar()">Salvar evento</button>
         ${ev ? '<button type="button" class="cf-btn cf-sec" onclick="confraNovo()">Começar um novo evento (zera as respostas)</button>' : ''}
