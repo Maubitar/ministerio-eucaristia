@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.14.1';
+const APP_VERSAO = '21.14.3';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -13128,14 +13128,17 @@ window.togCad=function(h,tipo){
   if(set.has(h)){set.delete(h);btn.style.background='white';btn.style.color='#333';btn.style.borderColor='#ddd';}
   else{set.add(h);btn.style.background=tipo==='dom'?'#e1f5ee':'#e6f1fb';btn.style.color=tipo==='dom'?'#085041':'#185FA5';btn.style.borderColor=tipo==='dom'?'#1D9E75':'#185FA5';}
 };
-window.salvarCadastro=async function(){
+window.salvarCadastro=async function(enviarLink){
   const g=id=>document.getElementById(id);
   const nome=g('cad-nome').value.trim();
   const tel=g('cad-tel').value.trim();
   const nasc=g('cad-nasc').value;
   if(!nome){toast('Nome obrigatório.','err');return;}
-  if(selCadDom.size+selCadSem.size<2){toast('Selecione pelo menos 2 disponibilidades.','warn');return;}
-  await addDoc(collection(db,'ministros'),{
+  if(enviarLink && !formatarTelBR(tel)){toast('Informe o WhatsApp com DDD para enviar o link. Ex.: (91) 9 8888-7777','warn');return;}
+  // evita duplicar: já existe alguém com este nome?
+  const ja = (typeof buscarMinistroPorNome==='function') ? buscarMinistroPorNome(nome) : null;
+  if(ja){ toast(`Já existe ${ja.nome} no cadastro. Use o botão de link dela na lista de ministros.`,'warn'); return; }
+  const novoRef = await addDoc(collection(db,'ministros'),{
     nome, tel, nascimento:nasc,
     endereco:g('cad-endereco').value.trim(),
     estadoCivil:g('cad-civil').value,
@@ -13143,7 +13146,7 @@ window.salvarCadastro=async function(){
     dizimista:g('cad-dizimista').value,
     rg:g('cad-rg').value.trim(),
     cpf:g('cad-cpf').value.trim(),
-    ativo:true, dispDom:[...selCadDom], dispSem:[...selCadSem],
+    ativo:true, dispDom:[...selCadDom], dispSem:[...selCadSem], dispReforco:[],
     numero:ministros.length+1, faltasReuniao:0, faltasAdoracao:0, criadoEm:serverTimestamp()
   });
   selCadDom.clear();selCadSem.clear();
@@ -13154,7 +13157,8 @@ window.salvarCadastro=async function(){
   fecharModal('modal-cad');
   await carregarMinistros();
   renderMinistros('');
-  toast('Ministro cadastrado!');
+  if(enviarLink){ toast('✓ Cadastrado! Abrindo o WhatsApp com o link dela…','ok'); solicitarDisp(novoRef.id); }
+  else toast('Ministro cadastrado! Para ela completar os dados, use o botão de link na lista.','ok');
 };
 
 let editandoDadosId=null;
@@ -19606,9 +19610,11 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
 </div>
 <div id="modal-cad" class="modal-bg" onclick="if(event.target===this)fecharModal('modal-cad')">
   <div class="modal-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><p style="font-size:16px;font-weight:700">Novo ministro</p><button onclick="fecharModal('modal-cad')" style="border:none;background:none;font-size:22px;cursor:pointer;color:#aaa">×</button></div>
+    <div style="background:#f0f8f5;border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#085041;line-height:1.5">✨ <b>Só o nome e o WhatsApp já bastam.</b> Depois de salvar, o app abre o WhatsApp com o link pessoal da ministra. Ela mesma envia a foto, o nascimento, a disponibilidade e os demais dados.</div>
     <input type="text" id="cad-nome" placeholder="Nome completo *">
-    <input type="tel" id="cad-tel" placeholder="WhatsApp (91) 9 0000-0000">
-    <label style="font-size:11px;color:#888;font-weight:600;display:block;margin:4px 0 2px">Data de nascimento</label>
+    <input type="tel" id="cad-tel" placeholder="WhatsApp (91) 9 0000-0000 *">
+    <button class="btn-g" onclick="salvarCadastro(true)" style="margin-bottom:8px">📲 Salvar e enviar link de cadastro</button>
+    <details style="margin:6px 0 12px"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:#5b6b65;min-height:44px;display:flex;align-items:center">Mais campos (opcional — a ministra preenche pelo link)</summary><label style="font-size:11px;color:#888;font-weight:600;display:block;margin:4px 0 2px">Data de nascimento</label>
     <input type="date" id="cad-nasc">
     <input type="text" id="cad-endereco" placeholder="Endereço completo">
     <select id="cad-civil" style="margin-bottom:10px">
@@ -19622,7 +19628,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </select>
     <input type="text" id="cad-rg" placeholder="RG">
     <input type="text" id="cad-cpf" placeholder="CPF" style="margin-bottom:12px">
-    <p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades dominicais (mínimo 2 no total)</p><div class="missa-grid" id="cad-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades semanais</p><div class="missa-grid" id="cad-sem"></div><button class="btn-g" onclick="salvarCadastro()">Salvar ministro</button></div>
+    <p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades dominicais (opcional — a ministra marca pelo link)</p><div class="missa-grid" id="cad-dom"></div><p style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px">Disponibilidades semanais</p><div class="missa-grid" id="cad-sem"></div></details><button onclick="salvarCadastro(false)" style="width:100%;min-height:48px;margin-top:8px;border:1.5px solid #085041;border-radius:12px;background:#fff;color:#085041;font-size:14px;font-weight:700;cursor:pointer">Salvar sem enviar agora</button></div>
 </div>
 
 <!-- MODAL QR CODE -->
