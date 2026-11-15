@@ -7,6 +7,15 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<meta name="author" content="Mauricio Bitar de Mesquita">
+<meta name="copyright" content="© 2026 Mauricio Bitar de Mesquita. Todos os direitos reservados.">
+<!--
+  S.O.G.I. — Sistema de Organização e Gestão Inteligente (MESCE)
+  Autor e proprietário: Mauricio Bitar de Mesquita
+  © 2026 Mauricio Bitar de Mesquita. Todos os direitos reservados.
+  Cedido em uso gratuito à Basílica Santuário de Nossa Senhora de Nazaré. Proibida a cópia, redistribuição
+  ou uso por terceiros sem autorização expressa e por escrito do autor.
+-->
 <title>Ministério da Eucaristia — Basílica de Nazaré</title>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
@@ -129,7 +138,8 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.15.0';
+const APP_VERSAO = '21.16.0';
+try{ console.info('%cS.O.G.I.%c © 2026 Mauricio Bitar de Mesquita — todos os direitos reservados.','font-weight:800;color:#085041','color:#555'); }catch(e){}
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -582,6 +592,19 @@ const PAPEIS = {
   secretaria:  { nome:'Secretária',  cor:'#BA7517', secoes:['inicio','secretaria'] }
 };
 
+// ===== MASTER (proprietário do sistema) =====
+// O Master é um coordenador com a marca master:true. Só ele cria/remove acessos, redefine senhas e usa as
+// ferramentas de sistema. O Master não pode ser removido por ninguém. (Proteção de verdade contra invasores
+// exige também as REGRAS do banco no Firebase — veja a etapa 2 combinada com o Mauricio.)
+function _ehMaster(){ return !!(_usuarioLogado && _usuarioLogado.master); }
+function _temMaster(){ return _acessoUsuarios.some(u=>u.master); }
+function _exigeMaster(acao){
+  if(_ehMaster()) return true;
+  toast(`Somente o Master (proprietário do sistema) pode ${acao}.`,'warn');
+  return false;
+}
+window._exigeMaster = _exigeMaster;
+
 // Hash antigo (DJB2) — mantido só para CONFERIR contas criadas antes da v19.13, nunca mais usado para criar senha nova
 function hashSenhaFraco(txt){
   let h = 5381;
@@ -753,11 +776,11 @@ function mostrarLogin(){
       // Confere se o usuário ainda existe na lista de acessos
       let existe = _acessoUsuarios.find(u=>u.usuario.toLowerCase()===(sess.usuario||'').toLowerCase());
       if(!existe && !_acessoCarregadoOk && sess.usuario){
-        existe = { usuario:sess.usuario, papel:sess.papel, nome:sess.nome }; // sem internet/banco: confia na sessão já salva
+        existe = { usuario:sess.usuario, papel:sess.papel, nome:sess.nome, master:!!sess.master }; // sem internet/banco: confia na sessão já salva
         setTimeout(()=>{ carregarConfigAcesso(); },4000);
       }
       if(existe){
-        _usuarioLogado = { usuario:existe.usuario, papel:existe.papel||'coordenador', nome:existe.nome||existe.usuario };
+        _usuarioLogado = { usuario:existe.usuario, papel:existe.papel||'coordenador', nome:existe.nome||existe.usuario, master:!!existe.master };
         document.getElementById('tela-login').style.display='none';
         document.getElementById('app').style.display='block';
         aplicarPermissoes();
@@ -836,7 +859,7 @@ window.fazerLogin = async function(){
       }catch(e){}
     }
     const encontrado = candidato;
-    _usuarioLogado = { usuario:encontrado.usuario, papel:encontrado.papel||'coordenador', nome:encontrado.nome||encontrado.usuario };
+    _usuarioLogado = { usuario:encontrado.usuario, papel:encontrado.papel||'coordenador', nome:encontrado.nome||encontrado.usuario, master:!!encontrado.master };
     // Lembra a sessão neste aparelho (até clicar em Sair)
     try{ localStorage.setItem('sogi_sessao', JSON.stringify(_usuarioLogado)); }catch(e){}
     if(erro) erro.style.display='none';
@@ -890,6 +913,7 @@ function aplicarPermissoes(){
   });
   // Marca no body o papel (para CSS e a home se adaptar)
   document.body.setAttribute('data-papel', papel);
+  try{ _aplicarMasterUI(); }catch(e){}
   try{ if(window._shellPermissoes) window._shellPermissoes(papel, perm.secoes, APP_VERSAO); }catch(e){}
   // Badge do papel + botão sair no topo (só para papéis restritos)
   const barra = document.getElementById('barra-papel');
@@ -1049,6 +1073,7 @@ function iniciarVerificacaoAuto(){
 // Apaga escalas, presenças, reuniões, adorações, eventos e logs.
 // NUNCA apaga: ministros, fotos, senhas/acessos, financeiro.
 window.limparDadosTeste = async function(){
+  if(!_exigeMaster('limpar os dados do sistema')) return;
   const ok1 = confirm(
     '⚠️ LIMPAR DADOS DE TESTE\n\n'+
     'Será APAGADO (definitivamente):\n'+
@@ -1124,16 +1149,39 @@ window.renderUsuarios = function(){
     return `<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f0f0f0">
       <div style="width:30px;height:30px;border-radius:8px;background:${perm.cor};color:white;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">👤</div>
       <div style="flex:1">
-        <p style="font-size:13px;font-weight:600;margin:0">${u.usuario}</p>
-        <p style="font-size:11px;color:#888;margin:0">${perm.nome}</p>
+        <p style="font-size:13px;font-weight:600;margin:0">${u.master?'👑 ':''}${u.usuario}</p>
+        <p style="font-size:11px;color:#888;margin:0">${u.master?'Master · proprietário do sistema':perm.nome}</p>
       </div>
       <button onclick="redefinirSenhaUsuario(${i})" title="Definir nova senha" style="border:1.5px solid #085041;background:white;color:#085041;font-size:12px;font-weight:700;cursor:pointer;padding:6px 10px;border-radius:8px">🔑 Nova senha</button>
-      ${u.papel!=='coordenador'||_acessoUsuarios.filter(x=>x.papel==='coordenador').length>1 ?
+      ${!u.master && (u.papel!=='coordenador'||_acessoUsuarios.filter(x=>x.papel==='coordenador').length>1) ?
         `<button onclick="removerUsuario(${i})" style="border:none;background:none;color:#A32D2D;font-size:16px;cursor:pointer;padding:0 4px">×</button>` : ''}
     </div>`;
   }).join('');
 };
 
+function _aplicarMasterUI(){
+  const card = document.getElementById('card-acessos');
+  const claim = document.getElementById('acessos-claim');
+  const sem = !_temMaster();
+  if(card) card.style.display = (_ehMaster() || sem) ? '' : 'none';      // coordenador comum não vê "Acessos"
+  if(claim) claim.style.display = (sem && !_ehMaster()) ? '' : 'none';
+  document.querySelectorAll('[data-so-master]').forEach(el=>{ el.style.display = _ehMaster() ? '' : 'none'; });
+}
+window.assumirMaster = async function(){
+  if(_temMaster()){ toast('Este sistema já tem um Master.','warn'); return; }
+  const meu = _acessoUsuarios.findIndex(u=>u.usuario.toLowerCase()===(_usuarioLogado?.usuario||'').toLowerCase());
+  if(meu<0){ toast('Usuário logado não encontrado.','err'); return; }
+  const t = prompt('👑 MASTER — PROPRIETÁRIO DO SISTEMA\n\nFaça isto somente se você for Mauricio Bitar de Mesquita.\nO Master não pode ser removido nem ter a senha alterada por outros coordenadores, e só ele cria acessos e usa as ferramentas de sistema.\n\nDigite MASTER para confirmar:');
+  if((t||'').trim()!=='MASTER') return;
+  try{
+    _acessoUsuarios[meu] = { ..._acessoUsuarios[meu], master:true, papel:'coordenador' };
+    await setDoc(doc(db,'config','acesso'), {usuarios:_acessoUsuarios});
+    _usuarioLogado.master = true;
+    try{ localStorage.setItem('sogi_sessao', JSON.stringify(_usuarioLogado)); }catch(e){}
+    toast('👑 Você agora é o Master do sistema.','ok');
+    renderUsuarios(); _aplicarMasterUI();
+  }catch(e){ _acessoUsuarios[meu] = { ..._acessoUsuarios[meu], master:false }; toast('Não foi possível gravar: '+e.message,'err'); }
+};
 window.abrirEsqueciSenha = function(){
   document.getElementById('modal-esqueci-senha').style.display='flex';
 };
@@ -1146,6 +1194,7 @@ window.abrirNovoUsuario = function(){
 };
 
 window.salvarNovoUsuario = async function(){
+  if(!_exigeMaster('criar acessos')) return;
   const usuario = (document.getElementById('nu-user').value||'').trim();
   const senha = document.getElementById('nu-pass').value||'';
   const papel = document.getElementById('nu-papel').value;
@@ -1163,6 +1212,7 @@ window.salvarNovoUsuario = async function(){
 
 // Senha não pode ser consultada (fica guardada só em código seguro). O coordenador define uma NOVA e passa à pessoa.
 window.redefinirSenhaUsuario = async function(i){
+  if(!_exigeMaster('redefinir senhas')) return;
   const u = _acessoUsuarios[i]; if(!u) return;
   const nova = prompt(`Nova senha para "${u.usuario}" (mínimo 4 caracteres).\n\nAnote o usuário e a senha para passar à pessoa:\nUsuário: ${u.usuario}`);
   if(nova===null) return;
@@ -1176,8 +1226,10 @@ window.redefinirSenhaUsuario = async function(i){
 };
 
 window.removerUsuario = async function(i){
+  if(!_exigeMaster('remover acessos')) return;
   const u = _acessoUsuarios[i];
   if(!u) return;
+  if(u.master){ toast('O Master não pode ser removido.','warn'); return; }
   if(!confirm(`Remover o acesso de "${u.usuario}" (${PAPEIS[u.papel||'coordenador'].nome})?`)) return;
   _acessoUsuarios.splice(i,1);
   try{
@@ -3474,6 +3526,7 @@ window.melhorarTodasFotosExistentes = async function(){
 // pra estabelecer que a contagem de faltas passa a valer a partir de agora (02/09/2026, quando
 // o quiosque de Adoração começou a ser usado de verdade), sem carregar lixo de antes disso.
 window.zerarContadoresFaltasAntigas = async function(){
+  if(!_exigeMaster('zerar contadores do sistema')) return;
   const comFaltas = ministros.filter(m => (m.faltasReuniao||0) > 0 || (m.faltasAdoracao||0) > 0);
   if(!comFaltas.length){ toast('✓ Nenhum contador de faltas pra zerar — já está tudo limpo.','ok'); return; }
   if(!confirm(`Isso vai zerar as faltas de Reunião e Adoração de ${comFaltas.length} ministro(s), pra contagem começar do zero a partir de agora. Não mexe no histórico de presenças salvas, só no contador. Continuar?`)) return;
@@ -12180,6 +12233,7 @@ window.excluirEventoPresenca = async function(colecao, docId, dataLabel){
 // teste/imprecisos, de antes do controle digital valer de verdade), corrigindo as faltas que
 // eles tiverem gerado nos ministros antes de remover.
 window.limparReuniaoAdoracaoAntigas = async function(colecao){
+  if(!_exigeMaster('apagar registros antigos')) return;
   const CORTE = DATA_CORTE_REUNIAO_ADORACAO_STR;
   const nomeEvento = colecao==='reunioes' ? 'reuniões' : 'adorações';
   try{
@@ -13305,6 +13359,7 @@ window.fecharModal=function(id){ document.getElementById(id).style.display='none
 
 // Importa em massa as datas de nascimento da planilha, casando pelo nome (ignora acentos).
 window.importarAniversarios = async function(){
+  if(!_exigeMaster('importar dados em massa')) return;
   if(typeof ANIVERSARIOS_IMPORT==='undefined' || !ANIVERSARIOS_IMPORT.length){
     toast('Lista de aniversários não encontrada.','err'); return;
   }
@@ -18770,6 +18825,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <span style="font-size:11px">🔐</span>
     <p style="color:white;font-size:10px;margin:0">Sistema S.O.G.I. · Acesso restrito e protegido</p>
   </div>
+  <p style="color:white;font-size:10px;margin:8px 0 0;opacity:.5;text-align:center">© 2026 Mauricio Bitar de Mesquita · Todos os direitos reservados</p>
 </div>
 <div id="app">
 <!-- ===== MENU LATERAL (v21.0) ===== -->
@@ -19350,8 +19406,12 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Envie a carteirinha digital pra todos os ministros de uma vez, em fila — sem precisar procurar cada um na lista.</p>
     <button onclick="nav('envio-cart')" style="width:100%;padding:12px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer">🚀 Abrir envio em lote</button>
   </div>
-  <div class="card" style="border:1.5px solid #e1f5ee">
+  <div class="card" id="card-acessos" style="border:1.5px solid #e1f5ee">
     <p class="ct">👥 Acessos e Perfis</p>
+    <div id="acessos-claim" style="display:none;background:#fdf3e2;border:1.5px solid #E8C66B;border-radius:12px;padding:12px 14px;margin-bottom:12px">
+      <p style="margin:0 0 8px;font-size:13px;color:#6b4e10;line-height:1.5">👑 Este sistema <b>ainda não tem um Master</b>. O Master é o proprietário: não pode ser removido e é o único que cria acessos e senhas.</p>
+      <button onclick="assumirMaster()" style="width:100%;min-height:46px;border:none;border-radius:10px;background:#BA7517;color:#fff;font-size:14px;font-weight:800;cursor:pointer">👑 Sou o Mauricio — assumir como Master</button>
+    </div>
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Crie acessos para a <strong>Financeira</strong> e a <strong>Secretária</strong>. Cada uma entra com seu usuário e senha e vê apenas a sua área.</p>
     <div id="lista-usuarios" style="margin-bottom:12px"></div>
     <button onclick="abrirNovoUsuario()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#185FA5;color:white;font-size:14px;font-weight:700;cursor:pointer">+ Criar novo acesso</button>
@@ -19448,7 +19508,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <button onclick="copiarLinkCadastro()" style="width:100%;padding:11px;border:1.5px solid #25D366;border-radius:9px;background:white;color:#1ba34d;font-size:13px;font-weight:600;cursor:pointer">📋 Copiar link</button>
   </div>
 
-  <div class="card" style="border:1.5px solid #E8C66B">
+  <div class="card" data-so-master style="border:1.5px solid #E8C66B">
     <p class="ct">🎂 Importar aniversários</p>
     <p style="font-size:12px;color:#666;margin-bottom:10px;line-height:1.5">Preenche as datas de nascimento dos ministros automaticamente a partir da planilha oficial (144 ministros), casando pelo nome. Faça uma vez.</p>
     <button class="btn-g" onclick="importarAniversarios()" style="margin:0;background:#BA7517">🎂 Importar datas de nascimento</button>
@@ -20913,7 +20973,7 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
   window._shellBadge=function(id,n){ _badges[id]=n||0; desenhar(); };
   window._shellPermissoes=function(papel,secoes,versao){
     _permitidas=secoes; desenhar();
-    var f=document.getElementById('dr-foot'); if(f) f.textContent='S.O.G.I. v'+versao+' · Coordenação MESCE';
+    var f=document.getElementById('dr-foot'); if(f) f.innerHTML='S.O.G.I. v'+versao+' · Coordenação MESCE<br><span style="opacity:.7">© 2026 Mauricio Bitar de Mesquita</span>';
   };
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') fecharMenu(); });
   document.addEventListener('DOMContentLoaded',desenhar);
