@@ -1,0 +1,33 @@
+S.O.G.I. — Sistema de Organização e Gestão Inteligente (MESCE)
+Copyright (c) 2026 Mauricio Bitar de Mesquita. Todos os direitos reservados.
+
+AUTOR E PROPRIETÁRIO
+Mauricio Bitar de Mesquita é o autor e único titular dos direitos patrimoniais e morais
+sobre este software (código-fonte, telas, textos, estrutura de dados e documentação).
+
+CESSÃO DE USO
+O software é cedido, a título gratuito, à Basílica Santuário de Nossa Senhora de Nazaré
+(Belém/PA) apenas para uso em sua organização, enquanto assim decidir o autor.
+A cessão de uso NÃO transfere a propriedade do software nem o direito de modificá-lo.
+
+PROIBIÇÕES (sem autorização prévia, expressa e por escrito do autor)
+  1. copiar, redistribuir, vender, sublicenciar ou ceder o software a terceiros;
+  2. usar o software em outras paróquias, dioceses, entidades ou projetos;
+  3. modificar, descompilar, extrair partes ou criar obras derivadas;
+  4. remover ou alterar avisos de autoria e de direitos reservados;
+  5. acessar dados, contas ou o banco de dados sem autorização.
+
+OUTRAS PARÓQUIAS
+O uso por outras paróquias ou entidades depende de acordo próprio, firmado por escrito
+com o autor.
+
+TRANSIÇÃO DE COORDENAÇÃO
+A troca de coordenador(a) não altera a titularidade. O acesso de novos coordenadores é
+concedido pelo Master (proprietário do sistema) e pode ser revogado por ele.
+
+SEM GARANTIA
+O software é fornecido "no estado em que se encontra", sem garantia de qualquer natureza.
+
+Observação: este texto é um modelo de proteção de autoria. Para a doação formal à
+Basílica e para acordos com outras paróquias, recomenda-se um contrato revisado por
+advogado.
