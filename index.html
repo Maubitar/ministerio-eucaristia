@@ -129,7 +129,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.14.3';
+const APP_VERSAO = '21.15.0';
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
 // ANTI-CACHE DEFINITIVO: garante que o navegador sempre rode a versão publicada.
@@ -5317,7 +5317,7 @@ window.renderEscala = async function(){
         <div class="hc-min">
           <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
           ${fotoEsc}
-          <span style="flex:1;font-size:12px;font-weight:${_isResp?'700':'500'}">${m}${_isResp?` <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>${_respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${_respTel}</span>`:''}`:''}</span>
+          <span style="flex:1;font-size:12px;font-weight:${_isResp?'700':'500'}">${m}${_restricaoAtiva(min)?' <span title="Sem poder ser responsável" style="font-size:9px;background:#fcebeb;color:#A32D2D;padding:1px 7px;border-radius:12px;font-weight:700">🚫 não resp.</span>':''}${_isResp?` <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>${_respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${_respTel}</span>`:''}`:''}</span>
           ${_isResp ? `<button onclick="enviarLinkPresenca('${m.replace(/'/g,"")}','${APP_URL}/?presresp=${tipo==='dom'?`dom-${_horarioParaCodigo(hora)}-${getMesAtual()}`:`sem-${sem}-${_horarioParaCodigo(hora)}-${getMesAtual()}`}')" title="Enviar link de presença deste horário" style="border:1.5px solid #185FA5;background:#eef5fb;color:#185FA5;font-size:10px;font-weight:700;padding:4px 8px;border-radius:14px;cursor:pointer;flex-shrink:0;white-space:nowrap">📤 Link</button>` : ''}
           <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
         </div>`;
@@ -5567,6 +5567,7 @@ window.remMinReforcoEsc = function(key, idx){
 window.setRespReforcoEsc = function(key, idx){
   if(!reforcos[key]?.ministros) return;
   const nome = reforcos[key].ministros[idx];
+  if(reforcos[key].responsavel!==nome && !permitirResponsavel(nome)) return;
   reforcos[key].responsavel = (reforcos[key].responsavel===nome) ? '' : nome;
   setDoc(doc(db,'reforcos',key), reforcos[key]).catch(()=>{});
   renderEscala();
@@ -5951,7 +5952,7 @@ function _sugCalcular(key, hora, tipo){
 }
 // Responsável sugerido: entre quem já está na equipe (ou foi marcado), quem foi responsável aqui há mais tempo
 function _sugResponsavelSugerido(r, nomesEquipe){
-  const cand = nomesEquipe.filter(n=>r.resp[n]).sort((a,b)=>r.resp[a].ultimo - r.resp[b].ultimo);
+  const cand = nomesEquipe.filter(n=>r.resp[n] && !_restricaoAtiva(buscarMinistroPorNome(n))).sort((a,b)=>r.resp[a].ultimo - r.resp[b].ultimo);
   if(!cand.length) return null;
   const n = cand[0];
   return { nome:n, ultimoOrd:r.resp[n].ultimoOrd, vezes:r.resp[n].n };
@@ -6587,6 +6588,7 @@ window.setResp = async function(key, hora, mi){
   const ehRemover = escalas[key][hora].responsavel===nome;
 
   if(!ehRemover){
+    if(!permitirResponsavel(nome)) return;       // restrição de responsável
     // Vai DEFINIR como responsável — verifica histórico
     await carregarHistoricoResponsaveis();
     const resumo = resumoResponsavel(nome);
@@ -12607,6 +12609,7 @@ window.remMinReforcoNova = function(key, idx){
 // Definir responsável do reforço
 window.setRespReforco = function(key, nome){
   if(!reforcos[key]) reforcos[key] = {ministros:[], horarios:{}};
+  if(nome && !permitirResponsavel(nome)){ try{ event.target.value = reforcos[key].responsavel||''; }catch(e){} return; }
   reforcos[key].responsavel = nome;
 };
 
@@ -12953,7 +12956,8 @@ function renderMinistros(filtro){
     todos:()=>true,
     semdisp:_semD,
     plantao:m=>!!m.plantao,
-    faltas:m=>_falt(m)>=3
+    faltas:m=>_falt(m)>=3,
+    restr:m=>!!_restricaoAtiva(m)
   };
   const lista=base.filter(regras[_minFiltro]||regras.todos);
   const semDisp=base.filter(_semD).length;
@@ -12968,6 +12972,8 @@ function renderMinistros(filtro){
     ['plantao','Plantonistas',base.filter(regras.plantao).length],
     ['faltas','Com faltas',base.filter(regras.faltas).length]
   ];
+  const _nRestr = base.filter(regras.restr).length;
+  if(_nRestr) chips.push(['restr','🚫 Com restrição',_nRestr]);
   const elF=document.getElementById('min-filtros');
   if(elF) elF.innerHTML=chips.map(c=>`<button type="button" class="min-chip${_minFiltro===c[0]?' on':''}" onclick="setMinFiltro('${c[0]}')">${c[1]} <b>${c[2]}</b></button>`).join('');
   const cab=`<p class="min-res">${filtro?`${lista.length} encontrado(s) para "${filtro}"`:`Mostrando ${lista.length} de ${totalAtivos} ministros`}</p>`;
@@ -12983,7 +12989,7 @@ function renderMinistros(filtro){
       ${avatar}
       <div class="mc-tx">
         <p class="mc-nome">${m.nome}</p>
-        <div class="mc-sub">${disp}${m.plantao?'<span class="mc-tag mc-tag-plantao">🔔 Plantonista</span>':''}${faltas>=3?`<span class="mc-tag mc-tag-falta">${faltas} faltas</span>`:''}</div>
+        <div class="mc-sub">${disp}${m.plantao?'<span class="mc-tag mc-tag-plantao">🔔 Plantonista</span>':''}${faltas>=3?`<span class="mc-tag mc-tag-falta">${faltas} faltas</span>`:''}${_restricaoAtiva(m)?`<span class="mc-tag mc-tag-falta">🚫 Sem resp. até ${_dataBR(_restricaoAtiva(m).ate).slice(0,5)}</span>`:''}</div>
       </div>
       <span class="mc-seta">›</span>
     </div>`;
@@ -13007,6 +13013,67 @@ window.processarFotoPerfil = async function(id, input){
     if(box) box.innerHTML = '<span style="font-size:10px;color:#A32D2D;text-align:center">Erro.<br>Tente outra.</span>';
     toast('Erro ao processar foto.','err');
   }
+};
+
+// ===== RESTRIÇÃO DE RESPONSÁVEL (prazo em dias/meses; só a coordenação vê o motivo) =====
+// Quem tem restrição ativa pode ser escalado normalmente, mas NÃO como responsável de horário.
+function _hojeISO(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _dataBR(iso){ return iso ? iso.split('-').reverse().join('/') : ''; }
+function _restricaoAtiva(m){
+  const r = m && m.restricaoResp;
+  if(!r || !r.ate || r.ate < _hojeISO()) return null;     // vence sozinha
+  const dias = Math.round((new Date(r.ate+'T00:00:00') - new Date(_hojeISO()+'T00:00:00'))/864e5);
+  return { ...r, dias, falta: dias>0 ? `faltam ${dias} dia${dias>1?'s':''}` : 'vence hoje' };
+}
+window.permitirResponsavel = function(nome){
+  const m = buscarMinistroPorNome(nome), a = _restricaoAtiva(m);
+  if(!a) return true;
+  return confirm(`🚫 RESTRIÇÃO DE RESPONSÁVEL\n\n${m.nome} está sem poder ser responsável de horário até ${_dataBR(a.ate)} (${a.falta}).${a.motivo?`\n\nMotivo (só a coordenação vê): ${a.motivo}`:''}\n\nPode ser escalado(a) normalmente, mas NÃO como responsável.\n\nDefinir como responsável mesmo assim?`);
+};
+function _restricaoHTML(m){
+  const a = _restricaoAtiva(m), id = m.id;
+  const aviso = a ? `<div style="background:#fcebeb;border:1.5px solid #f0c4c4;border-radius:12px;padding:12px 14px;margin-bottom:10px">
+      <p style="margin:0;font-size:14px;font-weight:800;color:#A32D2D">🚫 Sem poder ser responsável</p>
+      <p style="margin:4px 0 0;font-size:13px;color:#7a2a2a">até <b>${_dataBR(a.ate)}</b> · ${a.falta}</p>
+      ${a.motivo?`<p style="margin:8px 0 0;font-size:13px;color:#5b2a2a;line-height:1.4">📝 ${String(a.motivo).replace(/</g,'&lt;')}</p>`:''}
+      <button onclick="removerRestricaoResp('${id}')" style="margin-top:10px;min-height:44px;width:100%;border:1.5px solid #A32D2D;border-radius:10px;background:#fff;color:#A32D2D;font-size:13px;font-weight:700;cursor:pointer">Remover restrição</button>
+    </div>` : '';
+  const bt = 'min-height:48px;border:1.5px solid #085041;border-radius:10px;background:#fff;color:#085041;font-size:14px;font-weight:800;cursor:pointer';
+  return `${aviso}<details style="background:#fafafa;border-radius:10px;padding:4px 12px;margin-bottom:10px" ${a?'':''}>
+    <summary style="cursor:pointer;font-size:13px;font-weight:700;color:#5b6b65;min-height:44px;display:flex;align-items:center">🚫 ${a?'Alterar prazo ou motivo':'Restringir como responsável'}</summary>
+    <textarea id="rs-motivo" rows="2" placeholder="Motivo (opcional — só a coordenação vê)" style="width:100%;box-sizing:border-box;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px;font-size:14px;margin:6px 0 8px">${a&&a.motivo?String(a.motivo).replace(/</g,'&lt;'):''}</textarea>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
+      <button style="${bt}" onclick="restringirResp('${id}',30)">30 dias</button>
+      <button style="${bt}" onclick="restringirResp('${id}',60)">60 dias</button>
+      <button style="${bt}" onclick="restringirResp('${id}',90)">90 dias</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <select id="rs-meses" style="flex:1;margin:0;min-height:48px;border:1.5px solid #cde8d8;border-radius:10px;font-size:14px;padding:0 10px">${[1,2,3,4,5,6,9,12].map(n=>`<option value="${n}">${n} ${n===1?'mês':'meses'}</option>`).join('')}</select>
+      <button style="${bt};padding:0 16px" onclick="restringirResp('${id}',0)">Aplicar</button>
+    </div></details>`;
+}
+window.restringirResp = async function(id, dias){
+  const m = ministros.find(x=>x.id===id); if(!m) return;
+  const d = new Date();
+  if(dias>0) d.setDate(d.getDate()+dias);
+  else d.setMonth(d.getMonth()+(parseInt(document.getElementById('rs-meses')?.value)||1));
+  const ate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const r = { ate, desde:_hojeISO(), motivo:(document.getElementById('rs-motivo')?.value||'').trim() };
+  try{
+    await updateDoc(doc(db,'ministros',id), { restricaoResp: r });
+    m.restricaoResp = r;
+    toast(`🚫 ${primeiroNomes(m.nome)} sem poder ser responsável até ${_dataBR(ate)}.`,'ok');
+    abrirPerfil(id); renderMinistros(document.getElementById('busca-min')?.value||'');
+  }catch(e){ console.warn('[SOGI] restrição', e); toast('Não foi possível salvar a restrição.','err'); }
+};
+window.removerRestricaoResp = async function(id){
+  const m = ministros.find(x=>x.id===id); if(!m) return;
+  if(!confirm(`Remover a restrição de ${primeiroNomes(m.nome)}? Ele(a) volta a poder ser responsável.`)) return;
+  try{
+    await updateDoc(doc(db,'ministros',id), { restricaoResp: null });
+    m.restricaoResp = null; toast('Restrição removida.','ok');
+    abrirPerfil(id); renderMinistros(document.getElementById('busca-min')?.value||'');
+  }catch(e){ toast('Não foi possível remover.','err'); }
 };
 
 window.abrirPerfil = function(id){
@@ -13053,6 +13120,7 @@ window.abrirPerfil = function(id){
     <div style="margin-bottom:10px">${(m.dispDom||[]).length?(m.dispDom).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e1f5ee;color:#085041;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
     <p style="font-size:11px;color:#888;margin-bottom:5px">Disponibilidades semanais</p>
     <div style="margin-bottom:14px">${(m.dispSem||[]).length?(m.dispSem).map(h=>`<span style="display:inline-block;font-size:11px;padding:2px 8px;background:#e6f1fb;color:#185FA5;border-radius:20px;margin:2px">${h}</span>`).join(''):'<span style="font-size:12px;color:#BA7517">⚠️ Não definido</span>'}</div>
+    ${_restricaoHTML(m)}
     <div style="display:flex;gap:6px;margin-bottom:6px">
       <button onclick="editarDados('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#085041;color:white;font-size:13px;font-weight:600;cursor:pointer">✏️ Editar dados</button>
       <button onclick="editarDisp('${id}')" style="flex:1;padding:9px;border:none;border-radius:8px;background:#1D9E75;color:white;font-size:13px;font-weight:600;cursor:pointer">Disponibilidades</button>
@@ -17022,6 +17090,7 @@ window.removerMinEvento = async function(nome){
 
 window.setRespEvento = async function(nome){
   if(!_eventoAtual) return;
+  if(_eventoAtual.responsavel!==nome && !permitirResponsavel(nome)) return;
   _eventoAtual.responsavel = (_eventoAtual.responsavel===nome)?'':nome;
   try{ await updateDoc(doc(db,'eventos',_eventoAtual.id), {responsavel:_eventoAtual.responsavel}); }catch(e){}
   renderEventoDetalhe();
