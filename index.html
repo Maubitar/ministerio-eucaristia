@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.17.2';
+const APP_VERSAO = '21.17.3';
 try{ console.info('%cS.O.G.I.%c © 2026 Mauricio Bitar de Mesquita — todos os direitos reservados.','font-weight:800;color:#085041','color:#555'); }catch(e){}
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
@@ -1555,6 +1555,20 @@ async function _confraMarcarEnvio(id, valor){
   catch(e){ toast('Não consegui guardar a marcação. Tente de novo.','warn'); }
   if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
 }
+// Marcação inicial única (evento ainda sem controle de envio): quem já recebeu o convite em ordem alfabética, até a Alessandra Dione Cardoso.
+let _confraAutoFeito = false;
+async function _confraAutoInicial(){
+  try{
+    if(!_confra) return;
+    const ord = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+    const i = ord.findIndex(m=>normalizarBusca(m.nome)==='alessandra dione cardoso');
+    if(i<0) return;
+    const agora = Date.now(), mapa = {};
+    ord.slice(0,i+1).forEach(m=>{ if(!_confraResp[m.id]){ mapa[m.id] = agora; _confraEnv[m.id] = agora; } });
+    await setDoc(doc(db,'config','confra_envios'), { eventoId:_confra.id, enviados:mapa, atualizadoEm:agora }, { merge:true });
+  }catch(e){ console.warn('[SOGI] auto envios', e); }
+  if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
+}
 window.confraAlternarEnvio = function(id){ _confraMarcarEnvio(id, !_confraEnv[id]); };
 window.confraMarcarAte = async function(){
   if(!_confra) return;
@@ -1621,6 +1635,7 @@ window.renderConfra = async function(){
     try{
       _confraEnvUnsub = onSnapshot(doc(db,'config','confra_envios'), d=>{
         const x = d.exists() ? d.data() : null;
+        if(!x && !_confraAutoFeito){ _confraAutoFeito = true; _confraAutoInicial(); return; }
         _confraEnv = {};
         if(x && _confra && x.eventoId===_confra.id){ Object.keys(x.enviados||{}).forEach(k=>{ if(x.enviados[k]) _confraEnv[k] = x.enviados[k]; }); }
         if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
