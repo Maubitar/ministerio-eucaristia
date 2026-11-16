@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.16.0';
+const APP_VERSAO = '21.16.1';
 try{ console.info('%cS.O.G.I.%c © 2026 Mauricio Bitar de Mesquita — todos os direitos reservados.','font-weight:800;color:#085041','color:#555'); }catch(e){}
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
@@ -1167,6 +1167,30 @@ function _aplicarMasterUI(){
   if(claim) claim.style.display = (sem && !_ehMaster()) ? '' : 'none';
   document.querySelectorAll('[data-so-master]').forEach(el=>{ el.style.display = _ehMaster() ? '' : 'none'; });
 }
+// Backup completo em JSON (somente Master): lê todas as coleções do banco e baixa um arquivo.
+window.exportarBackup = async function(){
+  if(!_exigeMaster('baixar o backup')) return;
+  const btn = document.getElementById('btn-backup'), st = document.getElementById('backup-status');
+  const COLS = ['config','usuarios','ministros','escalas','escalas_finalizadas','reforcos','presencas','reunioes','adoracoes','ausencias','eventos','receitas','despesas','financeiro','logs_escala','scanner_sessoes','confra_respostas'];
+  btn.disabled = true; st.style.display = 'block';
+  const saida = { _sogi:'backup', geradoEm:new Date().toISOString(), versao:APP_VERSAO, autor:'Mauricio Bitar de Mesquita', colecoes:{} };
+  const falhas = []; let total = 0;
+  for(const c of COLS){
+    st.textContent = `Lendo ${c}…`;
+    try{
+      const snap = await getDocs(collection(db,c)); const o = {};
+      snap.forEach(d=>{ o[d.id] = d.data(); }); saida.colecoes[c] = o; total += snap.size;
+    }catch(e){ console.warn('[SOGI] backup', c, e); falhas.push(c); }
+  }
+  try{
+    const txt = JSON.stringify(saida, (k,v)=> (v && typeof v.toMillis==='function') ? { __ts:v.toMillis() } : v);
+    const d = new Date(), nome = `sogi-backup-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.json`;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'application/json'})); a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    st.textContent = `✅ Backup baixado (${nome}) com ${total} registros (${(txt.length/1048576).toFixed(1)} MB).` + (falhas.length?` Não foi possível ler: ${falhas.join(', ')}.`:'');
+  }catch(e){ st.textContent = 'Não foi possível gerar o arquivo: '+e.message; }
+  btn.disabled = false;
+};
 window.assumirMaster = async function(){
   if(_temMaster()){ toast('Este sistema já tem um Master.','warn'); return; }
   const meu = _acessoUsuarios.findIndex(u=>u.usuario.toLowerCase()===(_usuarioLogado?.usuario||'').toLowerCase());
@@ -19506,6 +19530,13 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Um único link que serve para <strong>todos</strong>. Poste no grupo da coordenação: cada ministro toca, preenche os próprios dados (inclusive o telefone) e a foto, e entra automaticamente na lista. Você não precisa ter o número de ninguém. 🙌</p>
     <button onclick="compartilharLinkCadastro()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#25D366;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">📤 Compartilhar link de cadastro</button>
     <button onclick="copiarLinkCadastro()" style="width:100%;padding:11px;border:1.5px solid #25D366;border-radius:9px;background:white;color:#1ba34d;font-size:13px;font-weight:600;cursor:pointer">📋 Copiar link</button>
+  </div>
+
+  <div class="card" data-so-master style="border:1.5px solid #cde8d8;background:#f5faf8">
+    <p class="ct">💾 Backup completo (Master)</p>
+    <p style="font-size:12px;color:#666;line-height:1.6;margin:0 0 12px">Baixa um arquivo com <strong>todos</strong> os dados do sistema (ministros, escalas, presenças, financeiro, confraternização, acessos). Guarde em local seguro e <strong>não envie a ninguém</strong>: contém dados pessoais.</p>
+    <button class="btn-g" id="btn-backup" onclick="exportarBackup()" style="margin:0">💾 Baixar backup agora</button>
+    <p id="backup-status" style="display:none;margin:10px 0 0;font-size:13px;color:#085041;line-height:1.5"></p>
   </div>
 
   <div class="card" data-so-master style="border:1.5px solid #E8C66B">
