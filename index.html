@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.16.1';
+const APP_VERSAO = '21.17.2';
 try{ console.info('%cS.O.G.I.%c © 2026 Mauricio Bitar de Mesquita — todos os direitos reservados.','font-weight:800;color:#085041','color:#555'); }catch(e){}
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
@@ -1545,6 +1545,42 @@ window.ampliarQR = function(){
 // acompanha quantas pessoas vão (ministros + acompanhantes) — número que o buffet cobra.
 // Evento ativo: config/confra · Respostas: confra_respostas/{eventoId}_{ministroId}
 let _confra = null, _confraResp = {}, _confraUnsub = null, _confraFiltro = 'todos', _confraBusca = '';
+// Controle de envio do convite: quem já recebeu o link (verde) e quem falta (vermelho). Guardado em config/confra_envios.
+let _confraEnv = {}, _confraEnvUnsub = null;
+function _confraEnviado(id){ return !!_confraEnv[id] || !!_confraResp[id]; }
+async function _confraMarcarEnvio(id, valor){
+  if(!_confra) return;
+  if(valor){ _confraEnv[id] = Date.now(); } else { delete _confraEnv[id]; }
+  try{ await setDoc(doc(db,'config','confra_envios'), { eventoId:_confra.id, enviados:{ [id]: valor ? Date.now() : 0 }, atualizadoEm:Date.now() }, { merge:true }); }
+  catch(e){ toast('Não consegui guardar a marcação. Tente de novo.','warn'); }
+  if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
+}
+window.confraAlternarEnvio = function(id){ _confraMarcarEnvio(id, !_confraEnv[id]); };
+window.confraMarcarAte = async function(){
+  if(!_confra) return;
+  const sel = document.getElementById('cf-ate'); if(!sel || !sel.value) { toast('Escolha o último ministro para quem você enviou.','warn'); return; }
+  const ord = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const i = ord.findIndex(m=>m.id===sel.value); if(i<0) return;
+  const alvo = ord.slice(0,i+1).filter(m=>!_confraResp[m.id] && !_confraEnv[m.id]);
+  const ult = ord[i];
+  if(!confirm(`Marcar como JÁ ENVIADOS todos de ${ord[0].nome.split(' ')[0]} até ${ult.nome}${alvo.length?` (${alvo.length} ministros)`:''}?`)) return;
+  const agora = Date.now(), mapa = {};
+  alvo.forEach(m=>{ mapa[m.id] = agora; _confraEnv[m.id] = agora; });
+  try{ if(alvo.length) await setDoc(doc(db,'config','confra_envios'), { eventoId:_confra.id, enviados:mapa, atualizadoEm:agora }, { merge:true }); toast(`✓ Marcados até ${ult.nome.split(' ')[0]}. O resto está em vermelho.`,'ok'); }
+  catch(e){ toast('Não consegui guardar. Tente de novo.','warn'); }
+  desenharConfra();
+};
+window.confraMarcarTodos = async function(valor){
+  if(!_confra) return;
+  const alvo = ministros.filter(m=>m.ativo!==false && !_confraResp[m.id]);
+  if(!alvo.length) return;
+  if(!confirm(valor ? `Marcar os ${alvo.length} ministros sem resposta como JÁ ENVIADOS?\n\nDepois é só tocar em "✔ Enviado" nos que você NÃO mandou para voltarem a vermelho.` : `Marcar os ${alvo.length} ministros sem resposta como FALTA ENVIAR?\n\nDepois é só tocar em "✖ Falta enviar" nos que você JÁ mandou para ficarem verdes.`)) return;
+  const agora = Date.now(), mapa = {};
+  alvo.forEach(m=>{ mapa[m.id] = valor ? agora : 0; if(valor){ _confraEnv[m.id] = agora; } else { delete _confraEnv[m.id]; } });
+  try{ await setDoc(doc(db,'config','confra_envios'), { eventoId:_confra.id, enviados:mapa, atualizadoEm:agora }, { merge:true }); toast(valor?'✓ Todos marcados como enviados.':'✓ Todos marcados como falta enviar.','ok'); }
+  catch(e){ toast('Não consegui guardar. Tente de novo.','warn'); }
+  desenharConfra();
+};
 
 function _confraDataLonga(iso){
   if(!iso) return '';
@@ -1579,7 +1615,17 @@ window.renderConfra = async function(){
   await carregarConfra();
   if(_confraUnsub){ try{ _confraUnsub(); }catch(e){} _confraUnsub = null; }
   _confraResp = {};
+  if(_confraEnvUnsub){ try{ _confraEnvUnsub(); }catch(e){} _confraEnvUnsub = null; }
+  _confraEnv = {};
   if(_confra && _confra.id){
+    try{
+      _confraEnvUnsub = onSnapshot(doc(db,'config','confra_envios'), d=>{
+        const x = d.exists() ? d.data() : null;
+        _confraEnv = {};
+        if(x && _confra && x.eventoId===_confra.id){ Object.keys(x.enviados||{}).forEach(k=>{ if(x.enviados[k]) _confraEnv[k] = x.enviados[k]; }); }
+        if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
+      }, ()=>{});
+    }catch(e){}
     try{
       _confraUnsub = onSnapshot(query(collection(db,'confra_respostas'), where('eventoId','==',_confra.id)), snap=>{
         _confraResp = {};
@@ -1655,11 +1701,17 @@ function desenharConfra(){
   const t = _confraTotais(), fin = _confraFinanceiro();
   const custo = ev.valor ? `<div class="cf-k cf-k-ouro"><b>${(t.total*ev.valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</b><span>Custo estimado</span></div>` : '';
   const ativos = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const nFalta = ativos.filter(m=>!_confraEnviado(m.id) && formatarTelBR(m.tel)).length;
+  const nFaltaTot = ativos.filter(m=>!_confraEnviado(m.id)).length;
+  const nEnvSem = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id]).length;
+  const nLembrar = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id] && formatarTelBR(m.tel)).length;
   const q = normalizarBusca(_confraBusca);
   const lista = ativos.filter(m=>{
     const r = _confraResp[m.id];
     const st = r ? r.status : 'sem';
     if(_confraFiltro==='deve'){ if(_confraDebito(r).aberto<=0) return false; }
+    else if(_confraFiltro==='falta'){ if(_confraEnviado(m.id)) return false; }
+    else if(_confraFiltro==='enviado'){ if(st!=='sem' || !_confraEnv[m.id]) return false; }
     else if(_confraFiltro!=='todos' && st!==_confraFiltro) return false;
     return !q || normalizarBusca(m.nome).includes(q);
   });
@@ -1673,7 +1725,10 @@ function desenharConfra(){
     const db_ = _confraDebito(r);
     const dchip = db_.devido>0 ? (db_.aberto<=0 ? `<span class="cf-b cf-b-sim">💰 Pago ${_brl(db_.devido)}</span>` : `<span class="cf-b cf-b-deb">💰 Deve ${_brl(db_.aberto)}${db_.pago>0?` (de ${_brl(db_.devido)})`:''}</span>`) : '';
     const btnDeb = db_.devido>0 ? `<button type="button" class="cf-mini cf-pag" onclick="confraDebito('${m.id}')">💰 Débito</button>` : '';
-    return `<div class="cf-row"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}${dchip}</div><div class="cf-ac">${lembrar}${btnDeb}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
+    const env = _confraEnviado(m.id);
+    const quando = _confraEnv[m.id] ? new Date(_confraEnv[m.id]).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : '';
+    const envPill = r ? '' : (env ? `<button type="button" class="cf-env-p cf-env-ok" onclick="confraAlternarEnvio('${m.id}')" aria-label="Convite enviado. Toque para desmarcar">✔ Enviado${quando?' em '+quando:''}</button>` : `<button type="button" class="cf-env-p cf-env-no" onclick="confraAlternarEnvio('${m.id}')" aria-label="Falta enviar. Toque para marcar como enviado">✖ Falta enviar</button>`);
+    return `<div class="cf-row ${env?'cf-env':'cf-falta'}"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}${dchip}${envPill}</div><div class="cf-ac">${lembrar}${btnDeb}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
   };
   cont.innerHTML = form + `
     <div class="cf-evt"><b>${ev.titulo||'Confraternização'}</b><span>${_confraDataLonga(ev.data)}${ev.hora?` · ${ev.hora}`:''}${ev.local?` · ${ev.local}`:''}</span>${ev.prazo?`<span class="${_confraPrazoVencido(ev)?'cf-venc':''}">Responder até ${ev.prazo.split('-').reverse().join('/')}${_confraPrazoVencido(ev)?' · prazo encerrado':''}</span>`:''}</div>
@@ -1688,14 +1743,23 @@ function desenharConfra(){
       <div class="cf-k"><b>${_brl(fin.pago)}</b><span>Já recebido</span></div>` : ''}
     </div>
     <div class="cf-acoes">
-      <button type="button" class="cf-btn cf-prim" onclick="confraConvidarTodos()" ${t.sem?'':'disabled'}>📲 Enviar convite a quem não respondeu (${t.sem})</button>
+      <button type="button" class="cf-btn cf-prim" onclick="confraConvidarTodos()" ${nFalta?'':'disabled'}>📲 Enviar convite a quem falta (${nFalta})</button>
+      <details class="cf-ajuste"><summary>✔ Já enviei para alguns — ajustar marcações</summary>
+        <p><b>Enviou em ordem alfabética?</b> Escolha o último ministro para quem você mandou: todos de A até ele ficam verdes.</p>
+        <select id="cf-ate" class="cf-sel"><option value="">Escolha o último que recebeu…</option>${ativos.map(m=>`<option value="${m.id}">${m.nome.replace(/</g,'&lt;')}</option>`).join('')}</select>
+        <button type="button" class="cf-btn cf-prim" onclick="confraMarcarAte()">Marcar até este ministro</button>
+        <p>Ou toque no que for maior e depois corrija só os que sobrarem: um toque na etiqueta de cada ministro troca verde/vermelho.</p>
+        <button type="button" class="cf-btn cf-sec" onclick="confraMarcarTodos(true)">Marcar todos como JÁ ENVIADOS</button>
+        <button type="button" class="cf-btn cf-sec" onclick="confraMarcarTodos(false)">Marcar todos como FALTA ENVIAR</button>
+      </details>
+      ${nLembrar ? `<button type="button" class="cf-btn cf-sec" onclick="confraConvidarTodos(true)">🔁 Lembrar quem recebeu e não respondeu (${nLembrar})</button>` : ''}
       ${ev.valor ? `<button type="button" class="cf-btn cf-sec" onclick="confraCobrarTodos()" ${fin.devedores?'':'disabled'}>💬 Cobrar quem deve (${fin.devedores})</button>` : ''}
       <button type="button" class="cf-btn cf-sec" onclick="confraSorteio()" ${t.sim?'':'disabled'}>🎁 Sorteio de prêmios (raspadinha)</button>
       <button type="button" class="cf-btn cf-sec" onclick="confraCopiarResumo()">📋 Copiar resumo para o buffet</button>
       <button type="button" class="cf-btn cf-sec" onclick="confraCSV()">📥 Baixar planilha</button>
     </div>
     <div class="min-busca" style="margin-top:6px"><span class="min-busca-ic">🔍</span><input type="text" placeholder="Buscar ministro" value="${_confraBusca.replace(/"/g,'&quot;')}" oninput="confraBuscar(this.value)"></div>
-    <div class="min-filtros">${chip('todos','Todos',ativos.length)}${chip('sim','Vão',t.sim)}${chip('nao','Não vão',t.nao)}${chip('sem','Sem resposta',t.sem)}${ev.valor?chip('deve','Devendo',fin.devedores):''}</div>
+    <div class="min-filtros">${chip('todos','Todos',ativos.length)}${chip('sim','Vão',t.sim)}${chip('nao','Não vão',t.nao)}${chip('falta','✖ Falta enviar',nFaltaTot)}${chip('enviado','✔ Enviados sem resposta',nEnvSem)}${chip('sem','Sem resposta',t.sem)}${ev.valor?chip('deve','Devendo',fin.devedores):''}</div>
     <div class="cf-lista">${lista.length ? lista.map(linha).join('') : '<p class="cf-vazio">Nenhum ministro neste filtro.</p>'}</div>`;
 }
 
@@ -1724,8 +1788,9 @@ window.confraSalvar = async function(){
 
 window.confraNovo = async function(){
   if(!confirm('Começar um NOVO evento? As respostas do evento atual continuam guardadas, mas a lista começa do zero.')) return;
-  _confra = null; _confraResp = {};
+  _confra = null; _confraResp = {}; _confraEnv = {};
   if(_confraUnsub){ try{ _confraUnsub(); }catch(e){} _confraUnsub = null; }
+  if(_confraEnvUnsub){ try{ _confraEnvUnsub(); }catch(e){} _confraEnvUnsub = null; }
   try{ await deleteDoc(doc(db,'config','confra')); }catch(e){}
   desenharConfra();
 };
@@ -1734,16 +1799,18 @@ window.confraConvidar = function(id){
   const m = ministros.find(x=>x.id===id); if(!m || !_confra) return;
   const tel = formatarTelBR(m.tel); if(!tel){ toast('Ministro sem telefone válido.','warn'); return; }
   window.open(`https://wa.me/${tel}?text=${encodeURIComponent(_confraMsgConvite(_confra, m))}`, 'sogi_zap_confra');
+  _confraMarcarEnvio(m.id, true);
 };
 
-window.confraConvidarTodos = function(){
+window.confraConvidarTodos = function(reenviar){
   if(!_confra) return;
-  const pend = ministros.filter(m=>m.ativo!==false && !_confraResp[m.id]);
+  // Padrão: só quem ainda NÃO recebeu o link. Com reenviar=true: lembrete a quem recebeu e ainda não respondeu.
+  const pend = ministros.filter(m=>m.ativo!==false && !_confraResp[m.id] && (reenviar ? !!_confraEnv[m.id] : !_confraEnv[m.id]));
   const comTel = pend.filter(m=>formatarTelBR(m.tel)).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   const semTel = pend.length - comTel.length;
   if(!comTel.length){ toast('Ninguém pendente com telefone válido.','warn'); return; }
-  if(!confirm(`Enviar o convite para ${comTel.length} ministro(s) que ainda não responderam?${semTel?`\n\n${semTel} sem telefone ficam de fora.`:''}\n\nO WhatsApp abre um por vez. Envie e toque em "Próximo" aqui.`)) return;
-  filaWhatsIniciar(comTel.map(m=>({ nome: primeiroNomes(m.nome), url:`https://wa.me/${formatarTelBR(m.tel)}?text=${encodeURIComponent(_confraMsgConvite(_confra, m))}` })), 'sogi_zap_confra');
+  if(!confirm(`${reenviar?'Enviar um lembrete para':'Enviar o convite para'} ${comTel.length} ministro(s) ${reenviar?'que já receberam e ainda não responderam':'que ainda não receberam'}?${semTel?`\n\n${semTel} sem telefone ficam de fora.`:''}\n\nO WhatsApp abre um por vez. Envie e toque em "Próximo" aqui. Cada um vira verde quando você passa para o próximo.`)) return;
+  filaWhatsIniciar(comTel.map(m=>({ nome: primeiroNomes(m.nome), aoEnviar: ()=>_confraMarcarEnvio(m.id, true), url:`https://wa.me/${formatarTelBR(m.tel)}?text=${encodeURIComponent(_confraMsgConvite(_confra, m))}` })), 'sogi_zap_confra');
 };
 
 window.confraResumoTexto = function(){
@@ -12996,6 +13063,8 @@ window.filaWhatsIniciar = function(itens, aba){
 window.filaWhatsProximo = function(){
   const f = window._filaW;
   if(!f) return;
+  // Ao avançar, o item anterior conta como enviado (quem usa a fila marca aqui; ex.: confraternização).
+  if(f.i > 0){ const ant = f.itens[f.i-1]; if(ant && typeof ant.aoEnviar==='function'){ try{ ant.aoEnviar(); }catch(e){} } }
   let barra = document.getElementById('fila-whats-barra');
   if(f.i >= f.itens.length){
     if(barra) barra.remove();
@@ -20851,6 +20920,10 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 .cf-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff;border:1px solid var(--linha);border-radius:14px;padding:10px 14px;min-height:60px}
 .cf-nm{display:flex;flex-direction:column;gap:4px;min-width:0}.cf-nm b{font-size:15px;color:var(--tinta)}
 .cf-b{font-size:12px;font-weight:700;padding:2px 10px;border-radius:99px;align-self:flex-start}
+.cf-row.cf-env{border-left:6px solid #1f9d63;background:#f2fbf6}.cf-row.cf-falta{border-left:6px solid #d64545;background:#fff6f5}
+.cf-row.cf-env .cf-nm b{color:#0f7a4f}.cf-row.cf-falta .cf-nm b{color:#c0392b}
+.cf-ajuste{background:#fff;border:1px solid var(--linha);border-radius:14px;padding:12px 14px}.cf-ajuste summary{font-weight:700;cursor:pointer;color:var(--tinta);min-height:30px}.cf-ajuste p{font-size:13px;color:#666;margin:8px 0}.cf-ajuste .cf-btn{margin-top:6px}.cf-sel{width:100%;min-height:46px;border:1px solid var(--linha);border-radius:12px;padding:8px 10px;font-size:15px;background:#fff}
+.cf-env-p{align-self:flex-start;border:0;border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;min-height:30px}.cf-env-ok{background:#d9f3e5;color:#0b6b43}.cf-env-no{background:#fde0de;color:#a82b21}
 .cf-b-sim{background:#e1f5ee;color:#085041}.cf-b-nao{background:#fcebeb;color:#A32D2D}.cf-b-sem{background:#f1f1ee;color:#777}
 .cf-ac{display:flex;gap:6px;align-items:center;flex-shrink:0}
 .cf-mini{min-height:40px;padding:0 12px;border:1.5px solid var(--verde-700);border-radius:11px;background:#fff;color:var(--verde-700);font-size:13px;font-weight:700;cursor:pointer}
