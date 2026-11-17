@@ -138,18 +138,25 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.17.6';
-// WhatsApp mais rápido no computador: vai direto ao WhatsApp Web, sem passar pela página intermediária do wa.me. No celular nada muda.
+const APP_VERSAO = '21.17.7';
+// WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
+// abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
   try{
-    const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'') || (navigator.maxTouchPoints>1 && /Macintosh/.test(navigator.userAgent||''));
-    if(mobile || window.__waRapido) return;
-    window.__waRapido = true;
+    if(window.__waRapido) return; window.__waRapido = true;
     const abrir = window.open.bind(window);
     window.open = function(u, ...r){
       try{
-        const m = typeof u==='string' && u.match(/^https:\/\/wa\.me\/(\d+)\?text=(.*)$/s);
-        if(m) u = `https://web.whatsapp.com/send?phone=${m[1]}&text=${m[2]}`;
+        let modo = 'web'; try{ modo = localStorage.getItem('sogi_wa_modo')||'web'; }catch(e){}
+        const m = (modo==='app' && typeof u==='string') ? u.match(/^https:\/\/wa\.me\/(\d+)\?text=(.*)$/s) : null;
+        if(m){
+          // O app do Windows troca emoji por "?": no modo app o texto vai sem emojis.
+          let txt = ''; try{ txt = decodeURIComponent(m[2]); }catch(e){ txt = ''; }
+          txt = txt.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu,'').replace(/^[ \t]+/gm,'').replace(/[ \t]{2,}/g,' ');
+          const a = document.createElement('a'); a.href = `whatsapp://send?phone=${m[1]}&text=${encodeURIComponent(txt)}`; a.style.display='none';
+          document.body.appendChild(a); a.click(); a.remove();
+          return null;
+        }
       }catch(e){}
       return abrir(u, ...r);
     };
@@ -1585,6 +1592,12 @@ async function _confraAutoInicial(){
   }catch(e){ console.warn('[SOGI] auto envios', e); }
   if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
 }
+function _waModo(){ try{ return localStorage.getItem('sogi_wa_modo')==='app' ? 'app' : 'web'; }catch(e){ return 'web'; } }
+window.confraWaModo = function(m){
+  try{ localStorage.setItem('sogi_wa_modo', m); }catch(e){}
+  if(m==='app') toast('Pronto. Agora o WhatsApp abre direto no aplicativo do Windows.','ok');
+  desenharConfra();
+};
 window.confraAlternarEnvio = function(id){ _confraMarcarEnvio(id, !_confraEnv[id]); };
 window.confraMarcarAte = async function(){
   if(!_confra) return;
@@ -1775,6 +1788,10 @@ function desenharConfra(){
     </div>
     <div class="cf-acoes">
       <button type="button" class="cf-btn cf-prim" onclick="confraConvidarTodos()" ${nFalta?'':'disabled'}>📲 Enviar convite a quem falta (${nFalta})</button>
+      <div class="cf-wa"><span>WhatsApp:</span>
+        <button type="button" class="min-chip${_waModo()==='web'?' on':''}" onclick="confraWaModo('web')">🌐 Navegador</button>
+        <button type="button" class="min-chip${_waModo()==='app'?' on':''}" onclick="confraWaModo('app')">💻 App Windows (mais rápido)</button>
+      </div>
       <details class="cf-ajuste"><summary>✔ Já enviei para alguns — ajustar marcações</summary>
         <p><b>Enviou em ordem alfabética?</b> Escolha o último ministro para quem você mandou: todos de A até ele ficam verdes.</p>
         <select id="cf-ate" class="cf-sel"><option value="">Escolha o último que recebeu…</option>${ativos.map(m=>`<option value="${m.id}">${m.nome.replace(/</g,'&lt;')}</option>`).join('')}</select>
@@ -20957,6 +20974,7 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
 .cf-b{font-size:12px;font-weight:700;padding:2px 10px;border-radius:99px;align-self:flex-start}
 .cf-row.cf-env{border-left:6px solid #1f9d63;background:#f2fbf6}.cf-row.cf-falta{border-left:6px solid #d64545;background:#fff6f5}
 .cf-row.cf-env .cf-nm b{color:#0f7a4f}.cf-row.cf-falta .cf-nm b{color:#c0392b}
+.cf-wa{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0}.cf-wa span{font-weight:700;font-size:14px;color:var(--tinta)}
 .cf-ajuste{background:#fff;border:1px solid var(--linha);border-radius:14px;padding:12px 14px}.cf-ajuste summary{font-weight:700;cursor:pointer;color:var(--tinta);min-height:30px}.cf-ajuste p{font-size:13px;color:#666;margin:8px 0}.cf-ajuste .cf-btn{margin-top:6px}.cf-sel{width:100%;min-height:46px;border:1px solid var(--linha);border-radius:12px;padding:8px 10px;font-size:15px;background:#fff}
 .cf-env-p{align-self:flex-start;border:0;border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;min-height:30px}.cf-env-ok{background:#d9f3e5;color:#0b6b43}.cf-env-no{background:#fde0de;color:#a82b21}
 .cf-b-sim{background:#e1f5ee;color:#085041}.cf-b-nao{background:#fcebeb;color:#A32D2D}.cf-b-sem{background:#f1f1ee;color:#777}
