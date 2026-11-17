@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.17.4';
+const APP_VERSAO = '21.17.5';
 try{ console.info('%cS.O.G.I.%c © 2026 Mauricio Bitar de Mesquita — todos os direitos reservados.','font-weight:800;color:#085041','color:#555'); }catch(e){}
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
@@ -1609,9 +1609,9 @@ function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${mi
 function _confraMsgConvite(ev, m){
   const nome = (m.nome||'').split(' ')[0];
   const brl = ev.valor>0 ? 'R$ '+Number(ev.valor).toFixed(2).replace('.',',') : '';
-  const custo = (ev.acomp!==false && brl) ? ` Caso haja acompanhantes, o custo será de ${brl} por pessoa.` : '';
+  const aviso = `✅ *Ministro em dia* (ou com poucos meses a ajustar na caixinha) *não paga nada*.${brl?` Os *${brl} por pessoa* são só para os convidados.`:''}\n🎁 Teremos ótimos brindes para sorteio!`;
   const prazo = ev.prazo ? ` até ${ev.prazo.split('-').reverse().join('/')}` : '';
-  return `Olá, ${nome}! 🙏\n\nA Coordenação MESCE convida você para a nossa *${ev.titulo||'Confraternização'}*:\n\n📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}\n📍 ${ev.local||'Local a definir'}\n\nPrecisamos saber quantas pessoas virão para organizar tudo.${custo}\n\nToque no link e responda se você *vai* ou *não poderá ir*${prazo}:\n\n${_confraLink(ev, m.id)}\n\nSua presença é muito importante! Venha confraternizar conosco, em um momento de agradecer a Deus por tudo o que vivemos neste ano.\n\nSua resposta é muito importante. Obrigado! 🕊️`;
+  return `Olá, ${nome}! 🙏\n\nA Coordenação MESCE convida você para a nossa *${ev.titulo||'Confraternização'}*:\n\n📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}\n📍 ${ev.local||'Local a definir'}\n\n${aviso}\n\nToque no link e responda se você *vai* ou *não poderá ir*${prazo}:\n\n${_confraLink(ev, m.id)}\n\nVenha confraternizar com a família MESCE. Esperamos você! 🕊️`;
 }
 
 async function carregarConfra(){
