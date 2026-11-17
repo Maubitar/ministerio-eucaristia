@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.17.3';
+const APP_VERSAO = '21.17.4';
 try{ console.info('%cS.O.G.I.%c © 2026 Mauricio Bitar de Mesquita — todos os direitos reservados.','font-weight:800;color:#085041','color:#555'); }catch(e){}
 const APP_URL = 'https://maubitar.github.io/ministerio-eucaristia';
 
@@ -2184,7 +2184,11 @@ async function modoConfraternizacao(eventoId, ministroId){
     <p style="font-size:13px;letter-spacing:1.5px;opacity:.8;margin:0 0 6px;text-transform:uppercase">Você está convidado(a)</p>
     <p style="font-size:24px;font-weight:800;margin:0 0 12px;line-height:1.2">${ev.titulo}</p>
     <p style="font-size:17px;margin:0 0 4px">📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}</p>
-    ${ev.local?`<p style="font-size:17px;margin:0">📍 ${ev.local}</p>`:''}</div>`;
+    ${ev.local?`<p style="font-size:17px;margin:0">📍 ${ev.local}</p>`:''}
+    <div style="background:rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;margin-top:14px;font-size:15px;line-height:1.5">
+      <p style="margin:0 0 6px">✅ <b>Ministro em dia</b> (ou com poucos meses a ajustar na caixinha) <b>não paga nada</b>.${ev.valor>0?` Os <b>${_brl(ev.valor)} por pessoa</b> são só para os convidados.`:''}</p>
+      <p style="margin:0">🎁 Teremos ótimos brindes para sorteio! Venha confraternizar com a família MESCE. Esperamos você!</p>
+    </div></div>`;
 
   let status = resp ? resp.status : null, acomp = resp ? (resp.acompanhantes||0) : 0, editando = !resp;
 
