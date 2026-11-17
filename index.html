@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.17.8';
+const APP_VERSAO = '21.18.1';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -18166,6 +18166,11 @@ async function finRenderBalancete(){
   });
   ['cofre','banco1','banco2'].forEach(c=>{ saldoContaAno[c] = entradasContaAno[c] - saidasContaAno[c]; });
   const saldoAno = entradasAno - saidasAno;
+  // Composição das entradas do ano: mensalidades / caixinha de ex-ministros / outras entradas
+  const recAno = _finReceitas.filter(r=>(r.data||'').slice(0,4)===String(anoRef));
+  const exLista = recAno.filter(r=>r.tipo==='ex-ministro').sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  const exAno = exLista.reduce((t,r)=>t+(Number(r.valor)||0),0);
+  const outrasAno = recAno.filter(r=>r.tipo!=='ex-ministro').reduce((t,r)=>t+(Number(r.valor)||0),0);
   const mesSelInfo = linhas.find(l=>l.mk===_finMesSel) || {entradas:0,saidas:0,saldoMes:0};
 
   // Projeção anual de mensalidades: quanto se espera arrecadar no ano (todo mundo pagando todo mês) vs o que já entrou
@@ -18175,7 +18180,7 @@ async function finRenderBalancete(){
   const pctMetaAno = metaAnualMensalidades>0 ? Math.min(100, (mensalidadesArrecadadasAno/metaAnualMensalidades*100)) : 0;
 
   // guarda pra usar em imprimir/compartilhar sem recalcular
-  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoContaAno, mesSel:_finMesSel, mesSelInfo, mensalidadesArrecadadasAno, metaAnualMensalidades, faltaAteDezembro, pctMetaAno, totalMinistrosAtivos };
+  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoContaAno, mesSel:_finMesSel, mesSelInfo, mensalidadesArrecadadasAno, exAno, exLista, outrasAno, metaAnualMensalidades, faltaAteDezembro, pctMetaAno, totalMinistrosAtivos };
 
   cont.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -18218,6 +18223,15 @@ async function finRenderBalancete(){
       <p style="font-size:11px;color:#888;margin:8px 0 0;text-align:center">${pctMetaAno.toFixed(0)}% da meta · Faltam <strong style="color:#BA7517">${fmt(faltaAteDezembro)}</strong> até dezembro (${totalMinistrosAtivos} ministros ativos × ${fmt(valor)})</p>
     </div>
 
+    <div style="background:#fafdfb;border:1.5px solid #e1f5ee;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+      <p style="font-size:12px;font-weight:700;margin:0 0 8px;color:#333">De onde veio a entrada de ${anoRef}</p>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>💵 Mensalidades dos ministros</span><strong>${fmt(mensalidadesArrecadadasAno)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>🕊️ Caixinha de ex-ministros</span><strong>${fmt(exAno)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>➕ Outras entradas (doações, eventos)</span><strong>${fmt(outrasAno)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0 0;margin-top:4px;border-top:1.5px solid #cfe8dd"><span><b>Total de entradas</b></span><strong style="color:#1D9E75">${fmt(entradasAno)}</strong></div>
+      ${exLista.length ? `<details style="margin-top:8px"><summary style="font-size:12px;color:#185FA5;cursor:pointer;font-weight:600">Ver quem são os ex-ministros (${exLista.length})</summary>${exLista.map(r=>`<p style="font-size:12px;margin:5px 0 0;display:flex;justify-content:space-between;gap:8px"><span>${(r.descricao||'').replace(/^Caixinha ex-ministro:\s*/i,'')||'Ex-ministro'} <span style="color:#999">· ${(r.data||'').split('-').reverse().join('/')}</span></span><strong>${fmt(r.valor)}</strong></p>`).join('')}</details>` : ''}
+    </div>
+
     <p style="font-size:12px;font-weight:700;color:#333;margin-bottom:8px">Mês a mês — ${anoRef}</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid #eee">
@@ -18257,6 +18271,7 @@ window.compartilharBalancete = async function(){
   });
   txt += `\n*TOTAL ${b.anoRef}:* entradas ${fmt(b.entradasAno)} · saídas ${fmt(b.saidasAno)} · saldo *${fmt(b.saldoAno)}*\n`;
   txt += `🔒 Cofre: ${fmt(b.saldoContaAno.cofre)} · 🏦 Banco 1: ${fmt(b.saldoContaAno.banco1)} · 🏦 Banco 2: ${fmt(b.saldoContaAno.banco2)}\n\n`;
+  txt += `📥 *Origem das entradas:*\nMensalidades: ${fmt(b.mensalidadesArrecadadasAno)}\nCaixinha de ex-ministros: ${fmt(b.exAno)}\nOutras entradas: ${fmt(b.outrasAno)}\n\n`;
   txt += `📈 *Projeção de mensalidades ${b.anoRef}:*\nArrecadado até hoje: ${fmt(b.mensalidadesArrecadadasAno)} (${b.pctMetaAno.toFixed(0)}% da meta)\nMeta do ano: ${fmt(b.metaAnualMensalidades)}\nFaltam até dezembro: *${fmt(b.faltaAteDezembro)}*`;
 
   if(navigator.share){
@@ -18327,6 +18342,16 @@ window.imprimirBalancete = function(){
         <div style="height:100%;width:${b.pctMetaAno.toFixed(1)}%;background:#1D9E75;border-radius:20px"></div>
       </div>
       <p style="font-size:11px;color:#777;margin:8px 0 0;text-align:center">${b.pctMetaAno.toFixed(0)}% da meta · Faltam <strong style="color:#BA7517">${fmt(b.faltaAteDezembro)}</strong> até dezembro (${b.totalMinistrosAtivos} ministros ativos)</p>
+    </div>
+    <div style="border:1.5px solid #e1f5ee;border-radius:8px;padding:12px 14px;margin-bottom:20px">
+      <p style="font-size:12px;font-weight:700;margin:0 0 8px">📥 Origem das entradas — ${b.anoRef}</p>
+      <table style="width:100%;font-size:12px"><tbody>
+        <tr><td>Mensalidades dos ministros</td><td style="text-align:right">${fmt(b.mensalidadesArrecadadasAno)}</td></tr>
+        <tr><td>Caixinha de ex-ministros</td><td style="text-align:right">${fmt(b.exAno)}</td></tr>
+        <tr><td>Outras entradas (doações, eventos)</td><td style="text-align:right">${fmt(b.outrasAno)}</td></tr>
+        <tr style="border-top:1.5px solid #333"><td><b>Total de entradas</b></td><td style="text-align:right"><b>${fmt(b.entradasAno)}</b></td></tr>
+      </tbody></table>
+      ${b.exLista.length ? `<p style="font-size:11px;font-weight:700;margin:10px 0 4px">Caixinha de ex-ministros — detalhamento</p><table style="width:100%;font-size:11px"><tbody>${b.exLista.map(r=>`<tr><td>${(r.descricao||'').replace(/^Caixinha ex-ministro:\s*/i,'')||'Ex-ministro'}</td><td>${(r.data||'').split('-').reverse().join('/')}</td><td style="text-align:right">${fmt(r.valor)}</td></tr>`).join('')}</tbody></table>` : ''}
     </div>
     <table>
       <thead><tr><th>Mês</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th><th style="text-align:right">Saldo</th></tr></thead>
@@ -18410,15 +18435,18 @@ function finRenderReceitas(){
   if(!cont) return;
   const fmt = v => 'R$ ' + (Number(v)||0).toFixed(2).replace('.',',');
   const total = _finReceitas.reduce((s,r)=>s+(Number(r.valor)||0),0);
+  const totalEx = _finReceitas.filter(r=>r.tipo==='ex-ministro').reduce((s,r)=>s+(Number(r.valor)||0),0);
 
   cont.innerHTML = `
-    <button onclick="abrirNovaReceita()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">+ Registrar entrada</button>
+    <button onclick="abrirNovaReceita()" style="width:100%;padding:11px;border:none;border-radius:9px;background:#0A6E58;color:white;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">+ Registrar entrada</button>
+    <button onclick="abrirNovaReceita('','ex')" style="width:100%;padding:11px;border:2px solid #0A6E58;border-radius:9px;background:#fff;color:#0A6E58;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🕊️ Caixinha de ex-ministro</button>
     <p style="font-size:12px;color:#888;margin:0 0 8px">Total de entradas avulsas: <strong style="color:#0A6E58">${fmt(total)}</strong></p>
+    ${totalEx ? `<p style="font-size:12px;color:#888;margin:0 0 8px">🕊️ Caixinha de ex-ministros: <strong style="color:#0A6E58">${fmt(totalEx)}</strong> <span style="color:#aaa">(já incluída no total)</span></p>` : ''}
     <p style="font-size:11px;color:#aaa;margin:0 0 10px">As mensalidades ficam na aba "Mensalidades" — aqui entram doações, ofertas avulsas, eventos etc.</p>
     ${_finReceitas.length ? _finReceitas.map(r=>`
       <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #f0f0f0">
         <div style="flex:1;cursor:pointer" onclick="abrirNovaReceita('${r.id}')">
-          <p style="font-size:13px;font-weight:600;margin:0">${r.descricao||'Entrada'} <span style="font-size:11px;color:#185FA5;font-weight:400">✏️</span></p>
+          <p style="font-size:13px;font-weight:600;margin:0">${r.tipo==='ex-ministro'?'🕊️ ':''}${r.descricao||'Entrada'} <span style="font-size:11px;color:#185FA5;font-weight:400">✏️</span></p>
           <p style="font-size:11px;color:#888;margin:2px 0 0">${(r.data||'').split('-').reverse().join('/')} · ${finLocalNome(r.local)}</p>
         </div>
         <span style="font-size:14px;font-weight:700;color:#0A6E58">${fmt(r.valor)}</span>
@@ -18426,15 +18454,29 @@ function finRenderReceitas(){
       </div>`).join('') : '<p style="font-size:12px;color:#aaa;padding:10px 0">Nenhuma entrada avulsa registrada.</p>'}`;
 }
 
-window.abrirNovaReceita = function(id){
+window.abrirNovaReceita = function(id, modo){
   const r = id ? _finReceitas.find(x=>x.id===id) : null;
-  document.getElementById('rec-desc').value = r?.descricao||'';
+  const ex = modo==='ex' || r?.tipo==='ex-ministro';
+  document.getElementById('modal-receita').dataset.tipo = ex ? 'ex-ministro' : '';
+  const av = document.getElementById('rec-aviso');
+  if(av){
+    let txt = '';
+    if(ex){
+      const ativosIds = new Set(ministros.filter(m=>m.ativo!==false).map(m=>m.id));
+      let n = 0; Object.values(_finPagosTodos||{}).forEach(pg=>Object.entries(pg||{}).forEach(([mid,p])=>{ if(p && p.pago && !ativosIds.has(mid)) n++; }));
+      const v = Number(_finConfig.valorMensalidade)||15;
+      txt = `🕊️ Use para a caixinha de quem saiu da MESCE: ela entra no saldo, nos relatórios e na conta escolhida. Escreva o nome do ex-ministro na descrição.` + (n ? `<br><b>Atenção:</b> já existem ${n} mensalidade(s) paga(s) de pessoas que não estão mais na lista (R$ ${(n*v).toFixed(2).replace('.',',')}), contadas no saldo. Se for a mesma contribuição, não registre de novo.` : '');
+    }
+    av.innerHTML = txt; av.style.display = txt ? 'block' : 'none';
+  }
+  document.getElementById('rec-desc').value = r?.descricao || (ex ? 'Caixinha ex-ministro: ' : '');
   document.getElementById('rec-valor').value = r ? String(r.valor).replace('.',',') : '';
   document.getElementById('rec-data').value = r?.data || new Date().toISOString().slice(0,10);
   document.getElementById('rec-local').value = r?.local || 'cofre';
   document.getElementById('modal-receita').dataset.editId = id||'';
-  document.getElementById('modal-receita-titulo').textContent = id ? '➕ Editar Entrada' : '➕ Nova Entrada';
+  document.getElementById('modal-receita-titulo').textContent = ex ? (id ? '🕊️ Editar caixinha de ex-ministro' : '🕊️ Caixinha de ex-ministro') : (id ? '➕ Editar Entrada' : '➕ Nova Entrada');
   document.getElementById('modal-receita').style.display='flex';
+  if(ex && !id){ const d = document.getElementById('rec-desc'); setTimeout(()=>{ try{ d.focus(); d.setSelectionRange(d.value.length,d.value.length); }catch(e){} },80); }
 };
 
 window.salvarReceita = async function(){
@@ -18450,7 +18492,9 @@ window.salvarReceita = async function(){
       await setDoc(doc(db,'receitas',editId), {descricao, valor, data, local}, {merge:true});
       toast('✓ Entrada atualizada!');
     } else {
-      await addDoc(collection(db,'receitas'), {descricao, valor, data, local, criadoEm:serverTimestamp()});
+      const novo = {descricao, valor, data, local, criadoEm:serverTimestamp()};
+      if(document.getElementById('modal-receita').dataset.tipo==='ex-ministro') novo.tipo = 'ex-ministro';
+      await addDoc(collection(db,'receitas'), novo);
       toast('✓ Entrada registrada!');
     }
     document.getElementById('modal-receita').style.display='none';
@@ -20176,6 +20220,7 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </div>
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Descrição</label>
     <input type="text" id="rec-desc" placeholder="Ex: Doação, oferta avulsa, evento" style="margin-bottom:10px">
+    <div id="rec-aviso" style="display:none;background:#f2f9f6;border-radius:10px;padding:9px 11px;margin:-2px 0 10px;font-size:12px;color:#085041;line-height:1.45"></div>
     <div style="display:flex;gap:8px">
       <div style="flex:1">
         <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Valor (R$)</label>
