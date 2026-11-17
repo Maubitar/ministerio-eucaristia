@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.17.7';
+const APP_VERSAO = '21.17.8';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -150,9 +150,7 @@ const APP_VERSAO = '21.17.7';
         let modo = 'web'; try{ modo = localStorage.getItem('sogi_wa_modo')||'web'; }catch(e){}
         const m = (modo==='app' && typeof u==='string') ? u.match(/^https:\/\/wa\.me\/(\d+)\?text=(.*)$/s) : null;
         if(m){
-          // O app do Windows troca emoji por "?": no modo app o texto vai sem emojis.
-          let txt = ''; try{ txt = decodeURIComponent(m[2]); }catch(e){ txt = ''; }
-          txt = txt.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu,'').replace(/^[ \t]+/gm,'').replace(/[ \t]{2,}/g,' ');
+          let txt = ''; try{ txt = decodeURIComponent(m[2]); if(txt.toWellFormed) txt = txt.toWellFormed(); }catch(e){ txt = ''; }
           const a = document.createElement('a'); a.href = `whatsapp://send?phone=${m[1]}&text=${encodeURIComponent(txt)}`; a.style.display='none';
           document.body.appendChild(a); a.click(); a.remove();
           return null;
