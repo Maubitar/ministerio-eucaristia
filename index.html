@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.19.0';
+const APP_VERSAO = '21.19.1';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -1645,7 +1645,7 @@ function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${mi
 function _confraMsgConvite(ev, m){
   const nome = (m.nome||'').split(' ')[0];
   const brl = ev.valor>0 ? 'R$ '+Number(ev.valor).toFixed(2).replace('.',',') : '';
-  const aviso = `✅ *Ministro em dia* (ou com poucos meses a ajustar na caixinha) *não paga nada*.${brl?` Os *${brl} por pessoa* são só para os convidados.`:''}\n🎁 Teremos ótimos brindes para sorteio!`;
+  const aviso = `✅ *Ministro em dia* (ou com poucos meses a ajustar na caixinha) *não paga nada*.${brl?` Os *${brl} por pessoa* são só para os convidados.`:''}\n🎁 Teremos ótimos brindes para sorteio!\n👥 Se for levar acompanhante, escreva o nome dele no próprio link: o nome vai na lista do buffet.`;
   const prazo = ev.prazo ? ` até ${ev.prazo.split('-').reverse().join('/')}` : '';
   return `Olá, ${nome}! 🙏\n\nA Coordenação MESCE convida você para a nossa *${ev.titulo||'Confraternização'}*:\n\n📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}\n📍 ${ev.local||'Local a definir'}\n\n${aviso}\n\nToque no link e responda se você *vai* ou *não poderá ir*${prazo}:\n\n${_confraLink(ev, m.id)}\n\nVenha confraternizar com a família MESCE. Esperamos você! 🕊️`;
 }
@@ -1755,6 +1755,8 @@ function desenharConfra(){
   const nFalta = ativos.filter(m=>!_confraEnviado(m.id) && formatarTelBR(m.tel)).length;
   const nFaltaTot = ativos.filter(m=>!_confraEnviado(m.id)).length;
   const nEnvSem = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id]).length;
+  const nNomes = _confraPendNomes(false).filter(m=>formatarTelBR(m.tel)).length;
+  const nNomesRep = _confraPendNomes(true).filter(m=>formatarTelBR(m.tel)).length;
   const nLembrar = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id] && formatarTelBR(m.tel)).length;
   const q = normalizarBusca(_confraBusca);
   const lista = ativos.filter(m=>{
@@ -1778,7 +1780,7 @@ function desenharConfra(){
     const btnDeb = db_.devido>0 ? `<button type="button" class="cf-mini cf-pag" onclick="confraDebito('${m.id}')">💰 Débito</button>` : '';
     const env = _confraEnviado(m.id);
     const nomesAc = _confraNomesAcomp(r);
-    const acLinha = nomesAc.length ? `<div class="cf-acn">👥 ${nomesAc.map(x=>x?x.replace(/</g,'&lt;'):'<i>(sem nome)</i>').join(' · ')}</div>` : '';
+    const acLinha = nomesAc.length ? `<div class="cf-acn">👥 ${nomesAc.map(x=>x?x.replace(/</g,'&lt;'):'<i>(sem nome)</i>').join(' · ')}${(nomesAc.some(x=>!x) && _confraEnv['nome_'+m.id]) ? ' <span style="color:#0b6b43">· ✔ pedido enviado</span>' : ''}</div>` : '';
     const quando = _confraEnv[m.id] ? new Date(_confraEnv[m.id]).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : '';
     const envPill = r ? '' : (env ? `<button type="button" class="cf-env-p cf-env-ok" onclick="confraAlternarEnvio('${m.id}')" aria-label="Convite enviado. Toque para desmarcar">✔ Enviado${quando?' em '+quando:''}</button>` : `<button type="button" class="cf-env-p cf-env-no" onclick="confraAlternarEnvio('${m.id}')" aria-label="Falta enviar. Toque para marcar como enviado">✖ Falta enviar</button>`);
     return `<div class="cf-row ${env?'cf-env':'cf-falta'}"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}${dchip}${envPill}${acLinha}</div><div class="cf-ac">${lembrar}${btnDeb}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
@@ -1812,6 +1814,8 @@ function desenharConfra(){
       ${nLembrar ? `<button type="button" class="cf-btn cf-sec" onclick="confraConvidarTodos(true)">🔁 Lembrar quem recebeu e não respondeu (${nLembrar})</button>` : ''}
       ${ev.valor ? `<button type="button" class="cf-btn cf-sec" onclick="confraCobrarTodos()" ${fin.devedores?'':'disabled'}>💬 Cobrar quem deve (${fin.devedores})</button>` : ''}
       <button type="button" class="cf-btn cf-sec" onclick="confraSorteio()" ${t.sim?'':'disabled'}>🎁 Sorteio de prêmios (raspadinha)</button>
+      ${nNomes ? `<button type="button" class="cf-btn cf-prim" onclick="confraPedirNomes()">👥 Pedir o nome dos acompanhantes (${nNomes})</button>` : ''}
+      ${nNomesRep ? `<button type="button" class="cf-btn cf-sec" onclick="confraPedirNomes(true)">🔁 Repetir pedido de nomes (${nNomesRep})</button>` : ''}
       <button type="button" class="cf-btn cf-prim" onclick="confraImprimirLista()" ${t.sim?'':'disabled'}>🖨️ Lista de presença para o buffet</button>
       <button type="button" class="cf-btn cf-sec" onclick="confraCopiarResumo()">📋 Copiar resumo para o buffet</button>
       <button type="button" class="cf-btn cf-sec" onclick="confraCSV()">📥 Baixar planilha</button>
@@ -1875,6 +1879,29 @@ window.confraResumoTexto = function(){
   const t = _confraTotais(), ev = _confra;
   const vao = ministros.filter(m=>_confraResp[m.id]?.status==='sim').sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   return `${ev.titulo} — ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}${ev.local?`\nLocal: ${ev.local}`:''}\n\nTOTAL PARA O BUFFET: ${t.total} pessoas\n• Ministros confirmados: ${t.sim}\n• Acompanhantes: ${t.acomp}\n• Não vão: ${t.nao}\n• Ainda sem resposta: ${t.sem}\n\nConfirmados:\n` + vao.map(m=>{ const ns=_confraNomesAcomp(_confraResp[m.id]); return `- ${m.nome}${ns.length?` (+${ns.length}: ${ns.map(x=>x||'sem nome').join(', ')})`:''}`; }).join('\n');
+};
+function _confraMsgNomes(ev, m, r){
+  const nome = (m.nome||'').split(' ')[0];
+  const n = (r && r.acompanhantes) || 0;
+  return `Olá, ${nome}! 🙏\n\nSua presença na ${ev.titulo||'Confraternização'} está confirmada com ${n} acompanhante${n>1?'s':''}. 🎉\n\n👥 Para a *lista do buffet*, toque no link e escreva o *nome ${n>1?'de cada convidado':'do convidado'}*:\n\n${_confraLink(ev, m.id)}\n\nÉ rapidinho. Obrigado e esperamos vocês! 🕊️`;
+}
+function _confraPendNomes(repetir){
+  return ministros.filter(m=>{
+    if(m.ativo===false) return false;
+    const r = _confraResp[m.id];
+    if(!r || r.status!=='sim' || !(r.acompanhantes>0)) return false;
+    if(!_confraNomesAcomp(r).some(x=>!x)) return false;
+    return repetir ? !!_confraEnv['nome_'+m.id] : !_confraEnv['nome_'+m.id];
+  });
+}
+window.confraPedirNomes = function(repetir){
+  if(!_confra) return;
+  const pend = _confraPendNomes(!!repetir);
+  const comTel = pend.filter(m=>formatarTelBR(m.tel)).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+  const semTel = pend.length - comTel.length;
+  if(!comTel.length){ toast('Ninguém pendente com telefone válido.','warn'); return; }
+  if(!confirm(`${repetir?'Repetir o pedido de nomes para':'Pedir o nome dos acompanhantes a'} ${comTel.length} ministro(s)?${semTel?`\n\n${semTel} sem telefone ficam de fora.`:''}\n\nO WhatsApp abre um por vez. Envie e toque em "Próximo" aqui.`)) return;
+  filaWhatsIniciar(comTel.map(m=>({ nome: primeiroNomes(m.nome), aoEnviar: ()=>_confraMarcarEnvio('nome_'+m.id, true), url:`https://wa.me/${formatarTelBR(m.tel)}?text=${encodeURIComponent(_confraMsgNomes(_confra, m, _confraResp[m.id]))}` })), 'sogi_zap_confra');
 };
 window.confraImprimirLista = function(){
   if(!_confra) return;
