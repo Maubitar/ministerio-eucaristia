@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.22.3';
+const APP_VERSAO = '21.23.0';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -1692,12 +1692,16 @@ window.renderConfra = async function(){
 
 // Débito = acompanhantes × valor por pessoa. A fonte é a própria resposta (nada duplicado); só o "pago" é guardado junto.
 const _brl = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const CONFRA_PIX = 'financeiromece@gmail.com';
+function _confraLinkPag(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}&pag=1&v=${APP_VERSAO}`; }
 function _confraDebito(r, ev){
   ev = ev || _confra;
   const valor = (ev && ev.valor) || 0;
   const n = (r && r.status==='sim') ? (r.acompanhantes||0) : 0;
-  const devido = n*valor, pago = Math.min(r?.pago||0, Math.max(devido, r?.pago||0));
-  return { n, valor, devido, pago: r?.pago||0, aberto: Math.max(0, Math.round((devido-(r?.pago||0))*100)/100) };
+  const devido = n*valor;
+  const pg = Math.max(r?.pago||0, r?.pagoInf||0);   // o que o ministro avisou pelo link também conta como pago
+  const informado = (r?.pagoInf||0)>0 && (r?.pago||0)<(r?.pagoInf||0) && !r?.pagoOk;   // avisou pelo link e ainda não foi conferido
+  return { n, valor, devido, pago: pg, aberto: Math.max(0, Math.round((devido-pg)*100)/100), informado, informadoEm: r?.pagoInfEm||0 };
 }
 function _confraFinanceiro(){
   let devido=0, pago=0, aberto=0, devedores=0;
@@ -1706,7 +1710,7 @@ function _confraFinanceiro(){
 }
 function _confraMsgCobranca(ev, m, r){
   const d = _confraDebito(r, ev), nome = (m.nome||'').split(' ')[0];
-  return `Olá, ${nome}! 🙏\n\nSobre a *${ev.titulo||'Confraternização'}*: você confirmou ${d.n} acompanhante${d.n>1?'s':''}, a ${_brl(d.valor)} por pessoa, total de *${_brl(d.devido)}*.${d.pago>0?` Já recebemos ${_brl(d.pago)}; falta *${_brl(d.aberto)}*.`:''}\n\nPode combinar o pagamento com a Coordenação MESCE. Obrigado! 🕊️`;
+  return `Olá, ${nome}! 🙏\n\nSobre a *${ev.titulo||'Confraternização'}*: você confirmou ${d.n} acompanhante${d.n>1?'s':''}, a ${_brl(d.valor)} por pessoa, total de *${_brl(d.devido)}*.${d.pago>0?` Já recebemos ${_brl(d.pago)}; falta *${_brl(d.aberto)}*.`:''}\n\n💳 *Pague pelo PIX* (chave: ${ev.pix||CONFRA_PIX}) e confirme o pagamento neste link:\n${_confraLinkPag(ev, m.id)}\n\nObrigado! 🕊️`;
 }
 
 function _confraTotais(){
@@ -1759,12 +1763,14 @@ function desenharConfra(){
   const nEnvSem = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id]).length;
   const nNomes = _confraPendNomes(false).filter(m=>formatarTelBR(m.tel)).length;
   const nNomesRep = _confraPendNomes(true).filter(m=>formatarTelBR(m.tel)).length;
+  const nConferir = ativos.filter(m=>_confraDebito(_confraResp[m.id]).informado).length;
   const nLembrar = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id] && formatarTelBR(m.tel)).length;
   const q = normalizarBusca(_confraBusca);
   const lista = ativos.filter(m=>{
     const r = _confraResp[m.id];
     const st = r ? r.status : 'sem';
     if(_confraFiltro==='deve'){ if(_confraDebito(r).aberto<=0) return false; }
+    else if(_confraFiltro==='conferir'){ if(!_confraDebito(r).informado) return false; }
     else if(_confraFiltro==='falta'){ if(_confraEnviado(m.id)) return false; }
     else if(_confraFiltro==='enviado'){ if(st!=='sem' || !_confraEnv[m.id]) return false; }
     else if(_confraFiltro!=='todos' && st!==_confraFiltro) return false;
@@ -1778,12 +1784,12 @@ function desenharConfra(){
     const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : '';
     const lembrar = (st==='sem' && tel) ? `<button type="button" class="cf-mini" onclick="confraConvidar('${m.id}')">📲 Convidar</button>` : (st==='sem' ? '<span class="cf-nt">sem telefone</span>' : '');
     const db_ = _confraDebito(r);
-    const dchip = db_.devido>0 ? (db_.aberto<=0 ? `<span class="cf-b cf-b-sim">💰 Pago ${_brl(db_.devido)}</span>` : `<span class="cf-b cf-b-deb">💰 Deve ${_brl(db_.aberto)}${db_.pago>0?` (de ${_brl(db_.devido)})`:''}</span>`) : '';
+    const dchip = db_.devido>0 ? (db_.aberto<=0 ? (db_.informado ? `<span class="cf-b" style="background:#fff3cd;color:#7a5600">💰 Pagou ${_brl(db_.devido)} · conferir</span>` : `<span class="cf-b cf-b-sim">💰 Pago ${_brl(db_.devido)}</span>`) : `<span class="cf-b cf-b-deb">💰 Deve ${_brl(db_.aberto)}${db_.pago>0?` (de ${_brl(db_.devido)})`:''}</span>`) : '';
     const btnDeb = db_.devido>0 ? `<button type="button" class="cf-mini cf-pag" onclick="confraDebito('${m.id}')">💰 Débito</button>` : '';
     const env = _confraEnviado(m.id);
     const nomesAc = _confraNomesAcomp(r);
     const acLinha = nomesAc.length ? `<div class="cf-acn">👥 ${nomesAc.map(x=>x?x.replace(/</g,'&lt;'):'<i>(sem nome)</i>').join(' · ')}${(nomesAc.some(x=>!x) && _confraEnv['nome_'+m.id]) ? ' <span style="color:#0b6b43">· ✔ pedido enviado</span>' : ''}</div>` : '';
-    const quando = _confraEnv[m.id] ? new Date(_confraEnv[m.id]).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : '';
+    const quando = _confraEnv[m.id] ? (new Date(_confraEnv[m.id]).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' às '+new Date(_confraEnv[m.id]).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})) : '';
     const envPill = r ? '' : (env ? `<button type="button" class="cf-env-p cf-env-ok" onclick="confraAlternarEnvio('${m.id}')" aria-label="Convite enviado. Toque para desmarcar">✔ Enviado${quando?' em '+quando:''}</button>` : (tel ? `<button type="button" class="cf-env-p cf-env-no" onclick="confraAlternarEnvio('${m.id}')" aria-label="Falta enviar. Toque para marcar como enviado">✖ Falta enviar</button>` : `<button type="button" class="cf-env-p cf-env-no" onclick="confraManual('${m.id}')" aria-label="Sem telefone cadastrado">✖ Sem telefone — não recebeu</button>`));
     return `<div class="cf-row ${env?'cf-env':'cf-falta'}"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}${dchip}${envPill}${acLinha}</div><div class="cf-ac">${lembrar}${btnDeb}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
   };
@@ -1815,6 +1821,7 @@ function desenharConfra(){
       </details>
       ${nLembrar ? `<button type="button" class="cf-btn cf-sec" onclick="confraConvidarTodos(true)">🔁 Lembrar quem recebeu e não respondeu (${nLembrar})</button>` : ''}
       ${ev.valor ? `<button type="button" class="cf-btn cf-sec" onclick="confraCobrarTodos()" ${fin.devedores?'':'disabled'}>💬 Cobrar quem deve (${fin.devedores})</button>` : ''}
+      ${nConferir ? `<button type="button" class="cf-btn cf-prim" onclick="confraFiltrar('conferir')">💰 Conferir PIX no extrato — ${nConferir} ministro(s) avisaram que pagaram</button>` : ''}
       <button type="button" class="cf-btn cf-sec" onclick="confraSorteio()" ${t.sim?'':'disabled'}>🎁 Sorteio de prêmios (raspadinha)</button>
       ${nNomes ? `<button type="button" class="cf-btn cf-prim" onclick="confraPedirNomes()">👥 Pedir o nome dos acompanhantes (${nNomes})</button>` : ''}
       ${nNomesRep ? `<button type="button" class="cf-btn cf-sec" onclick="confraPedirNomes(true)">🔁 Repetir pedido de nomes (${nNomesRep})</button>` : ''}
@@ -2128,10 +2135,14 @@ window.confraDebito = function(id){
       <div><span>Já pago</span><b style="color:#085041">${_brl(d.pago)}</b></div>
       <div class="cf-cart-tot"><span>Em aberto</span><b style="color:${d.aberto>0?'#A32D2D':'#085041'}">${_brl(d.aberto)}</b></div>
     </div>
+    ${d.informado ? `<div style="background:#fff3cd;border-radius:12px;padding:12px 14px;margin:12px 0 0"><p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#7a5600">O ministro avisou pelo link que pagou${d.informadoEm?' em '+new Date(d.informadoEm).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' às '+new Date(d.informadoEm).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):''}. Confira o PIX no extrato.</p>
+      <button type="button" class="cf-btn cf-prim" onclick="confraConferirPix('${id}',true)">✔ Conferi no extrato — recebi</button>
+      <button type="button" class="cf-btn cf-sec" onclick="confraConferirPix('${id}',false)">✖ Não recebi — voltar a cobrar</button></div>` : ''}
     ${d.aberto>0 ? `<label style="display:block;font-size:13px;font-weight:700;color:#5b6b65;margin:12px 0 4px">Valor recebido agora</label>
       <input id="cfd-valor" type="number" min="0" step="0.01" value="${d.aberto.toFixed(2)}" style="width:100%;min-height:48px;border:1.5px solid #cde8d8;border-radius:12px;font-size:17px;font-weight:700;padding:0 12px;margin:0 0 8px;box-sizing:border-box">
       <button type="button" class="cf-btn cf-prim" onclick="confraRegistrarPagamento('${id}')">✓ Registrar pagamento</button>` : '<p style="text-align:center;font-weight:700;color:#085041;margin:12px 0">✅ Tudo pago</p>'}
     ${d.aberto>0 && tel ? `<button type="button" class="cf-btn cf-sec" onclick="confraCobrar('${id}')">💬 Cobrar por WhatsApp</button>` : ''}
+    ${d.devido>0 ? `<button type="button" class="cf-btn cf-sec" onclick="confraCopiarLinkPag('${id}')">🔗 Copiar link de pagamento</button>` : ''}
     ${d.pago>0 ? `<button type="button" class="cf-btn cf-sec" onclick="confraZerarPagamento('${id}')">Corrigir: zerar pagamentos deste ministro</button>` : ''}
   </div>`;
   document.body.appendChild(el);
@@ -2151,10 +2162,26 @@ window.confraZerarPagamento = async function(id){
   if(!confirm('Zerar os pagamentos registrados deste ministro?')) return;
   const r = _confraResp[id]; if(!r || !_confra) return;
   try{
-    await setDoc(doc(db,'confra_respostas',`${_confra.id}_${id}`), { pago:0, pagoEm:null }, { merge:true });
-    r.pago = 0; r.pagoEm = null;
+    await setDoc(doc(db,'confra_respostas',`${_confra.id}_${id}`), { pago:0, pagoEm:null, pagoInf:0, pagoInfEm:0, pagoOk:false }, { merge:true });
+    r.pago = 0; r.pagoEm = null; r.pagoInf = 0; r.pagoInfEm = 0; r.pagoOk = false;
     document.getElementById('modal-confra-deb')?.remove(); desenharConfra();
   }catch(e){ toast('Não foi possível corrigir.','err'); }
+};
+window.confraConferirPix = async function(id, recebi){
+  const r = _confraResp[id]; if(!r || !_confra) return;
+  const dados = recebi ? { pago: Math.max(r.pago||0, r.pagoInf||0), pagoEm: Date.now(), pagoOk:true } : { pagoInf:0, pagoInfEm:0, pagoOk:false };
+  try{
+    await setDoc(doc(db,'confra_respostas',`${_confra.id}_${id}`), dados, { merge:true });
+    Object.assign(r, dados);
+    document.getElementById('modal-confra-deb')?.remove(); desenharConfra();
+    toast(recebi ? '✓ Pagamento conferido.' : 'Voltou para "deve". Você pode cobrar de novo.','ok');
+  }catch(e){ toast('Não foi possível salvar. Tente de novo.','err'); }
+};
+window.confraCopiarLinkPag = function(id){
+  if(!_confra) return;
+  const link = _confraLinkPag(_confra, id);
+  try{ navigator.clipboard.writeText(link).then(()=>toast('✓ Link de pagamento copiado.','ok')).catch(()=>prompt('Copie o link:', link)); }
+  catch(e){ prompt('Copie o link:', link); }
 };
 window.confraCobrar = function(id){
   const m = ministros.find(x=>x.id===id), r = _confraResp[id]; if(!m || !r || !_confra) return;
@@ -2298,7 +2325,61 @@ async function modoConfraternizacao(eventoId, ministroId){
   let nomes = (resp && resp.acompNomes) ? String(resp.acompNomes).split('||') : [];
   const _esc = x=>String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
+  const pagando0 = new URLSearchParams(location.search).get('pag')==='1';
+  let pagando = pagando0;
+  const gravarPag = async (dados)=>{
+    const idDoc = `${eventoId}_${ministroId}`;
+    try{
+      if(viaRest) throw Object.assign(new Error('via rest'),{code:'rest'});
+      await limite(setDoc(doc(db,'confra_respostas',idDoc), dados, { merge:true }), 9000);
+    }catch(e1){ await _restGravar('confra_respostas', idDoc, dados); }
+    resp = { ...(resp||{}), ...dados };
+  };
+  const desenharPag = ()=>{
+    const n = resp.acompanhantes||0, devido = n*(ev.valor||0), pg = Math.max(resp.pago||0, resp.pagoInf||0);
+    const aberto = Math.max(0, Math.round((devido-pg)*100)/100), pix = ev.pix || CONFRA_PIX;
+    const cab = `<div style="background:linear-gradient(135deg,#06241d,#0a6e57);color:#fff;border-radius:20px;padding:20px 22px;margin-bottom:14px"><p style="font-size:13px;letter-spacing:1.5px;opacity:.8;margin:0 0 6px;text-transform:uppercase">Pagamento dos acompanhantes</p><p style="font-size:22px;font-weight:800;margin:0;line-height:1.25">${ev.titulo}</p></div>`;
+    if(aberto<=0){
+      const inf = (resp.pagoInf||0)>0 && (resp.pago||0)<(resp.pagoInf||0) && !resp.pagoOk;
+      document.body.innerHTML = caixa(cab + `<div style="background:#fff;border-radius:20px;padding:28px 22px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.08)">
+        <div style="font-size:56px">✅</div>
+        <p style="font-size:24px;font-weight:800;color:#085041;margin:8px 0 6px">Pagamento realizado!</p>
+        <p style="font-size:17px;color:#333;line-height:1.5;margin:0">${primeiro}, obrigado! Recebemos o aviso do pagamento de <b>${_brl(devido)}</b>${inf?'. A Coordenação vai conferir no extrato.':'.'}</p>
+        ${inf ? `<button id="pg-desf" style="margin-top:18px;border:none;background:none;color:#888;font-size:14px;text-decoration:underline;cursor:pointer">Cliquei sem querer — ainda não paguei</button>` : ''}
+      </div>`);
+      const bd = document.getElementById('pg-desf');
+      if(bd) bd.onclick = async ()=>{ try{ await gravarPag({ pagoInf:0, pagoInfEm:0 }); desenharPag(); }catch(e){ alert('Não foi possível desfazer agora. Tente de novo.'); } };
+      return;
+    }
+    document.body.innerHTML = caixa(cab + `<div style="background:#fff;border-radius:20px;padding:22px;box-shadow:0 4px 18px rgba(0,0,0,.08)">
+      <p style="font-size:17px;color:#333;margin:0 0 4px">Olá, ${primeiro}!</p>
+      <p style="font-size:15px;color:#555;margin:0 0 14px">${n} acompanhante${n>1?'s':''} × ${_brl(ev.valor)}</p>
+      <div style="background:#fdf3e2;border-radius:16px;padding:16px;text-align:center;margin-bottom:16px"><p style="font-size:14px;color:#6b4e10;margin:0 0 4px">Valor a pagar</p><p style="font-size:38px;font-weight:800;color:#6b4e10;margin:0">${_brl(aberto)}</p></div>
+      <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 6px">1️⃣ Copie a chave PIX</p>
+      <div style="background:#f2f9f6;border:2px dashed #0a6e57;border-radius:14px;padding:14px;text-align:center;margin-bottom:10px"><p style="font-size:13px;color:#555;margin:0 0 4px">Chave PIX (e-mail)</p><p style="font-size:19px;font-weight:800;color:#085041;margin:0;word-break:break-all">${pix}</p></div>
+      <button id="pg-copiar" style="width:100%;min-height:58px;border-radius:16px;border:3px solid #0a6e57;background:#fff;color:#0a6e57;font-size:18px;font-weight:800;cursor:pointer;margin-bottom:18px">📋 Copiar chave PIX</button>
+      <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 6px">2️⃣ Pague no aplicativo do seu banco</p>
+      <p style="font-size:14px;color:#555;margin:0 0 18px;line-height:1.5">Escolha PIX → colar a chave → valor <b>${_brl(aberto)}</b>.</p>
+      <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 8px">3️⃣ Depois de pagar, toque aqui</p>
+      <button id="pg-pago" style="width:100%;min-height:66px;border:none;border-radius:16px;background:#085041;color:#fff;font-size:20px;font-weight:800;cursor:pointer">✅ Já fiz o pagamento</button>
+    </div>`);
+    document.getElementById('pg-copiar').onclick = ()=>{
+      const bt = document.getElementById('pg-copiar');
+      const ok = ()=>{ bt.textContent = '✔ Chave copiada!'; };
+      try{ navigator.clipboard.writeText(pix).then(ok).catch(()=>{ prompt('Copie a chave PIX:', pix); }); }
+      catch(e){ try{ const t=document.createElement('textarea'); t.value=pix; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); ok(); }catch(e2){ prompt('Copie a chave PIX:', pix); } }
+    };
+    document.getElementById('pg-pago').onclick = async ()=>{
+      const bt = document.getElementById('pg-pago'); bt.disabled = true; bt.textContent = 'Enviando...';
+      try{ await gravarPag({ pagoInf: devido, pagoInfEm: Date.now(), pagoOk:false }); desenharPag(); }
+      catch(e){ console.warn('[SOGI] confra pagamento', e); bt.disabled = false; bt.textContent = '✅ Já fiz o pagamento'; alert('Não foi possível enviar agora. Verifique a internet e tente de novo.'); }
+    };
+  };
   const desenhar = ()=>{
+    if(pagando && resp && resp.status==='sim'){
+      if((resp.acompanhantes||0)>0 && ev.valor>0){ desenharPag(); return; }
+      document.body.innerHTML = aviso('✅','Nada a pagar','Você não tem valor a pagar na confraternização. Esperamos você!'); return;
+    }
     if(!editando && resp){
       const pessoas = resp.status==='sim' ? 1+(resp.acompanhantes||0) : 0;
       document.body.innerHTML = caixa(cartaEvento + `<div style="background:#fff;border-radius:20px;padding:26px 22px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.08)">
@@ -2306,10 +2387,11 @@ async function modoConfraternizacao(eventoId, ministroId){
         <p style="font-size:21px;font-weight:800;color:#085041;margin:8px 0 6px">${resp.status==='sim'?'Presença confirmada!':'Resposta registrada'}</p>
         <p style="font-size:17px;color:#333;line-height:1.55;margin:0">${primeiro}, ${resp.status==='sim' ? `anotamos <b>${pessoas} pessoa${pessoas>1?'s':''}</b> para você${resp.acompanhantes?` (você + ${resp.acompanhantes} acompanhante${resp.acompanhantes>1?'s':''})`:''}.` : 'anotamos que você <b>não poderá comparecer</b>. Sentiremos sua falta!'}</p>
         ${(resp.status==='sim' && resp.acompanhantes>0) ? `<div style="background:#f2f9f6;border-radius:14px;padding:12px 14px;margin:14px 0 0;text-align:left"><p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 6px">Nomes na lista do buffet:</p>${Array.from({length:resp.acompanhantes},(_,i)=>`<p style="font-size:16px;margin:3px 0;color:#222">${i+1}. ${(nomes[i]||'').trim()?_esc(nomes[i]):'<span style="color:#b26a00">(sem nome — toque em Mudar minha resposta)</span>'}</p>`).join('')}</div>` : ''}
-        ${(resp.status==='sim' && resp.acompanhantes>0 && ev.valor>0) ? `<div style="background:#fdf3e2;border-radius:14px;padding:14px;margin:16px 0 0"><p style="font-size:15px;color:#6b4e10;margin:0;line-height:1.5">Valor dos acompanhantes: <b>${_brl(resp.acompanhantes*ev.valor)}</b><br><span style="font-size:13px">${resp.acompanhantes} × ${_brl(ev.valor)} · combine o pagamento com a Coordenação MESCE.</span></p></div>` : ''}
+        ${(resp.status==='sim' && resp.acompanhantes>0 && ev.valor>0) ? `<div style="background:#fdf3e2;border-radius:14px;padding:14px;margin:16px 0 0"><p style="font-size:15px;color:#6b4e10;margin:0;line-height:1.5">Valor dos acompanhantes: <b>${_brl(resp.acompanhantes*ev.valor)}</b><br><span style="font-size:13px">${resp.acompanhantes} × ${_brl(ev.valor)} · pague pelo PIX no botão abaixo.</span></p><button id="cf-pagar" style="width:100%;min-height:58px;margin-top:12px;border:none;border-radius:14px;background:#085041;color:#fff;font-size:18px;font-weight:800;cursor:pointer">💳 Pagar agora (PIX)</button></div>` : ''}
         ${venc ? '<p style="font-size:14px;color:#888;margin:16px 0 0">O prazo de resposta já encerrou. Para mudar, fale com a Coordenação.</p>' : '<button id="cf-mudar" style="margin-top:18px;min-height:52px;padding:0 24px;border:2px solid #085041;border-radius:14px;background:#fff;color:#085041;font-size:16px;font-weight:700;cursor:pointer">Mudar minha resposta</button>'}
       </div>`);
-      const b = document.getElementById('cf-mudar'); if(b) b.onclick = ()=>{ editando = true; desenhar(); };
+      const b = document.getElementById('cf-mudar'); if(b) b.onclick = ()=>{ editando = true; pagando = false; desenhar(); };
+      const bp = document.getElementById('cf-pagar'); if(bp) bp.onclick = ()=>{ pagando = true; desenhar(); window.scrollTo(0,0); };
       return;
     }
     if(venc && !resp){ document.body.innerHTML = aviso('⏰','Prazo encerrado','O prazo para responder já terminou. Fale com a Coordenação MESCE.'); return; }
@@ -13205,11 +13287,11 @@ window.filaWhatsIniciar = function(itens, aba){
   window._filaW = { i:0, itens, aba: aba||'sogi_zap_envio' };
   filaWhatsProximo();
 };
-window.filaWhatsProximo = function(){
+window.filaWhatsProximo = function(pular){
   const f = window._filaW;
   if(!f) return;
-  // Ao avançar, o item anterior conta como enviado (quem usa a fila marca aqui; ex.: confraternização).
-  if(f.i > 0){ const ant = f.itens[f.i-1]; if(ant && typeof ant.aoEnviar==='function'){ try{ ant.aoEnviar(); }catch(e){} } }
+  // O item anterior só conta como enviado quando o coordenador toca em "✔ Enviei" (e NÃO em "Não enviei").
+  if(f.i > 0 && pular!==true){ const ant = f.itens[f.i-1]; if(ant && typeof ant.aoEnviar==='function'){ try{ ant.aoEnviar(); }catch(e){} } }
   let barra = document.getElementById('fila-whats-barra');
   if(f.i >= f.itens.length){
     if(barra) barra.remove();
@@ -13227,8 +13309,10 @@ window.filaWhatsProximo = function(){
     document.body.appendChild(barra);
   }
   const falta = f.itens.length - f.i;
-  barra.innerHTML = `<div class="rf-tx"><b>${f.i} de ${f.itens.length}</b><span>Aberto: ${it.nome}. Envie no WhatsApp e volte aqui.</span></div>
-    <button type="button" class="rf-prox" onclick="filaWhatsProximo()">${falta ? `Próximo (${falta}) ›` : 'Concluir ✓'}</button>
+  const confirma = typeof it.aoEnviar==='function';
+  barra.innerHTML = `<div class="rf-tx"><b>${f.i} de ${f.itens.length}</b><span>${confirma ? `Aberto: ${it.nome}. Envie no WhatsApp, volte aqui e toque em <b>✔ Enviei</b>.` : `Aberto: ${it.nome}. Envie no WhatsApp e volte aqui.`}</span></div>
+    ${confirma ? `<button type="button" class="rf-prox" style="background:#7a2b25;color:#fff" onclick="filaWhatsProximo(true)">✖ Não enviei</button>` : ''}
+    <button type="button" class="rf-prox" onclick="filaWhatsProximo()">${confirma ? (falta ? `✔ Enviei (${falta}) ›` : '✔ Enviei · Concluir') : (falta ? `Próximo (${falta}) ›` : 'Concluir ✓')}</button>
     <button type="button" class="rf-x" onclick="filaWhatsCancelar()" aria-label="Cancelar">✕</button>`;
 };
 window.filaWhatsCancelar = function(){
