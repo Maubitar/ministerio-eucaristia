@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.22.1';
+const APP_VERSAO = '21.22.2';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -15641,12 +15641,12 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
     </div>` : ''}
     ${ehOriginal ? `
     <div style="padding:0 0 8px 44px">
-      <a href="#" onclick="toggleSubstituirInline('${m.id}',${i});return false" style="font-size:11px;color:#185FA5;text-decoration:none">🔁 Alguém substituiu ${m.nome.split(' ')[0]}?</a>
-      <div id="pr-sub-inline-${m.id}" style="display:none;position:relative;margin-top:6px">
-        <input type="text" id="pr-busca-sub-${m.id}" placeholder="🔍 Buscar quem substituiu ${m.nome.split(' ')[0]}..." autocomplete="off"
+      <a href="#" onclick="toggleSubstituirInline('${m.id}',${i});return false" style="display:inline-block;font-size:12px;font-weight:700;color:#185FA5;text-decoration:none;background:#e6f1fb;border-radius:8px;padding:6px 10px">🔁 Alguém substituiu ${m.nome.split(' ')[0]}?</a>
+      <div id="pr-sub-inline-${i}-${m.id}" style="display:none;position:relative;margin-top:6px">
+        <input type="text" id="pr-busca-sub-${i}-${m.id}" placeholder="🔍 Buscar quem substituiu ${m.nome.split(' ')[0]}..." autocomplete="off"
           oninput="buscarSubstitutoPresenca(this,${i},'${m.id}','${m.nome.replace(/'/g,"")}')"
           style="width:100%;padding:10px;border:1.5px dashed #999;border-radius:9px;font-size:13px;box-sizing:border-box">
-        <div id="pr-ac-sub-${m.id}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
+        <div id="pr-ac-sub-${i}-${m.id}" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:8px;z-index:50;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px"></div>
       </div>
     </div>` : `
     <div style="padding:0 0 8px 44px">
@@ -15656,11 +15656,11 @@ function linhaPresencaResponsavel(m, reg, i, ehOriginal){
 }
 
 window.toggleSubstituirInline = function(ministroId, i){
-  const el = document.getElementById('pr-sub-inline-'+ministroId);
+  const el = document.getElementById('pr-sub-inline-'+i+'-'+ministroId);
   if(!el) return;
   const abrir = el.style.display==='none';
   el.style.display = abrir ? 'block' : 'none';
-  if(abrir){ const inp=document.getElementById('pr-busca-sub-'+ministroId); if(inp) inp.focus(); }
+  if(abrir){ const inp=document.getElementById('pr-busca-sub-'+i+'-'+ministroId); if(inp) inp.focus(); }
 };
 
 window.marcarPresencaResponsavel = async function(ministroId, status, i){
@@ -15679,11 +15679,11 @@ window.marcarPresencaResponsavel = async function(ministroId, status, i){
     const jaTemSubstituto = Object.values(jaSalvoCheck).some(r=>r?.substituto && r?.substituiuId===ministroId);
     if(!jaTemSubstituto){
       toast('⚠️ Antes de marcar Substituição, é obrigatório informar quem substituiu.','warn');
-      const campoInline = document.getElementById('pr-sub-inline-'+ministroId);
+      const campoInline = document.getElementById('pr-sub-inline-'+i+'-'+ministroId);
       if(campoInline){
         campoInline.style.display = 'block';
         campoInline.scrollIntoView({behavior:'smooth', block:'center'});
-        const inputBusca = document.getElementById('pr-busca-sub-'+ministroId);
+        const inputBusca = document.getElementById('pr-busca-sub-'+i+'-'+ministroId);
         if(inputBusca) setTimeout(()=>inputBusca.focus(), 300);
       } else {
         toast('⚠️ Esse ministro é reforço/substituto e não tem campo de substituição própria. Marque F (faltou) se ele não veio.','warn');
@@ -15734,7 +15734,7 @@ window.atualizarJustificativaResponsavel = async function(ministroId, i, valor){
 
 window.buscarSubstitutoPresenca = function(inp, i, substituiuId, substituiuNome){
   const v = normalizarBusca(inp.value);
-  const ac = document.getElementById('pr-ac-sub-'+substituiuId);
+  const ac = document.getElementById('pr-ac-sub-'+i+'-'+substituiuId);
   if(!ac) return;
   if(v.length<2){ ac.style.display='none'; return; }
   const ctx = _presRespCtx;
