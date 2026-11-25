@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.22.0';
+const APP_VERSAO = '21.22.1';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -13356,9 +13356,30 @@ window.rsTipo = function(t){
   document.querySelectorAll('.rs-tipo').forEach(b=>b.classList.toggle('on', b.dataset.t===t));
 };
 window.rsMotivo = function(x){ const i = document.getElementById('rs-motivo'); if(i){ i.value = (x==='Outro') ? '' : x; i.focus(); } };
+let _rsAno = new Date().getFullYear();
+// Calendário de meses: mostra o ano inteiro, anda para os anos seguintes e se ajusta sozinho ao tempo (meses passados ficam bloqueados).
+function _rsGrade(){
+  const hoje = new Date(), anoHoje = hoje.getFullYear();
+  const ymHoje = `${anoHoje}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+  const nav = 'width:48px;height:48px;border:1.5px solid #b9d6cb;border-radius:12px;background:#fff;color:#085041;font-size:22px;font-weight:800;cursor:pointer';
+  const mesBt = (k)=>{
+    const ym = `${_rsAno}-${String(k+1).padStart(2,'0')}`;
+    const passado = ym < ymHoje, sel = _rsMeses.includes(ym), atual = ym===ymHoje;
+    return `<button type="button" ${passado?'disabled':''} onclick="rsMes('${ym}')" style="min-height:54px;border-radius:12px;font-size:14px;font-weight:700;cursor:${passado?'default':'pointer'};border:2px solid ${sel?'#085041':(atual?'#1D9E75':'#d5e5de')};background:${sel?'#085041':(passado?'#f3f3f1':'#fff')};color:${sel?'#fff':(passado?'#bbb':'#085041')}">${_MESES_RS[k].slice(0,3)}${atual?'<br><span style="font-size:10px;font-weight:600">este mês</span>':''}</button>`;
+  };
+  const sels = _rsMeses.slice().sort().map(_mesRotulo).join(', ');
+  return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <button type="button" onclick="rsAno(-1)" ${_rsAno<=anoHoje?'disabled style="'+nav+';opacity:.35"':'style="'+nav+'"'} aria-label="Ano anterior">‹</button>
+      <b style="font-size:20px;color:#085041">${_rsAno}</b>
+      <button type="button" onclick="rsAno(1)" ${_rsAno>=anoHoje+5?'disabled style="'+nav+';opacity:.35"':'style="'+nav+'"'} aria-label="Próximo ano">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px">${Array.from({length:12},(_,k)=>mesBt(k)).join('')}</div>
+    <p style="margin:0 0 10px;font-size:13px;color:${sels?'#085041':'#888'};font-weight:${sels?'700':'500'}">${sels?'✔ Marcados: '+sels:'Toque nos meses que deseja restringir.'}</p>`;
+}
+window.rsAno = function(d){ _rsAno += d; const g = document.getElementById('rs-grade'); if(g) g.innerHTML = _rsGrade(); };
 window.rsMes = function(ym){
   const k = _rsMeses.indexOf(ym); if(k>=0) _rsMeses.splice(k,1); else _rsMeses.push(ym);
-  document.querySelectorAll('.rs-mes').forEach(b=>b.classList.toggle('on', _rsMeses.includes(b.dataset.m)));
+  const g = document.getElementById('rs-grade'); if(g) g.innerHTML = _rsGrade();
 };
 function _restricaoHTML(m){
   const aR = _restricaoAtiva(m), aE = _restricaoEscalaAtiva(m), id = m.id;
@@ -13371,8 +13392,7 @@ function _restricaoHTML(m){
   const avisos = (aE ? card(aE,'escala','Não será escalado(a)') : '') + (aR ? card(aR,'resp','Sem poder ser responsável') : '');
   const bt = 'min-height:48px;border:1.5px solid #085041;border-radius:10px;background:#fff;color:#085041;font-size:14px;font-weight:800;cursor:pointer';
   const tp = 'flex:1;min-height:50px;border:2px solid #d9c3c3;border-radius:12px;background:#fff;color:#7a2a2a;font-size:13px;font-weight:700;cursor:pointer;padding:6px 8px';
-  _rsTipo = aE ? 'resp' : 'escala'; _rsMeses = [];
-  const hoje = new Date(); const meses = Array.from({length:7},(_,k)=>{ const d = new Date(hoje.getFullYear(), hoje.getMonth()+k, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
+  _rsTipo = aE ? 'resp' : 'escala'; _rsMeses = []; _rsAno = new Date().getFullYear();
   return `${avisos}<details style="background:#fafafa;border-radius:10px;padding:4px 12px;margin-bottom:10px">
     <summary style="cursor:pointer;font-size:13px;font-weight:700;color:#5b6b65;min-height:44px;display:flex;align-items:center">🚫 ${(aR||aE)?'Alterar ou criar outra restrição':'Restringir este ministro'}</summary>
     <p style="font-size:12px;font-weight:700;color:#555;margin:6px 0 6px">1. O que fica restrito?</p>
@@ -13384,7 +13404,7 @@ function _restricaoHTML(m){
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${_RS_MOTIVOS.map(x=>`<button type="button" onclick="rsMotivo('${x}')" style="border:1.5px solid #d9c3c3;background:#fff;color:#7a2a2a;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;min-height:40px">${x}</button>`).join('')}</div>
     <textarea id="rs-motivo" rows="2" placeholder="Toque num motivo ou escreva (opcional)" style="width:100%;box-sizing:border-box;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px;font-size:14px;margin:0 0 10px"></textarea>
     <p style="font-size:12px;font-weight:700;color:#555;margin:0 0 6px">3. Em quais meses? (toque em um ou mais)</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">${meses.map(ym=>`<button type="button" class="rs-mes" data-m="${ym}" onclick="rsMes('${ym}')" style="${tp};color:#085041;border-color:#b9d6cb">${_mesRotulo(ym).replace('/',' ')}</button>`).join('')}</div>
+    <div id="rs-grade">${_rsGrade()}</div>
     <button style="${bt};width:100%;background:#A32D2D;color:#fff;border-color:#A32D2D;margin-bottom:10px" onclick="restringirResp('${id}')">🚫 Aplicar restrição</button>
     </details>`;
 }
