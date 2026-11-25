@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.22.2';
+const APP_VERSAO = '21.22.3';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -1568,7 +1568,9 @@ window.ampliarQR = function(){
 let _confra = null, _confraResp = {}, _confraUnsub = null, _confraFiltro = 'todos', _confraBusca = '';
 // Controle de envio do convite: quem já recebeu o link (verde) e quem falta (vermelho). Guardado em config/confra_envios.
 let _confraEnv = {}, _confraEnvUnsub = null;
-function _confraEnviado(id){ return !!_confraEnv[id] || !!_confraResp[id]; }
+function _confraTemTel(id){ const m = ministros.find(x=>x.id===id); return !!(m && formatarTelBR(m.tel)); }
+// Só conta como enviado quem respondeu ou quem tem telefone válido e foi marcado (sem telefone o link não tem como ter chegado).
+function _confraEnviado(id){ return !!_confraResp[id] || (!!_confraEnv[id] && _confraTemTel(id)); }
 async function _confraMarcarEnvio(id, valor){
   if(!_confra) return;
   if(valor){ _confraEnv[id] = Date.now(); } else { delete _confraEnv[id]; }
@@ -1585,7 +1587,7 @@ async function _confraAutoInicial(){
     const i = ord.findIndex(m=>normalizarBusca(m.nome)==='alessandra dione cardoso');
     if(i<0) return;
     const agora = Date.now(), mapa = {};
-    ord.slice(0,i+1).forEach(m=>{ if(!_confraResp[m.id]){ mapa[m.id] = agora; _confraEnv[m.id] = agora; } });
+    ord.slice(0,i+1).forEach(m=>{ if(!_confraResp[m.id] && formatarTelBR(m.tel)){ mapa[m.id] = agora; _confraEnv[m.id] = agora; } });
     await setDoc(doc(db,'config','confra_envios'), { eventoId:_confra.id, enviados:mapa, atualizadoEm:agora }, { merge:true });
   }catch(e){ console.warn('[SOGI] auto envios', e); }
   if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
@@ -1611,7 +1613,7 @@ window.confraMarcarAte = async function(){
   const sel = document.getElementById('cf-ate'); if(!sel || !sel.value) { toast('Escolha o último ministro para quem você enviou.','warn'); return; }
   const ord = ministros.filter(m=>m.ativo!==false).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   const i = ord.findIndex(m=>m.id===sel.value); if(i<0) return;
-  const alvo = ord.slice(0,i+1).filter(m=>!_confraResp[m.id] && !_confraEnv[m.id]);
+  const alvo = ord.slice(0,i+1).filter(m=>!_confraResp[m.id] && !_confraEnv[m.id] && formatarTelBR(m.tel));
   const ult = ord[i];
   if(!confirm(`Marcar como JÁ ENVIADOS todos de ${ord[0].nome.split(' ')[0]} até ${ult.nome}${alvo.length?` (${alvo.length} ministros)`:''}?`)) return;
   const agora = Date.now(), mapa = {};
@@ -1782,7 +1784,7 @@ function desenharConfra(){
     const nomesAc = _confraNomesAcomp(r);
     const acLinha = nomesAc.length ? `<div class="cf-acn">👥 ${nomesAc.map(x=>x?x.replace(/</g,'&lt;'):'<i>(sem nome)</i>').join(' · ')}${(nomesAc.some(x=>!x) && _confraEnv['nome_'+m.id]) ? ' <span style="color:#0b6b43">· ✔ pedido enviado</span>' : ''}</div>` : '';
     const quando = _confraEnv[m.id] ? new Date(_confraEnv[m.id]).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : '';
-    const envPill = r ? '' : (env ? `<button type="button" class="cf-env-p cf-env-ok" onclick="confraAlternarEnvio('${m.id}')" aria-label="Convite enviado. Toque para desmarcar">✔ Enviado${quando?' em '+quando:''}</button>` : `<button type="button" class="cf-env-p cf-env-no" onclick="confraAlternarEnvio('${m.id}')" aria-label="Falta enviar. Toque para marcar como enviado">✖ Falta enviar</button>`);
+    const envPill = r ? '' : (env ? `<button type="button" class="cf-env-p cf-env-ok" onclick="confraAlternarEnvio('${m.id}')" aria-label="Convite enviado. Toque para desmarcar">✔ Enviado${quando?' em '+quando:''}</button>` : (tel ? `<button type="button" class="cf-env-p cf-env-no" onclick="confraAlternarEnvio('${m.id}')" aria-label="Falta enviar. Toque para marcar como enviado">✖ Falta enviar</button>` : `<button type="button" class="cf-env-p cf-env-no" onclick="confraManual('${m.id}')" aria-label="Sem telefone cadastrado">✖ Sem telefone — não recebeu</button>`));
     return `<div class="cf-row ${env?'cf-env':'cf-falta'}"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}${dchip}${envPill}${acLinha}</div><div class="cf-ac">${lembrar}${btnDeb}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
   };
   cont.innerHTML = form + `
