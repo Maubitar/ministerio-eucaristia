@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.21.2';
+const APP_VERSAO = '21.22.0';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -5588,7 +5588,7 @@ window.renderEscala = async function(){
         <div class="hc-min">
           <button onclick="setResp('${key}','${hora}',${mi})" style="width:28px;height:26px;border:1px solid ${m===g.responsavel?'#BA7517':'#ddd'};border-radius:6px;background:${m===g.responsavel?'#faeeda':'white'};cursor:pointer;font-size:12px;flex-shrink:0">★</button>
           ${fotoEsc}
-          <span style="flex:1;font-size:12px;font-weight:${_isResp?'700':'500'}">${m}${_restricaoAtiva(min)?' <span title="Sem poder ser responsável" style="font-size:9px;background:#fcebeb;color:#A32D2D;padding:1px 7px;border-radius:12px;font-weight:700">🚫 não resp.</span>':''}${_isResp?` <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>${_respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${_respTel}</span>`:''}`:''}</span>
+          <span style="flex:1;font-size:12px;font-weight:${_isResp?'700':'500'}">${m}${_restrRespMes(min)?' <span title="Sem poder ser responsável" style="font-size:9px;background:#fcebeb;color:#A32D2D;padding:1px 7px;border-radius:12px;font-weight:700">🚫 não resp.</span>':''}${_isResp?` <span style="font-size:9px;background:#faeeda;color:#7a4a06;padding:1px 7px;border-radius:12px;font-weight:700">★ Responsável</span>${_respTel?` <span style="font-size:11px;color:#085041;font-weight:700">📞 ${_respTel}</span>`:''}`:''}</span>
           ${_isResp ? `<button onclick="enviarLinkPresenca('${m.replace(/'/g,"")}','${APP_URL}/?presresp=${tipo==='dom'?`dom-${_horarioParaCodigo(hora)}-${getMesAtual()}`:`sem-${sem}-${_horarioParaCodigo(hora)}-${getMesAtual()}`}')" title="Enviar link de presença deste horário" style="border:1.5px solid #185FA5;background:#eef5fb;color:#185FA5;font-size:10px;font-weight:700;padding:4px 8px;border-radius:14px;cursor:pointer;flex-shrink:0;white-space:nowrap">📤 Link</button>` : ''}
           <button onclick="remMin('${key}','${hora}',${mi})" style="border:none;background:none;cursor:pointer;color:#ccc;font-size:18px;line-height:1">×</button>
         </div>`;
@@ -6200,7 +6200,7 @@ function _sugCalcular(key, hora, tipo){
     if(ocupados[m.nome]) motivo = `já escalado(a) na ${ocupados[m.nome]}`;
     if(!motivo && outro) motivo = `já escalado(a) às ${outro} nesta semana`;
     if(!motivo && datas.length && Array.isArray(_ausencias) && _ausencias.some(a=>a.nome===m.nome && datas.some(d=>a.de<=d && d<=a.ate))) motivo = 'avisou ausência neste período';
-    if(!motivo && _restricaoEscalaAtiva(m)) motivo = `🚫 restrição de escala até ${_dataBR(_restricaoEscalaAtiva(m).ate)}`;
+    if(!motivo && _restrEscalaMes(m)) motivo = `🚫 restrição de escala em ${_restrEscalaMes(m).mesRotulo}`;
     if(!motivo && _cartaoAmarelo[m.nome]) motivo = '🟡 cartão amarelo (faltas)';
     if(!motivo && _flagsAltaSubstituicao[m.nome]) motivo = `pede substituição com frequência (${_flagsAltaSubstituicao[m.nome].percentual}%)`;
     if(!motivo && _alertaJustificativas[m.nome]) motivo = 'muitas justificativas';
@@ -6229,7 +6229,7 @@ function _sugCalcular(key, hora, tipo){
 }
 // Responsável sugerido: entre quem já está na equipe (ou foi marcado), quem foi responsável aqui há mais tempo
 function _sugResponsavelSugerido(r, nomesEquipe){
-  const cand = nomesEquipe.filter(n=>r.resp[n] && !_restricaoAtiva(buscarMinistroPorNome(n))).sort((a,b)=>r.resp[a].ultimo - r.resp[b].ultimo);
+  const cand = nomesEquipe.filter(n=>r.resp[n] && !_restrRespMes(buscarMinistroPorNome(n))).sort((a,b)=>r.resp[a].ultimo - r.resp[b].ultimo);
   if(!cand.length) return null;
   const n = cand[0];
   return { nome:n, ultimoOrd:r.resp[n].ultimoOrd, vezes:r.resp[n].n };
@@ -6742,7 +6742,7 @@ window.abrirConferencia = async function(){
       const m = buscarMinistroPorNome(n);
       if(m && !(m[dispKey]||[]).includes(h)) avisos.push(`⏰ ${h}: <strong>${n}</strong> não marcou disponibilidade neste horário.`);
       if(datas.length && Array.isArray(_ausencias) && _ausencias.some(a=>a.nome===n && datas.some(d=>a.de<=d && d<=a.ate))) problemas.push(`⏰ ${h}: <strong>${n}</strong> avisou ausência neste período.`);
-      if(m && _restricaoEscalaAtiva(m)) problemas.push(`⏰ ${h}: <strong>${n}</strong> está com 🚫 restrição de escala até ${_dataBR(_restricaoEscalaAtiva(m).ate)}.`);
+      if(m && _restrEscalaMes(m)) problemas.push(`⏰ ${h}: <strong>${n}</strong> está com 🚫 restrição de escala em ${_restrEscalaMes(m).mesRotulo}.`);
       if(ocup[n]) problemas.push(`⏰ ${h}: <strong>${n}</strong> já está escalado(a) na ${ocup[n]} — duplicidade.`);
       if(vistos[n]) problemas.push(`<strong>${n}</strong> está em ${vistos[n]} e em ${h} nesta mesma escala.`); else vistos[n] = h;
       if(_cartaoAmarelo[n]) avisos.push(`⏰ ${h}: <strong>${n}</strong> está com cartão amarelo (faltas).`);
@@ -13280,7 +13280,7 @@ function renderMinistros(filtro){
       ${avatar}
       <div class="mc-tx">
         <p class="mc-nome">${m.nome}</p>
-        <div class="mc-sub">${disp}${m.plantao?'<span class="mc-tag mc-tag-plantao">🔔 Plantonista</span>':''}${faltas>=3?`<span class="mc-tag mc-tag-falta">${faltas} faltas</span>`:''}${_restricaoEscalaAtiva(m)?`<span class="mc-tag mc-tag-falta">🚫 Não escalar até ${_dataBR(_restricaoEscalaAtiva(m).ate).slice(0,5)}</span>`:''}${_restricaoAtiva(m)?`<span class="mc-tag mc-tag-falta">🚫 Sem resp. até ${_dataBR(_restricaoAtiva(m).ate).slice(0,5)}</span>`:''}</div>
+        <div class="mc-sub">${disp}${m.plantao?'<span class="mc-tag mc-tag-plantao">🔔 Plantonista</span>':''}${faltas>=3?`<span class="mc-tag mc-tag-falta">${faltas} faltas</span>`:''}${_restricaoEscalaAtiva(m)?`<span class="mc-tag mc-tag-falta">🚫 Não escalar: ${_restricaoEscalaAtiva(m).rotulo}</span>`:''}${_restricaoAtiva(m)?`<span class="mc-tag mc-tag-falta">🚫 Sem resp.: ${_restricaoAtiva(m).rotulo}</span>`:''}</div>
       </div>
       <span class="mc-seta">›</span>
     </div>`;
@@ -13310,46 +13310,69 @@ window.processarFotoPerfil = async function(id, input){
 // Quem tem restrição ativa pode ser escalado normalmente, mas NÃO como responsável de horário.
 function _hojeISO(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function _dataBR(iso){ return iso ? iso.split('-').reverse().join('/') : ''; }
+const _MESES_RS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+function _mesRotulo(ym){ const [a,m]=ym.split('-'); return `${_MESES_RS[parseInt(m)-1]}/${a}`; }
+// Mês da escala que está sendo montada (YYYY-MM); sem tela de escala, usa o mês atual.
+function _escMesAno(){
+  const ano = parseInt(document.getElementById('esc-ano')?.value) || new Date().getFullYear();
+  const mv = document.getElementById('esc-mes')?.value;
+  const mes = (mv!==undefined && mv!=='' && !isNaN(parseInt(mv))) ? parseInt(mv) : new Date().getMonth();
+  return `${ano}-${String(mes+1).padStart(2,'0')}`;
+}
+// Restrição ainda vale hoje ou no futuro? (para etiquetas e listas)
 function _restrCalc(r){
   if(!r || !r.ate || r.ate < _hojeISO()) return null;     // vence sozinha
-  const dias = Math.round((new Date(r.ate+'T00:00:00') - new Date(_hojeISO()+'T00:00:00'))/864e5);
-  return { ...r, dias, falta: dias>0 ? `faltam ${dias} dia${dias>1?'s':''}` : 'vence hoje' };
+  const rotulo = (r.meses && r.meses.length) ? r.meses.slice().sort().map(_mesRotulo).join(', ') : `até ${_dataBR(r.ate)}`;
+  return { ...r, rotulo };
 }
-// Restrição de RESPONSÁVEL: pode ser escalado, mas não como responsável de horário.
+// Restrição vale para o MÊS da escala? (meses escolhidos; restrições antigas por data valem pelo período)
+function _restrNoMes(r, mes){
+  if(!r || !r.ate) return null;
+  if(r.meses && r.meses.length){ if(!r.meses.includes(mes)) return null; }
+  else { if(r.ate < mes+'-01' || (r.desde && r.desde > mes+'-31')) return null; }
+  return { ...r, mesRotulo:_mesRotulo(mes) };
+}
 function _restricaoAtiva(m){ return _restrCalc(m && m.restricaoResp); }
-// Restrição de ESCALA: não deve ser escalado em nenhum horário até a data.
 function _restricaoEscalaAtiva(m){ return _restrCalc(m && m.restricaoEscala); }
 function _temRestricao(m){ return !!(_restricaoAtiva(m) || _restricaoEscalaAtiva(m)); }
+// Restrições que valem no mês da escala aberta
+function _restrRespMes(m){ return _restrNoMes(m && m.restricaoResp, _escMesAno()); }
+function _restrEscalaMes(m){ return _restrNoMes(m && m.restricaoEscala, _escMesAno()); }
 window.permitirResponsavel = function(nome){
-  const m = buscarMinistroPorNome(nome), a = _restricaoAtiva(m);
+  const m = buscarMinistroPorNome(nome), a = _restrRespMes(m);
   if(!a) return true;
-  return confirm(`🚫 RESTRIÇÃO DE RESPONSÁVEL\n\n${m.nome} está sem poder ser responsável de horário até ${_dataBR(a.ate)} (${a.falta}).${a.motivo?`\n\nMotivo (só a coordenação vê): ${a.motivo}`:''}\n\nPode ser escalado(a) normalmente, mas NÃO como responsável.\n\nDefinir como responsável mesmo assim?`);
+  return confirm(`🚫 RESTRIÇÃO DE RESPONSÁVEL\n\n${m.nome} está sem poder ser responsável de horário em ${a.mesRotulo}.${a.motivo?`\n\nMotivo (só a coordenação vê): ${a.motivo}`:''}\n\nPode ser escalado(a) normalmente, mas NÃO como responsável.\n\nDefinir como responsável mesmo assim?`);
 };
-// Confirmação ao escalar manualmente alguém com restrição de escala
 window.permitirEscalar = function(nome){
-  const m = buscarMinistroPorNome(nome), a = _restricaoEscalaAtiva(m);
+  const m = buscarMinistroPorNome(nome), a = _restrEscalaMes(m);
   if(!a) return true;
-  return confirm(`🚫 RESTRIÇÃO — NÃO ESCALAR\n\n${m.nome} está com restrição de escala até ${_dataBR(a.ate)} (${a.falta}).${a.motivo?`\n\nMotivo (só a coordenação vê): ${a.motivo}`:''}\n\nDeseja escalá-lo(a) mesmo assim?`);
+  return confirm(`🚫 RESTRIÇÃO — NÃO ESCALAR\n\n${m.nome} está com restrição de escala em ${a.mesRotulo}.${a.motivo?`\n\nMotivo (só a coordenação vê): ${a.motivo}`:''}\n\nDeseja escalá-lo(a) mesmo assim?`);
 };
 let _rsTipo = 'escala';
+let _rsMeses = [];
 const _RS_MOTIVOS = ['Vem faltando muito','Comportamento','Pendências','A pedido do ministro','Outro'];
 window.rsTipo = function(t){
   _rsTipo = t;
   document.querySelectorAll('.rs-tipo').forEach(b=>b.classList.toggle('on', b.dataset.t===t));
 };
 window.rsMotivo = function(x){ const i = document.getElementById('rs-motivo'); if(i){ i.value = (x==='Outro') ? '' : x; i.focus(); } };
+window.rsMes = function(ym){
+  const k = _rsMeses.indexOf(ym); if(k>=0) _rsMeses.splice(k,1); else _rsMeses.push(ym);
+  document.querySelectorAll('.rs-mes').forEach(b=>b.classList.toggle('on', _rsMeses.includes(b.dataset.m)));
+};
 function _restricaoHTML(m){
   const aR = _restricaoAtiva(m), aE = _restricaoEscalaAtiva(m), id = m.id;
   const card = (a, tipo, titulo) => `<div style="background:#fcebeb;border:1.5px solid #f0c4c4;border-radius:12px;padding:12px 14px;margin-bottom:10px">
       <p style="margin:0;font-size:14px;font-weight:800;color:#A32D2D">🚫 ${titulo}</p>
-      <p style="margin:4px 0 0;font-size:13px;color:#7a2a2a">até <b>${_dataBR(a.ate)}</b> · ${a.falta}</p>
+      <p style="margin:4px 0 0;font-size:14px;color:#7a2a2a"><b>${a.rotulo}</b></p>
       ${a.motivo?`<p style="margin:8px 0 0;font-size:13px;color:#5b2a2a;line-height:1.4">📝 ${String(a.motivo).replace(/</g,'&lt;')}</p>`:''}
       <button onclick="removerRestricaoResp('${id}','${tipo}')" style="margin-top:10px;min-height:44px;width:100%;border:1.5px solid #A32D2D;border-radius:10px;background:#fff;color:#A32D2D;font-size:13px;font-weight:700;cursor:pointer">Remover restrição</button>
     </div>`;
-  const avisos = (aE ? card(aE,'escala','Não pode ser escalado(a)') : '') + (aR ? card(aR,'resp','Sem poder ser responsável') : '');
+  const avisos = (aE ? card(aE,'escala','Não será escalado(a)') : '') + (aR ? card(aR,'resp','Sem poder ser responsável') : '');
   const bt = 'min-height:48px;border:1.5px solid #085041;border-radius:10px;background:#fff;color:#085041;font-size:14px;font-weight:800;cursor:pointer';
   const tp = 'flex:1;min-height:50px;border:2px solid #d9c3c3;border-radius:12px;background:#fff;color:#7a2a2a;font-size:13px;font-weight:700;cursor:pointer;padding:6px 8px';
-  _rsTipo = aE ? 'resp' : 'escala';
+  _rsTipo = aE ? 'resp' : 'escala'; _rsMeses = [];
+  const hoje = new Date(); const meses = Array.from({length:7},(_,k)=>{ const d = new Date(hoje.getFullYear(), hoje.getMonth()+k, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
   return `${avisos}<details style="background:#fafafa;border-radius:10px;padding:4px 12px;margin-bottom:10px">
     <summary style="cursor:pointer;font-size:13px;font-weight:700;color:#5b6b65;min-height:44px;display:flex;align-items:center">🚫 ${(aR||aE)?'Alterar ou criar outra restrição':'Restringir este ministro'}</summary>
     <p style="font-size:12px;font-weight:700;color:#555;margin:6px 0 6px">1. O que fica restrito?</p>
@@ -13360,39 +13383,24 @@ function _restricaoHTML(m){
     <p style="font-size:12px;font-weight:700;color:#555;margin:0 0 6px">2. Motivo (só a coordenação vê)</p>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${_RS_MOTIVOS.map(x=>`<button type="button" onclick="rsMotivo('${x}')" style="border:1.5px solid #d9c3c3;background:#fff;color:#7a2a2a;border-radius:999px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;min-height:40px">${x}</button>`).join('')}</div>
     <textarea id="rs-motivo" rows="2" placeholder="Toque num motivo ou escreva (opcional)" style="width:100%;box-sizing:border-box;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px;font-size:14px;margin:0 0 10px"></textarea>
-    <p style="font-size:12px;font-weight:700;color:#555;margin:0 0 6px">3. Por quanto tempo?</p>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
-      <button style="${bt}" onclick="restringirResp('${id}',30)">30 dias</button>
-      <button style="${bt}" onclick="restringirResp('${id}',60)">60 dias</button>
-      <button style="${bt}" onclick="restringirResp('${id}',90)">90 dias</button>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <select id="rs-meses" style="flex:1;margin:0;min-height:48px;border:1.5px solid #cde8d8;border-radius:10px;font-size:14px;padding:0 10px">${[1,2,3,4,5,6,9,12].map(n=>`<option value="${n}">${n} ${n===1?'mês':'meses'}</option>`).join('')}</select>
-      <button style="${bt};padding:0 16px" onclick="restringirResp('${id}',0)">Aplicar</button>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
-      <input type="date" id="rs-data" style="flex:1;margin:0;min-height:48px;border:1.5px solid #cde8d8;border-radius:10px;font-size:14px;padding:0 10px" min="${_hojeISO()}">
-      <button style="${bt};padding:0 16px" onclick="restringirResp('${id}',-1)">Até esta data</button>
-    </div></details>`;
+    <p style="font-size:12px;font-weight:700;color:#555;margin:0 0 6px">3. Em quais meses? (toque em um ou mais)</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">${meses.map(ym=>`<button type="button" class="rs-mes" data-m="${ym}" onclick="rsMes('${ym}')" style="${tp};color:#085041;border-color:#b9d6cb">${_mesRotulo(ym).replace('/',' ')}</button>`).join('')}</div>
+    <button style="${bt};width:100%;background:#A32D2D;color:#fff;border-color:#A32D2D;margin-bottom:10px" onclick="restringirResp('${id}')">🚫 Aplicar restrição</button>
+    </details>`;
 }
-window.restringirResp = async function(id, dias){
+window.restringirResp = async function(id){
   const m = ministros.find(x=>x.id===id); if(!m) return;
-  let ate;
-  if(dias===-1){
-    ate = document.getElementById('rs-data')?.value || '';
-    if(!ate || ate < _hojeISO()){ toast('Escolha uma data a partir de hoje.','warn'); return; }
-  } else {
-    const d = new Date();
-    if(dias>0) d.setDate(d.getDate()+dias);
-    else d.setMonth(d.getMonth()+(parseInt(document.getElementById('rs-meses')?.value)||1));
-    ate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  const r = { ate, desde:_hojeISO(), motivo:(document.getElementById('rs-motivo')?.value||'').trim() };
+  if(!_rsMeses.length){ toast('Toque em pelo menos um mês.','warn'); return; }
+  const meses = _rsMeses.slice().sort();
+  const ult = meses[meses.length-1]; const [ay,am] = ult.split('-').map(Number);
+  const fim = new Date(ay, am, 0).getDate();
+  const r = { meses, desde: meses[0]+'-01', ate: `${ult}-${String(fim).padStart(2,'0')}`, motivo:(document.getElementById('rs-motivo')?.value||'').trim() };
   const campo = _rsTipo==='resp' ? 'restricaoResp' : 'restricaoEscala';
+  const rot = meses.map(_mesRotulo).join(', ');
   try{
     await updateDoc(doc(db,'ministros',id), { [campo]: r });
     m[campo] = r;
-    toast(_rsTipo==='resp' ? `🚫 ${primeiroNomes(m.nome)} sem poder ser responsável até ${_dataBR(ate)}.` : `🚫 ${primeiroNomes(m.nome)} não será escalado(a) até ${_dataBR(ate)}.`,'ok');
+    toast(_rsTipo==='resp' ? `🚫 ${primeiroNomes(m.nome)} sem poder ser responsável em ${rot}.` : `🚫 ${primeiroNomes(m.nome)} não será escalado(a) em ${rot}.`,'ok');
     abrirPerfil(id); renderMinistros(document.getElementById('busca-min')?.value||'');
   }catch(e){ console.warn('[SOGI] restrição', e); toast('Não foi possível salvar a restrição.','err'); }
 };
@@ -19012,6 +19020,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ac-verde{background:linear-gradient(135deg,#085041,#1D9E75);color:white}
 .ac-azul{background:linear-gradient(135deg,#134E8E,#2E7BC4);color:white}
 .ac-teal{background:linear-gradient(135deg,#0A5F5E,#0E7C7B);color:white}
+.rs-mes.on{background:#085041!important;color:#fff!important;border-color:#085041!important}
 .rs-tipo.on{border-color:#A32D2D!important;background:#fcebeb!important}
 .ac-ambar{background:linear-gradient(135deg,#A8660F,#D18A1E);color:white}
 .ac-vinho{background:linear-gradient(135deg,#7A2631,#A33A46);color:white}
