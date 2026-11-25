@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.19.1';
+const APP_VERSAO = '21.20.0';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -10433,6 +10433,14 @@ window.renderAusencias = async function(){
     ${passadas.length ? `<p style="font-size:12px;font-weight:700;color:#999;margin:18px 0 8px">🗂️ Ausências passadas</p>${passadas.slice(0,20).map(a=>cardAus(a,false)).join('')}` : ''}`;
 };
 
+window.abrirRestricoes = function(){
+  irPara('ministros');
+  setTimeout(()=>{
+    const n = ministros.filter(m=>_restricaoAtiva(m)).length;
+    if(n){ _minFiltro = 'restr'; if(typeof filtrarMin==='function') filtrarMin(); }
+    else toast('Nenhuma restrição ativa. Para criar: abra o ministro e toque em 🚫 Restringir.','info');
+  }, 200);
+};
 window.abrirNovaAusencia = function(){
   // Preenche o select de ministros
   const sel = document.getElementById('aus-ministro');
@@ -10450,6 +10458,7 @@ window.abrirNovaAusencia = function(){
   document.getElementById('modal-ausencia').style.display='flex';
 };
 
+window.ausMotivo = function(x){ const i = document.getElementById('aus-motivo'); if(i){ i.value = x; i.focus(); } };
 window.togAusUmDia = function(){
   const umDia = document.getElementById('aus-um-dia').checked;
   document.getElementById('aus-ate-wrap').style.display = umDia ? 'none' : 'block';
@@ -18955,6 +18964,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ac-verde{background:linear-gradient(135deg,#085041,#1D9E75);color:white}
 .ac-azul{background:linear-gradient(135deg,#134E8E,#2E7BC4);color:white}
 .ac-teal{background:linear-gradient(135deg,#0A5F5E,#0E7C7B);color:white}
+.ac-ambar{background:linear-gradient(135deg,#A8660F,#D18A1E);color:white}
+.ac-vinho{background:linear-gradient(135deg,#7A2631,#A33A46);color:white}
 .ac-dourado{background:linear-gradient(135deg,#8A5A0C,#C89A3C);color:white}
 /* Menu secundário compacto */
 .home-menu{background:white;border-radius:16px;padding:6px;box-shadow:0 2px 10px rgba(0,0,0,.05);margin-bottom:16px}
@@ -19187,6 +19198,20 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
       <div>
         <div class="ac-tx">Ministros</div>
         <div class="ac-sub">177 cadastrados</div>
+      </div>
+    </button>
+    <button class="acao-card ac-ambar" onclick="irPara('ausencias')">
+      <span class="ac-ic">🗓️</span>
+      <div>
+        <div class="ac-tx">Ausências</div>
+        <div class="ac-sub">Quem não vai servir em tal data</div>
+      </div>
+    </button>
+    <button class="acao-card ac-vinho" onclick="abrirRestricoes()">
+      <span class="ac-ic">🚫</span>
+      <div>
+        <div class="ac-tx">Restrições</div>
+        <div class="ac-sub">Sem ser responsável</div>
       </div>
     </button>
   </div>
@@ -20256,7 +20281,8 @@ input:focus,select:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px 
     </div>
 
     <label style="font-size:11px;color:#888;font-weight:600;display:block;margin-bottom:3px">Motivo (opcional)</label>
-    <input type="text" id="aus-motivo" placeholder="Ex: viagem, saúde, compromisso" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:14px;box-sizing:border-box">
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"><button type="button" onclick="ausMotivo('Trabalho')" style="border:1.5px solid #e6d3a8;background:#fff;color:#8a5a0c;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer">Trabalho</button><button type="button" onclick="ausMotivo('Saúde')" style="border:1.5px solid #e6d3a8;background:#fff;color:#8a5a0c;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer">Saúde</button><button type="button" onclick="ausMotivo('Viagem')" style="border:1.5px solid #e6d3a8;background:#fff;color:#8a5a0c;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer">Viagem</button><button type="button" onclick="ausMotivo('Família')" style="border:1.5px solid #e6d3a8;background:#fff;color:#8a5a0c;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer">Família</button><button type="button" onclick="ausMotivo('Estudo')" style="border:1.5px solid #e6d3a8;background:#fff;color:#8a5a0c;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer">Estudo</button><button type="button" onclick="ausMotivo('Compromisso')" style="border:1.5px solid #e6d3a8;background:#fff;color:#8a5a0c;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer">Compromisso</button></div>
+    <input type="text" id="aus-motivo" placeholder="Toque num motivo acima ou escreva outro" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;margin-bottom:14px;box-sizing:border-box">
     <button onclick="salvarAusencia()" style="width:100%;padding:12px;border:none;border-radius:9px;background:#BA7517;color:white;font-size:14px;font-weight:700;cursor:pointer">💾 Salvar ausência</button>
   </div>
 </div>
@@ -21173,6 +21199,9 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
   // g = grupo, id = seção (nav) ou acao; sec = seções que acendem este item
   var MENU=[
    {id:'inicio',t:'Início',i:'home'},
+   {g:'Avisos e restrições'},
+   {id:'ausencias',t:'Ausências (não vai servir)',i:'ux'},
+   {a:'abrirRestricoes',t:'Restrição de responsável',i:'ux'},
    {g:'Escalas'},
    {id:'escala',t:'Montar escala',i:'cal'},
    {a:'abrirModalNaoEscalados',t:'Radar de Escalação',i:'radar'},
@@ -21182,7 +21211,6 @@ body{background:radial-gradient(1200px 500px at 80% -10%,rgba(29,158,117,.07),tr
    {id:'escala-cirio',t:'Escala do Círio',i:'flame'},
    {id:'cirio',t:'Grade do Círio',i:'list'},
    {id:'plantao',t:'Plantonistas',i:'bell'},
-   {id:'ausencias',t:'Ausências',i:'ux'},
    {g:'Presença'},
    {id:'presenca',t:'Marcar presença',i:'ok'},
    {id:'alerta-presenca',t:'Radar de presença',i:'radar',badge:true},
