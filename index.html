@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.21.1';
+const APP_VERSAO = '21.21.2';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -3393,7 +3393,7 @@ window.nav = function(id, btn){
   // Atualiza visibilidade dos botões "voltar" (some no início ou sem histórico)
   atualizarBotaoVoltar();
   const fns = {
-    ministros: ()=>renderMinistros(''),
+    ministros: ()=>{ _minFiltro='todos'; renderMinistros(''); },
     escala: ()=>{ const t=document.getElementById('esc-tipo')?.value||'dom'; trocarAbaEscala(t); },
     presenca: ()=>{
       if(!window.presModo) window.presModo='dom';
@@ -13249,7 +13249,8 @@ function renderMinistros(filtro){
     faltas:m=>_falt(m)>=3,
     restr:m=>_temRestricao(m)
   };
-  const lista=base.filter(regras[_minFiltro]||regras.todos);
+  // Ao pesquisar por nome, procura em TODOS os ministros (o filtro de chips não esconde ninguém).
+  const lista=base.filter(filtro ? regras.todos : (regras[_minFiltro]||regras.todos));
   const semDisp=base.filter(_semD).length;
   const elSD=document.getElementById('min-sem-disp');
   if(elSD) elSD.textContent=semDisp>0?`${semDisp} sem disponibilidade informada`:'';
