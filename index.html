@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.23.1';
+const APP_VERSAO = '21.24.1';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -1646,11 +1646,17 @@ function _confraPrazoVencido(ev){
   const fim = new Date(ev.prazo+'T23:59:59');
   return Date.now() > fim.getTime();
 }
-function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}&v=${APP_VERSAO}`; }
+function _confraParamsEntrada(id){ return (_confraEntradas[id]==='cortesia'?'&k=1':'') + (_confraEntradas[id]==='propria'?'&e=1':'') + (_confraCortAc[id]>0?`&c=${_confraCortAc[id]}`:''); }
+function _confraLink(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}${_confraParamsEntrada(ministroId)}&v=${APP_VERSAO}`; }
 function _confraMsgConvite(ev, m){
   const nome = (m.nome||'').split(' ')[0];
   const brl = ev.valor>0 ? 'R$ '+Number(ev.valor).toFixed(2).replace('.',',') : '';
-  const aviso = `✅ *Ministro em dia* (ou com poucos meses a ajustar na caixinha) *não paga nada*.${brl?` Os *${brl} por pessoa* são só para os convidados.`:''}\n🎁 Teremos ótimos brindes para sorteio!\n👥 Se for levar acompanhante, escreva o nome dele no próprio link: o nome vai na lista do buffet.`;
+  const ent = _confraEntradas[m.id];
+  const cAc = _confraCortAc[m.id]||0;
+  const linhaEntrada = ent==='cortesia' ? `🎁 *A Coordenação preparou uma cortesia para você*: a sua entrada é por conta da MESCE.${cAc?` Você também tem cortesia para ${cAc} acompanhante${cAc>1?'s':''}.`:''}${brl?` Outros acompanhantes: ${brl} por pessoa.`:''}`
+    : ent==='propria' ? `💳 *Sua entrada: ${brl}*. Depois de confirmar no link, é só pagar pelo PIX.${cAc?` Cortesia para ${cAc} acompanhante${cAc>1?'s':''}.`:''}`
+    : `✅ *Ministro em dia* (ou com poucos meses a ajustar na caixinha) *não paga nada*.${brl?` Os *${brl} por pessoa* são só para os convidados.`:''}${cAc?` Cortesia para ${cAc} acompanhante${cAc>1?'s':''}.`:''}`;
+  const aviso = `${linhaEntrada}\n🎁 Teremos ótimos brindes para sorteio!\n👥 Se for levar acompanhante, escreva o nome dele no próprio link: o nome vai na lista do buffet.`;
   const prazo = ev.prazo ? ` até ${ev.prazo.split('-').reverse().join('/')}` : '';
   return `Olá, ${nome}! 🙏\n\nA Coordenação MESCE convida você para a nossa *${ev.titulo||'Confraternização'}*:\n\n📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}\n📍 ${ev.local||'Local a definir'}\n\n${aviso}\n\nToque no link e responda se você *vai* ou *não poderá ir*${prazo}:\n\n${_confraLink(ev, m.id)}\n\nVenha confraternizar com a família MESCE. Esperamos você! 🕊️`;
 }
@@ -1670,6 +1676,8 @@ window.renderConfra = async function(){
   await carregarConfra();
   if(_confraUnsub){ try{ _confraUnsub(); }catch(e){} _confraUnsub = null; }
   _confraResp = {}; _confraRespErro = false; _confraAberto = {};
+  if(_confraEntUnsub){ try{ _confraEntUnsub(); }catch(e){} _confraEntUnsub = null; }
+  _confraEntradas = {};
   if(_confraEnvUnsub){ try{ _confraEnvUnsub(); }catch(e){} _confraEnvUnsub = null; }
   _confraEnv = {};
   if(_confra && _confra.id){
@@ -1679,6 +1687,14 @@ window.renderConfra = async function(){
         if(!x && !_confraAutoFeito){ _confraAutoFeito = true; _confraAutoInicial(); return; }
         _confraEnv = {};
         if(x && _confra && x.eventoId===_confra.id){ Object.keys(x.enviados||{}).forEach(k=>{ if(x.enviados[k]) _confraEnv[k] = x.enviados[k]; }); }
+        if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
+      }, ()=>{});
+    }catch(e){}
+    try{
+      _confraEntUnsub = onSnapshot(doc(db,'config','confra_entradas'), d=>{
+        const x = d.exists() ? d.data() : null;
+        _confraEntradas = {}; _confraCortAc = {};
+        if(x && _confra && x.eventoId===_confra.id){ Object.keys(x.entradas||{}).forEach(k=>{ if(x.entradas[k]) _confraEntradas[k] = x.entradas[k]; }); Object.keys(x.cortAc||{}).forEach(k=>{ if(x.cortAc[k]>0) _confraCortAc[k] = x.cortAc[k]; }); }
         if(document.getElementById('s-confra')?.style.display==='block') desenharConfra();
       }, ()=>{});
     }catch(e){}
@@ -1697,24 +1713,36 @@ window.renderConfra = async function(){
 // Débito = acompanhantes × valor por pessoa. A fonte é a própria resposta (nada duplicado); só o "pago" é guardado junto.
 const _brl = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const CONFRA_PIX = 'financeiromece@gmail.com';
-function _confraLinkPag(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}&pag=1&v=${APP_VERSAO}`; }
-function _confraDebito(r, ev){
+function _confraLinkPag(ev, ministroId){ return `${APP_URL}/?confra=${ev.id}&m=${ministroId}&pag=1${_confraParamsEntrada(ministroId)}&v=${APP_VERSAO}`; }
+let _confraEntradas = {}, _confraCortAc = {}, _confraEntUnsub = null;   // _confraCortAc: id -> nº de acompanhantes com cortesia
+   // id do ministro -> 'propria' (paga a própria entrada) | 'cortesia' (coordenação paga)
+function _confraDebito(r, ev, id){
   ev = ev || _confra;
+  id = id || r?.ministroId;
   const valor = (ev && ev.valor) || 0;
   const n = (r && r.status==='sim') ? (r.acompanhantes||0) : 0;
-  const devido = n*valor;
+  const entrada = id ? _confraEntradas[id] : '';
+  const proprio = entrada==='propria' ? 1 : 0;
+  const cAc = Math.min(n, (id && _confraCortAc[id]) || 0);   // acompanhantes cobertos pela cortesia
+  const devido = (n-cAc+proprio)*valor;
   const pg = Math.max(r?.pago||0, r?.pagoInf||0);   // o que o ministro avisou pelo link também conta como pago
   const informado = (r?.pagoInf||0)>0 && (r?.pago||0)<(r?.pagoInf||0) && !r?.pagoOk;   // avisou pelo link e ainda não foi conferido
-  return { n, valor, devido, pago: pg, aberto: Math.max(0, Math.round((devido-pg)*100)/100), informado, informadoEm: r?.pagoInfEm||0 };
+  return { n, proprio, cAc, cortesia: entrada==='cortesia', valor, devido, pago: pg, aberto: Math.max(0, Math.round((devido-pg)*100)/100), informado, informadoEm: r?.pagoInfEm||0 };
 }
 function _confraFinanceiro(){
   let devido=0, pago=0, aberto=0, devedores=0;
-  Object.values(_confraResp).forEach(r=>{ const d=_confraDebito(r); devido+=d.devido; pago+=Math.min(d.pago,d.devido); aberto+=d.aberto; if(d.aberto>0) devedores++; });
-  return { devido, pago, aberto, devedores };
+  const ids = new Set([...Object.keys(_confraResp), ...Object.keys(_confraEntradas), ...Object.keys(_confraCortAc)]);
+  const cortesias = []; let nCort = 0;
+  ids.forEach(id=>{ const r=_confraResp[id]; const d=_confraDebito(r,null,id); devido+=d.devido; pago+=Math.min(d.pago,d.devido); aberto+=d.aberto; if(d.aberto>0) devedores++;
+    const q = (d.cortesia?1:0)+d.cAc;
+    if(q>0){ nCort += q; const mm=ministros.find(x=>x.id===id); const nm=mm?mm.nome:(r?.nome||id); cortesias.push(nm + (d.cortesia && d.cAc ? ` (ele + ${d.cAc} acompanhante${d.cAc>1?'s':''})` : d.cortesia ? '' : ` (${d.cAc} acompanhante${d.cAc>1?'s':''})`)); } });
+  const valorPessoa = (_confra && _confra.valor) || 0;
+  return { devido, pago, aberto, devedores, cortesias, nCort, custoCortesias: nCort*valorPessoa };
 }
 function _confraMsgCobranca(ev, m, r){
-  const d = _confraDebito(r, ev), nome = (m.nome||'').split(' ')[0];
-  return `Olá, ${nome}! 🙏\n\nSobre a *${ev.titulo||'Confraternização'}*: você confirmou ${d.n} acompanhante${d.n>1?'s':''}, a ${_brl(d.valor)} por pessoa, total de *${_brl(d.devido)}*.${d.pago>0?` Já recebemos ${_brl(d.pago)}; falta *${_brl(d.aberto)}*.`:''}\n\n💳 *Pague pelo PIX* (chave: ${ev.pix||CONFRA_PIX}) e confirme o pagamento neste link:\n${_confraLinkPag(ev, m.id)}\n\nObrigado! 🕊️`;
+  const d = _confraDebito(r, ev, m.id), nome = (m.nome||'').split(' ')[0];
+  const itens = [d.proprio?'a sua entrada':'', (d.n-d.cAc)>0?`${d.n-d.cAc} acompanhante${d.n-d.cAc>1?'s':''}`:''].filter(Boolean).join(' e ');
+  return `Olá, ${nome}! 🙏\n\nSobre a *${ev.titulo||'Confraternização'}*: ${itens}, a ${_brl(d.valor)} por pessoa, total de *${_brl(d.devido)}*.${d.pago>0?` Já recebemos ${_brl(d.pago)}; falta *${_brl(d.aberto)}*.`:''}\n\n💳 *Pague pelo PIX* (chave: ${ev.pix||CONFRA_PIX}) e confirme o pagamento neste link:\n${_confraLinkPag(ev, m.id)}\n\nObrigado! 🕊️`;
 }
 
 function _confraTotais(){
@@ -1768,14 +1796,14 @@ function desenharConfra(){
   const nEnvSem = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id]).length;
   const nNomes = _confraPendNomes(false).filter(m=>formatarTelBR(m.tel)).length;
   const nNomesRep = _confraPendNomes(true).filter(m=>formatarTelBR(m.tel)).length;
-  const nConferir = ativos.filter(m=>_confraDebito(_confraResp[m.id]).informado).length;
+  const nConferir = ativos.filter(m=>_confraDebito(_confraResp[m.id],null,m.id).informado).length;
   const nLembrar = ativos.filter(m=>!_confraResp[m.id] && _confraEnv[m.id] && formatarTelBR(m.tel)).length;
   const q = normalizarBusca(_confraBusca);
   const lista = ativos.filter(m=>{
     const r = _confraResp[m.id];
     const st = r ? r.status : 'sem';
-    if(_confraFiltro==='deve'){ if(_confraDebito(r).aberto<=0) return false; }
-    else if(_confraFiltro==='conferir'){ if(!_confraDebito(r).informado) return false; }
+    if(_confraFiltro==='deve'){ if(_confraDebito(r,null,m.id).aberto<=0) return false; }
+    else if(_confraFiltro==='conferir'){ if(!_confraDebito(r,null,m.id).informado) return false; }
     else if(_confraFiltro==='falta'){ if(_confraEnviado(m.id)) return false; }
     else if(_confraFiltro==='enviado'){ if(st!=='sem' || !_confraEnv[m.id]) return false; }
     else if(_confraFiltro!=='todos' && st!==_confraFiltro) return false;
@@ -1788,15 +1816,16 @@ function desenharConfra(){
     const badge = st==='sim' ? `<span class="cf-b cf-b-sim">✓ Vai${r.acompanhantes?` + ${r.acompanhantes} acomp.`:''}</span>` : st==='nao' ? '<span class="cf-b cf-b-nao">✕ Não vai</span>' : '<span class="cf-b cf-b-sem">Sem resposta</span>';
     const tel = (typeof formatarTelBR==='function') ? formatarTelBR(m.tel) : '';
     const lembrar = (st==='sem' && tel) ? `<button type="button" class="cf-mini" onclick="confraConvidar('${m.id}')">📲 Convidar</button>` : (st==='sem' ? '<span class="cf-nt">sem telefone</span>' : '');
-    const db_ = _confraDebito(r);
-    const dchip = db_.devido>0 ? (db_.aberto<=0 ? (db_.informado ? `<span class="cf-b" style="background:#fff3cd;color:#7a5600">💰 Pagou ${_brl(db_.devido)} · conferir</span>` : `<span class="cf-b cf-b-sim">💰 Pago ${_brl(db_.devido)}</span>`) : `<span class="cf-b cf-b-deb">💰 Deve ${_brl(db_.aberto)}${db_.pago>0?` (de ${_brl(db_.devido)})`:''}</span>`) : '';
+    const db_ = _confraDebito(r,null,m.id);
+    const cortChip = (db_.cortesia || db_.cAc) ? `<span class="cf-b" style="background:#e6f1fb;color:#0c447c">🎟️ Cortesia${db_.cortesia && db_.cAc ? ` (ele + ${db_.cAc} acomp.)` : db_.cAc ? ` p/ ${db_.cAc} acomp.` : ' da coordenação'}</span>` : '';
+    const dchip = cortChip + (db_.devido>0 ? (db_.aberto<=0 ? (db_.informado ? `<span class="cf-b" style="background:#fff3cd;color:#7a5600">💰 Pagou ${_brl(db_.devido)} · conferir</span>` : `<span class="cf-b cf-b-sim">💰 Pago ${_brl(db_.devido)}</span>`) : `<span class="cf-b cf-b-deb">💰 Deve ${_brl(db_.aberto)}${db_.pago>0?` (de ${_brl(db_.devido)})`:''}${db_.proprio?' · sua entrada':''}</span>`) : '');
     const btnDeb = db_.devido>0 ? `<button type="button" class="cf-mini cf-pag" onclick="confraDebito('${m.id}')">💰 Débito</button>` : '';
     const env = _confraEnviado(m.id);
     const nomesAc = _confraNomesAcomp(r);
     const acLinha = nomesAc.length ? `<div class="cf-acn">👥 ${nomesAc.map(x=>x?x.replace(/</g,'&lt;'):'<i>(sem nome)</i>').join(' · ')}${(nomesAc.some(x=>!x) && _confraEnv['nome_'+m.id]) ? ' <span style="color:#0b6b43">· ✔ pedido enviado</span>' : ''}</div>` : '';
     const quando = _confraEnv[m.id] ? (new Date(_confraEnv[m.id]).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' às '+new Date(_confraEnv[m.id]).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})) : '';
     const envPill = r ? '' : (env ? `<button type="button" class="cf-env-p cf-env-ok" onclick="confraAlternarEnvio('${m.id}')" aria-label="Convite enviado. Toque para desmarcar">✔ Enviado${quando?' em '+quando:''}</button>` : (tel ? (_confraAberto[m.id] ? `<button type="button" class="cf-env-p" style="background:#fff3cd;color:#7a5600;border:2px solid #e0a800" onclick="confraAlternarEnvio('${m.id}')" aria-label="Toque para confirmar que enviou">⏳ Você enviou? Toque aqui para confirmar</button>` : `<button type="button" class="cf-env-p cf-env-no" onclick="confraAlternarEnvio('${m.id}')" aria-label="Falta enviar. Toque para marcar como enviado">✖ Falta enviar</button>`) : `<button type="button" class="cf-env-p cf-env-no" onclick="confraManual('${m.id}')" aria-label="Sem telefone cadastrado">✖ Sem telefone — não recebeu</button>`));
-    return `<div class="cf-row ${env?'cf-env':'cf-falta'}"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}${dchip}${envPill}${acLinha}</div><div class="cf-ac">${lembrar}${btnDeb}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
+    return `<div class="cf-row ${env?'cf-env':'cf-falta'}"><div class="cf-nm"><b>${primeiroNomes(m.nome)}</b>${badge}${dchip}${envPill}${acLinha}</div><div class="cf-ac">${lembrar}${btnDeb}${ev.valor ? `<button type="button" class="cf-mini" onclick="confraEntrada('${m.id}')" aria-label="Entrada do ministro: cortesia ou paga a própria">🎟️ Entrada</button>` : ''}<button type="button" class="cf-mini cf-edit" onclick="confraManual('${m.id}')" aria-label="Registrar resposta manualmente">✎</button></div></div>`;
   };
   const avisoDiag = (_confraRespErro ? `<div style="background:#fcebeb;border:2px solid #A32D2D;border-radius:14px;padding:12px 14px;margin:0 0 12px;color:#7a1f1f;font-weight:700;font-size:14px">⚠️ O app perdeu a conexão com as respostas. A lista pode estar desatualizada. <button type="button" class="cf-mini" onclick="renderConfra()" style="margin-left:6px">🔄 Atualizar agora</button></div>` : '') +
     (orfas.length ? `<div style="background:#fff3cd;border:2px solid #e0a800;border-radius:14px;padding:12px 14px;margin:0 0 12px;color:#7a5600;font-size:14px;line-height:1.5"><b>⚠️ ${orfas.length} resposta(s) não encontraram o ministro na lista:</b><br>${orfas.map(r=>`${String(r.nome||'(sem nome)').replace(/</g,'&lt;')} — ${r.status==='sim'?'vai'+(r.acompanhantes?' + '+r.acompanhantes:''):'não vai'}`).join('<br>')}<br><span style="font-size:12px">Provavelmente o cadastro desse ministro foi refeito. Registre a resposta pelo ✎ no ministro certo.</span></div>` : '');
@@ -1810,7 +1839,8 @@ function desenharConfra(){
       <div class="cf-k"><b>${t.sem}</b><span>Sem resposta</span></div>
       ${custo}
       ${ev.valor ? `<div class="cf-k cf-k-ouro"><b>${_brl(fin.aberto)}</b><span>A receber (${fin.devedores} ministro${fin.devedores===1?'':'s'})</span></div>
-      <div class="cf-k"><b>${_brl(fin.pago)}</b><span>Já recebido</span></div>` : ''}
+      <div class="cf-k"><b>${_brl(fin.pago)}</b><span>Já recebido</span></div>
+      ${fin.nCort ? `<div class="cf-k"><b>${_brl(fin.custoCortesias)}</b><span>Cortesias (${fin.nCort}) — custo da MESCE</span></div>` : ''}` : ''}
     </div>
     <div class="cf-acoes">
       <button type="button" class="cf-btn cf-prim" onclick="confraConvidarTodos()" ${nFalta?'':'disabled'}>📲 Enviar convite a quem falta (${nFalta})</button>
@@ -1866,7 +1896,7 @@ window.confraSalvar = async function(){
 
 window.confraNovo = async function(){
   if(!confirm('Começar um NOVO evento? As respostas do evento atual continuam guardadas, mas a lista começa do zero.')) return;
-  _confra = null; _confraResp = {}; _confraEnv = {};
+  _confra = null; _confraResp = {}; _confraEnv = {}; _confraEntradas = {}; _confraCortAc = {};
   if(_confraUnsub){ try{ _confraUnsub(); }catch(e){} _confraUnsub = null; }
   if(_confraEnvUnsub){ try{ _confraEnvUnsub(); }catch(e){} _confraEnvUnsub = null; }
   try{ await deleteDoc(doc(db,'config','confra')); }catch(e){}
@@ -1960,7 +1990,7 @@ window.confraCSV = function(){
     const r = _confraResp[m.id];
     const st = r ? (r.status==='sim'?'Vai':'Não vai') : 'Sem resposta';
     const ac = r && r.status==='sim' ? (r.acompanhantes||0) : 0;
-    const dd = _confraDebito(r); linhas.push([m.nome, st, ac, _confraNomesAcomp(r).join(' / '), r && r.status==='sim' ? 1+ac : 0, m.tel||'', dd.devido.toFixed(2).replace('.',','), dd.pago.toFixed(2).replace('.',','), dd.aberto.toFixed(2).replace('.',',')]);
+    const dd = _confraDebito(r,null,m.id); linhas.push([m.nome, st, ac, _confraNomesAcomp(r).join(' / '), r && r.status==='sim' ? 1+ac : 0, m.tel||'', dd.devido.toFixed(2).replace('.',','), dd.pago.toFixed(2).replace('.',','), dd.aberto.toFixed(2).replace('.',',')]);
   });
   const csv = '﻿' + linhas.map(l=>l.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
   const a = document.createElement('a');
@@ -2130,7 +2160,7 @@ window.sorteioDesfazer = async function(){
 // ---- Carrinho de débito do ministro ----
 window.confraDebito = function(id){
   const m = ministros.find(x=>x.id===id); if(!m || !_confra) return;
-  const r = _confraResp[id], d = _confraDebito(r);
+  const r = _confraResp[id], d = _confraDebito(r,null,id);
   const ex = document.getElementById('modal-confra-deb'); if(ex) ex.remove();
   const el = document.createElement('div');
   el.id = 'modal-confra-deb'; el.className = 'modal-bg'; el.style.display = 'flex';
@@ -2191,14 +2221,56 @@ window.confraCopiarLinkPag = function(id){
   try{ navigator.clipboard.writeText(link).then(()=>toast('✓ Link de pagamento copiado.','ok')).catch(()=>prompt('Copie o link:', link)); }
   catch(e){ prompt('Copie o link:', link); }
 };
+window.confraEntrada = function(id){
+  const m = ministros.find(x=>x.id===id); if(!m || !_confra) return;
+  const atual = _confraEntradas[id] || '';
+  const ex = document.getElementById('modal-confra-ent'); if(ex) ex.remove();
+  const el = document.createElement('div');
+  el.id = 'modal-confra-ent'; el.className = 'modal-bg'; el.style.display = 'flex';
+  el.onclick = e=>{ if(e.target===el) el.remove(); };
+  const v = _brl(_confra.valor||0), tel = formatarTelBR(m.tel);
+  const op = (tipo, tit, sub, cor)=>`<button type="button" onclick="confraDefinirEntrada('${id}','${tipo}')" style="width:100%;text-align:left;min-height:64px;margin:0 0 10px;padding:12px 14px;border-radius:14px;border:${atual===tipo?'3px solid '+cor:'1.5px solid #d6e3dd'};background:${atual===tipo?'#f2f9f6':'#fff'};cursor:pointer"><b style="display:block;font-size:16px;color:#222">${atual===tipo?'✔ ':''}${tit}</b><span style="font-size:13px;color:#666">${sub}</span></button>`;
+  el.innerHTML = `<div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><p style="font-size:17px;font-weight:800;margin:0">🎟️ Entrada de ${primeiroNomes(m.nome)}</p><button onclick="document.getElementById('modal-confra-ent').remove()" style="border:none;background:none;font-size:24px;cursor:pointer">×</button></div>
+    ${op('', 'Ministro em dia — não paga', 'Entrada gratuita, como todos os ministros em dia.', '#0a6e57')}
+    ${op('propria', 'Paga a própria entrada — '+v, 'Gera um link de cobrança de '+v+' só da entrada dele.', '#185FA5')}
+    ${op('cortesia', 'Cortesia da coordenação (pro bono)', 'Sem olhar a caixinha. A MESCE paga '+v+' ao buffet e consta como custo no Financeiro.', '#BA7517')}
+    <div style="background:#fff8ec;border:1.5px solid #f3d9a6;border-radius:14px;padding:12px 14px;margin:0 0 10px">
+      <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#6b4e10">🎟️ Cortesia para acompanhante (ex.: esposa)</p>
+      <div style="display:flex;align-items:center;justify-content:center;gap:18px">
+        <button type="button" onclick="confraCortAcomp('${id}',-1)" style="width:56px;height:56px;border-radius:50%;border:2px solid #BA7517;background:#fff;font-size:28px;font-weight:800;color:#BA7517;cursor:pointer">−</button>
+        <b style="font-size:30px;min-width:40px;text-align:center">${_confraCortAc[id]||0}</b>
+        <button type="button" onclick="confraCortAcomp('${id}',1)" style="width:56px;height:56px;border-radius:50%;border:2px solid #BA7517;background:#fff;font-size:28px;font-weight:800;color:#BA7517;cursor:pointer">+</button>
+      </div>
+      <p style="margin:8px 0 0;font-size:12px;color:#7a5600;text-align:center">Os demais acompanhantes continuam pagando ${v} cada.</p>
+    </div>
+    ${_confraDebito(_confraResp[id],null,id).devido>0 ? `${tel ? `<button type="button" class="cf-btn cf-sec" onclick="confraCobrar('${id}')">💬 Enviar cobrança por WhatsApp</button>` : ''}<button type="button" class="cf-btn cf-sec" onclick="confraCopiarLinkPag('${id}')">🔗 Copiar link de pagamento (${v})</button>` : ''}
+  </div>`;
+  document.body.appendChild(el);
+};
+window.confraCortAcomp = async function(id, delta){
+  if(!_confra) return;
+  const novo = Math.max(0, Math.min(6, (_confraCortAc[id]||0)+delta));
+  if(novo>0) _confraCortAc[id] = novo; else delete _confraCortAc[id];
+  try{ await setDoc(doc(db,'config','confra_entradas'), { eventoId:_confra.id, cortAc:{ [id]: novo }, atualizadoEm:Date.now() }, { merge:true }); }
+  catch(e){ toast('Não consegui salvar. Tente de novo.','warn'); }
+  desenharConfra(); confraEntrada(id);
+};
+window.confraDefinirEntrada = async function(id, tipo){
+  if(!_confra) return;
+  if(tipo) _confraEntradas[id] = tipo; else delete _confraEntradas[id];
+  try{ await setDoc(doc(db,'config','confra_entradas'), { eventoId:_confra.id, entradas:{ [id]: tipo||'' }, atualizadoEm:Date.now() }, { merge:true }); }
+  catch(e){ toast('Não consegui salvar. Tente de novo.','warn'); }
+  desenharConfra(); confraEntrada(id);
+};
 window.confraCobrar = function(id){
-  const m = ministros.find(x=>x.id===id), r = _confraResp[id]; if(!m || !r || !_confra) return;
+  const m = ministros.find(x=>x.id===id), r = _confraResp[id]; if(!m || !_confra) return;
   const tel = formatarTelBR(m.tel); if(!tel){ toast('Ministro sem telefone válido.','warn'); return; }
   window.open(`https://wa.me/${tel}?text=${encodeURIComponent(_confraMsgCobranca(_confra, m, r))}`, 'sogi_zap_confra');
 };
 window.confraCobrarTodos = function(){
   if(!_confra) return;
-  const dev = ministros.filter(m=>_confraDebito(_confraResp[m.id]).aberto>0);
+  const dev = ministros.filter(m=>_confraDebito(_confraResp[m.id],null,m.id).aberto>0);
   const comTel = dev.filter(m=>formatarTelBR(m.tel)).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
   if(!comTel.length){ toast('Ninguém em débito com telefone válido.','warn'); return; }
   if(!confirm(`Enviar a cobrança para ${comTel.length} ministro(s) com valor em aberto?\n\nO WhatsApp abre um por vez. Envie e toque em "Próximo" aqui.`)) return;
@@ -2319,13 +2391,17 @@ async function modoConfraternizacao(eventoId, ministroId){
   const primeiro = (m.nome||'').split(' ')[0];
   const maxA = ev.acomp===false ? 0 : (ev.maxAcomp||4);
   const venc = _confraPrazoVencido(ev);
+  const proprio = new URLSearchParams(location.search).get('e')==='1';   // este ministro paga a própria entrada
+  const cortesia = new URLSearchParams(location.search).get('k')==='1';   // entrada do ministro é cortesia da coordenação
+  const cortAcP = Math.max(0, parseInt(new URLSearchParams(location.search).get('c')||'0',10)||0);   // acompanhantes com cortesia
+  const _pagaveis = (r)=> Math.max(0,(r?.acompanhantes||0)-cortAcP);
   const cartaEvento = `<div style="background:linear-gradient(135deg,#06241d,#0a6e57);color:#fff;border-radius:20px;padding:22px;box-shadow:0 8px 24px rgba(8,80,65,.3);margin-bottom:14px">
     <p style="font-size:13px;letter-spacing:1.5px;opacity:.8;margin:0 0 6px;text-transform:uppercase">Você está convidado(a)</p>
     <p style="font-size:24px;font-weight:800;margin:0 0 12px;line-height:1.2">${ev.titulo}</p>
     <p style="font-size:17px;margin:0 0 4px">📅 ${_confraDataLonga(ev.data)}${ev.hora?` às ${ev.hora}`:''}</p>
     ${ev.local?`<p style="font-size:17px;margin:0">📍 ${ev.local}</p>`:''}
     <div style="background:rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;margin-top:14px;font-size:15px;line-height:1.5">
-      <p style="margin:0 0 6px">✅ <b>Ministro em dia</b> (ou com poucos meses a ajustar na caixinha) <b>não paga nada</b>.${ev.valor>0?` Os <b>${_brl(ev.valor)} por pessoa</b> são só para os convidados.`:''}</p>
+      <p style="margin:0 0 6px">${cortesia ? `🎁 <b>A Coordenação preparou uma cortesia para você:</b> a sua entrada é por conta da MESCE.${cortAcP?` Você também tem cortesia para ${cortAcP} acompanhante${cortAcP>1?'s':''}.`:''}${ev.valor>0?` Outros acompanhantes: <b>${_brl(ev.valor)}</b> por pessoa.`:''}` : proprio ? `💳 <b>Sua entrada: ${_brl(ev.valor)}.</b> Depois de confirmar, é só pagar pelo PIX.${cortAcP?` Cortesia para ${cortAcP} acompanhante${cortAcP>1?'s':''}.`:''}` : `✅ <b>Ministro em dia</b> (ou com poucos meses a ajustar na caixinha) <b>não paga nada</b>.${ev.valor>0?` Os <b>${_brl(ev.valor)} por pessoa</b> são só para os convidados.`:''}${cortAcP?` Cortesia para ${cortAcP} acompanhante${cortAcP>1?'s':''}.`:''}`}</p>
       <p style="margin:0">🎁 Teremos ótimos brindes para sorteio! Venha confraternizar com a família MESCE. Esperamos você!</p>
     </div></div>`;
 
@@ -2335,18 +2411,21 @@ async function modoConfraternizacao(eventoId, ministroId){
 
   const pagando0 = new URLSearchParams(location.search).get('pag')==='1';
   let pagando = pagando0;
+  if(pagando0 && proprio && !resp) resp = { status:'sim', acompanhantes:0, virtual:true };
   const gravarPag = async (dados)=>{
     const idDoc = `${eventoId}_${ministroId}`;
+    const base = resp?.virtual ? { eventoId, ministroId, nome:m.nome, status:'sim', acompanhantes:0, em:Date.now(), origem:'link-pag' } : {};
+    const final = { ...base, ...dados };
     try{
       if(viaRest) throw Object.assign(new Error('via rest'),{code:'rest'});
-      await limite(setDoc(doc(db,'confra_respostas',idDoc), dados, { merge:true }), 9000);
-    }catch(e1){ await _restGravar('confra_respostas', idDoc, dados); }
-    resp = { ...(resp||{}), ...dados };
+      await limite(setDoc(doc(db,'confra_respostas',idDoc), final, { merge:true }), 9000);
+    }catch(e1){ await _restGravar('confra_respostas', idDoc, final); }
+    resp = { ...(resp||{}), ...final }; delete resp.virtual;
   };
   const desenharPag = ()=>{
-    const n = resp.acompanhantes||0, devido = n*(ev.valor||0), pg = Math.max(resp.pago||0, resp.pagoInf||0);
+    const n = resp.acompanhantes||0, devido = (Math.max(0,n-cortAcP)+(proprio?1:0))*(ev.valor||0), pg = Math.max(resp.pago||0, resp.pagoInf||0);
     const aberto = Math.max(0, Math.round((devido-pg)*100)/100), pix = ev.pix || CONFRA_PIX;
-    const cab = `<div style="background:linear-gradient(135deg,#06241d,#0a6e57);color:#fff;border-radius:20px;padding:20px 22px;margin-bottom:14px"><p style="font-size:13px;letter-spacing:1.5px;opacity:.8;margin:0 0 6px;text-transform:uppercase">Pagamento dos acompanhantes</p><p style="font-size:22px;font-weight:800;margin:0;line-height:1.25">${ev.titulo}</p></div>`;
+    const cab = `<div style="background:linear-gradient(135deg,#06241d,#0a6e57);color:#fff;border-radius:20px;padding:20px 22px;margin-bottom:14px"><p style="font-size:13px;letter-spacing:1.5px;opacity:.8;margin:0 0 6px;text-transform:uppercase">Pagamento da confraternização</p><p style="font-size:22px;font-weight:800;margin:0;line-height:1.25">${ev.titulo}</p></div>`;
     if(aberto<=0){
       const inf = (resp.pagoInf||0)>0 && (resp.pago||0)<(resp.pagoInf||0) && !resp.pagoOk;
       document.body.innerHTML = caixa(cab + `<div style="background:#fff;border-radius:20px;padding:28px 22px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.08)">
@@ -2361,7 +2440,7 @@ async function modoConfraternizacao(eventoId, ministroId){
     }
     document.body.innerHTML = caixa(cab + `<div style="background:#fff;border-radius:20px;padding:22px;box-shadow:0 4px 18px rgba(0,0,0,.08)">
       <p style="font-size:17px;color:#333;margin:0 0 4px">Olá, ${primeiro}!</p>
-      <p style="font-size:15px;color:#555;margin:0 0 14px">${n} acompanhante${n>1?'s':''} × ${_brl(ev.valor)}</p>
+      <p style="font-size:15px;color:#555;margin:0 0 14px">${proprio?'Sua entrada':''}${proprio&&Math.max(0,n-cortAcP)?' + ':''}${Math.max(0,n-cortAcP)?`${Math.max(0,n-cortAcP)} acompanhante${Math.max(0,n-cortAcP)>1?'s':''}`:''} × ${_brl(ev.valor)} por pessoa${cortAcP&&n?` (${Math.min(n,cortAcP)} com cortesia)`:''}</p>
       <div style="background:#fdf3e2;border-radius:16px;padding:16px;text-align:center;margin-bottom:16px"><p style="font-size:14px;color:#6b4e10;margin:0 0 4px">Valor a pagar</p><p style="font-size:38px;font-weight:800;color:#6b4e10;margin:0">${_brl(aberto)}</p></div>
       <p style="font-size:16px;font-weight:700;color:#085041;margin:0 0 6px">1️⃣ Copie a chave PIX</p>
       <div style="background:#f2f9f6;border:2px dashed #0a6e57;border-radius:14px;padding:14px;text-align:center;margin-bottom:10px"><p style="font-size:13px;color:#555;margin:0 0 4px">Chave PIX (e-mail)</p><p style="font-size:19px;font-weight:800;color:#085041;margin:0;word-break:break-all">${pix}</p></div>
@@ -2402,7 +2481,7 @@ async function modoConfraternizacao(eventoId, ministroId){
   };
   const desenhar = ()=>{
     if(pagando && resp && resp.status==='sim'){
-      if((resp.acompanhantes||0)>0 && ev.valor>0){ desenharPag(); return; }
+      if((_pagaveis(resp)>0 || proprio) && ev.valor>0){ desenharPag(); return; }
       document.body.innerHTML = aviso('✅','Nada a pagar','Você não tem valor a pagar na confraternização. Esperamos você!'); return;
     }
     if(!editando && resp){
@@ -2412,7 +2491,7 @@ async function modoConfraternizacao(eventoId, ministroId){
         <p style="font-size:21px;font-weight:800;color:#085041;margin:8px 0 6px">${resp.status==='sim'?'Presença confirmada!':'Resposta registrada'}</p>
         <p style="font-size:17px;color:#333;line-height:1.55;margin:0">${primeiro}, ${resp.status==='sim' ? `anotamos <b>${pessoas} pessoa${pessoas>1?'s':''}</b> para você${resp.acompanhantes?` (você + ${resp.acompanhantes} acompanhante${resp.acompanhantes>1?'s':''})`:''}.` : 'anotamos que você <b>não poderá comparecer</b>. Sentiremos sua falta!'}</p>
         ${(resp.status==='sim' && resp.acompanhantes>0) ? `<div style="background:#f2f9f6;border-radius:14px;padding:12px 14px;margin:14px 0 0;text-align:left"><p style="font-size:13px;font-weight:700;color:#085041;margin:0 0 6px">Nomes na lista do buffet:</p>${Array.from({length:resp.acompanhantes},(_,i)=>`<p style="font-size:16px;margin:3px 0;color:#222">${i+1}. ${(nomes[i]||'').trim()?_esc(nomes[i]):'<span style="color:#b26a00">(sem nome — toque em Mudar minha resposta)</span>'}</p>`).join('')}</div>` : ''}
-        ${(resp.status==='sim' && resp.acompanhantes>0 && ev.valor>0) ? `<div style="background:#fdf3e2;border-radius:14px;padding:14px;margin:16px 0 0"><p style="font-size:15px;color:#6b4e10;margin:0;line-height:1.5">Valor dos acompanhantes: <b>${_brl(resp.acompanhantes*ev.valor)}</b><br><span style="font-size:13px">${resp.acompanhantes} × ${_brl(ev.valor)} · pague pelo PIX no botão abaixo.</span></p><button id="cf-pagar" style="width:100%;min-height:58px;margin-top:12px;border:none;border-radius:14px;background:#085041;color:#fff;font-size:18px;font-weight:800;cursor:pointer">💳 Pagar agora (PIX)</button></div>` : ''}
+        ${(resp.status==='sim' && (_pagaveis(resp)>0 || proprio) && ev.valor>0) ? `<div style="background:#fdf3e2;border-radius:14px;padding:14px;margin:16px 0 0"><p style="font-size:15px;color:#6b4e10;margin:0;line-height:1.5">Valor a pagar: <b>${_brl((_pagaveis(resp)+(proprio?1:0))*ev.valor)}</b><br><span style="font-size:13px">${(_pagaveis(resp)+(proprio?1:0))} × ${_brl(ev.valor)}${cortAcP&&resp.acompanhantes?` (${Math.min(resp.acompanhantes,cortAcP)} acompanhante com cortesia)`:''} · pague pelo PIX no botão abaixo.</span></p><button id="cf-pagar" style="width:100%;min-height:58px;margin-top:12px;border:none;border-radius:14px;background:#085041;color:#fff;font-size:18px;font-weight:800;cursor:pointer">💳 Pagar agora (PIX)</button></div>` : ''}
         ${venc ? '<p style="font-size:14px;color:#888;margin:16px 0 0">O prazo de resposta já encerrou. Para mudar, fale com a Coordenação.</p>' : '<button id="cf-mudar" style="margin-top:18px;min-height:52px;padding:0 24px;border:2px solid #085041;border-radius:14px;background:#fff;color:#085041;font-size:16px;font-weight:700;cursor:pointer">Mudar minha resposta</button>'}
       </div>`);
       const b = document.getElementById('cf-mudar'); if(b) b.onclick = ()=>{ editando = true; pagando = false; desenhar(); };
@@ -18385,6 +18464,30 @@ async function atualizarTotaisFin(){
   renderFinanceiro();
 }
 
+// Resumo da confraternização para o Financeiro (lê os dados da confra; nada é duplicado nem altera os totais)
+async function _confraResumoFin(){
+  try{
+    const dv = await getDoc(doc(db,'config','confra')); if(!dv.exists()) return null;
+    const ev = dv.data(); if(!ev || !ev.id || !(ev.valor>0)) return null;
+    const sr = await getDocs(query(collection(db,'confra_respostas'), where('eventoId','==',ev.id)));
+    const de = await getDoc(doc(db,'config','confra_entradas'));
+    const resp = {}; sr.forEach(d=>{ const r=d.data(); resp[r.ministroId]=r; });
+    const ent = {}, cac = {}; if(de.exists()){ const x=de.data(); if(x.eventoId===ev.id){ Object.keys(x.entradas||{}).forEach(k=>{ if(x.entradas[k]) ent[k]=x.entradas[k]; }); Object.keys(x.cortAc||{}).forEach(k=>{ if(x.cortAc[k]>0) cac[k]=x.cortAc[k]; }); } }
+    const val = ev.valor; let pessoas=0, recebido=0, falta=0, nCort=0; const cort=[];
+    const ids = new Set([...Object.keys(resp), ...Object.keys(ent), ...Object.keys(cac)]);
+    ids.forEach(id=>{
+      const r=resp[id]; const n=(r&&r.status==='sim')?(r.acompanhantes||0):0; const own=ent[id]==='propria'?1:0;
+      const c=Math.min(n, cac[id]||0);
+      if(r&&r.status==='sim') pessoas += 1+n;
+      const devido=(n-c+own)*val, pg=Math.max(r?.pago||0, r?.pagoInf||0);
+      recebido += Math.min(pg,devido); falta += Math.max(0,devido-pg);
+      const q=(ent[id]==='cortesia'?1:0)+c;
+      if(q>0){ nCort+=q; const mm=ministros.find(x=>x.id===id); const nm=mm?mm.nome:(r?.nome||id); cort.push(nm + (ent[id]==='cortesia'&&c ? ` (ele + ${c} acompanhante${c>1?'s':''})` : ent[id]==='cortesia' ? '' : ` (${c} acompanhante${c>1?'s':''})`)); }
+    });
+    const buffet = pessoas*val;
+    return { titulo: ev.titulo||'Confraternização', valor: val, pessoas, buffet, recebido, falta, cortesias: cort, nCort, custoCortesias: nCort*val, liquido: Math.max(0, buffet-recebido-falta) };
+  }catch(e){ return null; }
+}
 async function finRenderBalancete(){
   const cont = document.getElementById('fin-conteudo');
   if(!cont) return;
@@ -18458,7 +18561,8 @@ async function finRenderBalancete(){
   const pctMetaAno = metaAnualMensalidades>0 ? Math.min(100, (mensalidadesArrecadadasAno/metaAnualMensalidades*100)) : 0;
 
   // guarda pra usar em imprimir/compartilhar sem recalcular
-  window._balanceteAtual = { anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoContaAno, mesSel:_finMesSel, mesSelInfo, mensalidadesArrecadadasAno, exAno, exLista, outrasAno, metaAnualMensalidades, faltaAteDezembro, pctMetaAno, totalMinistrosAtivos };
+  const cf = await _confraResumoFin();
+  window._balanceteAtual = { cf, anoRef, linhas, entradasAno, saidasAno, saldoAno, saldoContaAno, mesSel:_finMesSel, mesSelInfo, mensalidadesArrecadadasAno, exAno, exLista, outrasAno, metaAnualMensalidades, faltaAteDezembro, pctMetaAno, totalMinistrosAtivos };
 
   cont.innerHTML = `
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -18500,6 +18604,16 @@ async function finRenderBalancete(){
       </div>
       <p style="font-size:11px;color:#888;margin:8px 0 0;text-align:center">${pctMetaAno.toFixed(0)}% da meta · Faltam <strong style="color:#BA7517">${fmt(faltaAteDezembro)}</strong> até dezembro (${totalMinistrosAtivos} ministros ativos × ${fmt(valor)})</p>
     </div>
+
+    ${cf ? `<div style="background:#fff8ec;border:1.5px solid #f3d9a6;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+      <p style="font-size:12px;font-weight:700;margin:0 0 8px;color:#6b4e10">🎉 ${cf.titulo} — custo e cortesias</p>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Buffet estimado (${cf.pessoas} pessoas × ${fmt(cf.valor)})</span><strong>${fmt(cf.buffet)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Já recebido (PIX)</span><strong style="color:#1D9E75">${fmt(cf.recebido)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Falta receber</span><strong>${fmt(cf.falta)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>🎟️ Cortesias da coordenação (${cf.nCort})</span><strong style="color:#BA7517">${fmt(cf.custoCortesias)}</strong></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0 0;margin-top:4px;border-top:1.5px solid #f3d9a6"><span><b>Fica a cargo da MESCE</b></span><strong style="color:#A32D2D">${fmt(cf.liquido)}</strong></div>
+      ${cf.cortesias.length ? `<details style="margin-top:8px"><summary style="font-size:12px;color:#185FA5;cursor:pointer;font-weight:600">Ver quem recebeu cortesia (${cf.nCort})</summary>${cf.cortesias.map(n=>`<p style="font-size:12px;margin:5px 0 0">${String(n).replace(/</g,'&lt;')}</p>`).join('')}</details>` : ''}
+    </div>` : ''}
 
     <div style="background:#fafdfb;border:1.5px solid #e1f5ee;border-radius:12px;padding:12px 14px;margin-bottom:14px">
       <p style="font-size:12px;font-weight:700;margin:0 0 8px;color:#333">De onde veio a entrada de ${anoRef}</p>
@@ -18550,6 +18664,7 @@ window.compartilharBalancete = async function(){
   txt += `\n*TOTAL ${b.anoRef}:* entradas ${fmt(b.entradasAno)} · saídas ${fmt(b.saidasAno)} · saldo *${fmt(b.saldoAno)}*\n`;
   txt += `🔒 Cofre: ${fmt(b.saldoContaAno.cofre)} · 🏦 Banco 1: ${fmt(b.saldoContaAno.banco1)} · 🏦 Banco 2: ${fmt(b.saldoContaAno.banco2)}\n\n`;
   txt += `📥 *Origem das entradas:*\nMensalidades: ${fmt(b.mensalidadesArrecadadasAno)}\nCaixinha de ex-ministros: ${fmt(b.exAno)}\nOutras entradas: ${fmt(b.outrasAno)}\n\n`;
+  if(b.cf){ txt += `🎉 *${b.cf.titulo}:*\nBuffet estimado: ${fmt(b.cf.buffet)} (${b.cf.pessoas} pessoas)\nJá recebido: ${fmt(b.cf.recebido)} · Falta receber: ${fmt(b.cf.falta)}\nCortesias da coordenação (${b.cf.nCort}): ${fmt(b.cf.custoCortesias)}\nFica a cargo da MESCE: ${fmt(b.cf.liquido)}\n\n`; }
   txt += `📈 *Projeção de mensalidades ${b.anoRef}:*\nArrecadado até hoje: ${fmt(b.mensalidadesArrecadadasAno)} (${b.pctMetaAno.toFixed(0)}% da meta)\nMeta do ano: ${fmt(b.metaAnualMensalidades)}\nFaltam até dezembro: *${fmt(b.faltaAteDezembro)}*`;
 
   if(navigator.share){
@@ -18621,6 +18736,18 @@ window.imprimirBalancete = function(){
       </div>
       <p style="font-size:11px;color:#777;margin:8px 0 0;text-align:center">${b.pctMetaAno.toFixed(0)}% da meta · Faltam <strong style="color:#BA7517">${fmt(b.faltaAteDezembro)}</strong> até dezembro (${b.totalMinistrosAtivos} ministros ativos)</p>
     </div>
+    ${b.cf ? `<div style="border:1.5px solid #f3d9a6;border-radius:8px;padding:12px 14px;margin-bottom:20px">
+      <p style="font-size:12px;font-weight:700;margin:0 0 8px">🎉 ${b.cf.titulo} — custo e cortesias</p>
+      <table style="width:100%;font-size:12px"><tbody>
+        <tr><td>Buffet estimado (${b.cf.pessoas} pessoas × ${fmt(b.cf.valor)})</td><td style="text-align:right">${fmt(b.cf.buffet)}</td></tr>
+        <tr><td>Já recebido (PIX)</td><td style="text-align:right">${fmt(b.cf.recebido)}</td></tr>
+        <tr><td>Falta receber</td><td style="text-align:right">${fmt(b.cf.falta)}</td></tr>
+        <tr><td>Cortesias da coordenação (${b.cf.nCort})</td><td style="text-align:right">${fmt(b.cf.custoCortesias)}</td></tr>
+        <tr style="border-top:1.5px solid #333"><td><b>Fica a cargo da MESCE</b></td><td style="text-align:right"><b>${fmt(b.cf.liquido)}</b></td></tr>
+      </tbody></table>
+      ${b.cf.cortesias.length ? `<p style="font-size:11px;margin:8px 0 0">Cortesias: ${b.cf.cortesias.map(n=>String(n).replace(/</g,'&lt;')).join(', ')}</p>` : ''}
+    </div>` : ''}
+
     <div style="border:1.5px solid #e1f5ee;border-radius:8px;padding:12px 14px;margin-bottom:20px">
       <p style="font-size:12px;font-weight:700;margin:0 0 8px">📥 Origem das entradas — ${b.anoRef}</p>
       <table style="width:100%;font-size:12px"><tbody>
