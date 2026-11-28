@@ -138,7 +138,7 @@ const MES_ATUAL = `${_MESES_KEY_INIT[_hoje.getMonth()]}${_hoje.getFullYear()}`;
   }, true);
 })();
 
-const APP_VERSAO = '21.24.2';
+const APP_VERSAO = '21.24.4';
 // WhatsApp: por padrão abre pelo navegador (wa.me, que reaproveita a mesma aba). Se a Coordenação escolher "Windows",
 // abre direto no aplicativo WhatsApp para Windows (sem abas e sem recarregar).
 (function(){
@@ -6146,13 +6146,14 @@ window.addMin = async function(key, hora, nome, acId){
   // TRAVA DE DUPLICIDADE: nunca escala o mesmo ministro duas vezes no mês (domingo, semanas, horários)
   try{ await _sugCarregarHistorico(false); }catch(e){}
   if(escalas[key][hora].ministros.includes(nome)){ return; }
+  let _dupConfirmada = false;
   { const onde = _conflitoEscala(key, hora, nome);
     if(onde){
-      if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; }
-      _bloquearDuplicado(key, hora, nome, onde); return;
+      if(!_avisarDuplicado(key, hora, nome, onde)){ if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; } return; }
+      _dupConfirmada = true;
     } }
   // EXCEÇÃO CONSCIENTE: domingo + uma semana (raro, quando falta ministro) — avisa e deixa você escolher
-  { const cruz = _conflitoEscala(key, hora, nome, 'cruzado');
+  { const cruz = _dupConfirmada ? null : _conflitoEscala(key, hora, nome, 'cruzado');
     if(cruz){
       const ok = confirm(`⚠️ ATENÇÃO — Domingo + Semana\n\n${nome} já está escalado(a) para a ${cruz}.\n\nEscalar também em ${hora} é uma EXCEÇÃO (use quando faltar ministro).\n\nDeseja escalá-lo(a) mesmo assim?`);
       if(!ok){ if(acId){ const ac=document.getElementById(acId); if(ac) ac.style.display='none'; } return; }
@@ -6343,9 +6344,12 @@ function _conflitoEscala(key, hora, nome, modo){
   }
   return modo==='cruzado' ? cruzado : null;
 }
-function _bloquearDuplicado(key, hora, nome, onde){
-  try{ registrarLogEscala('duplicidade_bloqueada', `${nome}: tentativa de escalar em ${hora} (escala ${key}); já escalado(a) na ${onde}`); }catch(e){}
-  alert(`🚫 DUPLICIDADE BLOQUEADA\n\n${nome} já está escalado(a) para a ${onde}.\n\nO mesmo ministro não pode ser escalado duas vezes no mês.\nSe quiser trocá-lo, retire-o de lá primeiro.`);
+// Só AVISA: a decisão de escalar de novo no mês é da coordenação. Devolve true se você quiser escalar mesmo assim.
+function _avisarDuplicado(key, hora, nome, onde){
+  const ok = confirm(`⚠️ AVISO — já escalado(a) no mês\n\n${nome} já está escalado(a) para a ${onde}.\n\nDeseja escalar também em ${hora}?\n\nOK = escalar mesmo assim\nCancelar = não escalar`);
+  try{ registrarLogEscala(ok?'excecao_duplicidade':'duplicidade_recusada', `${nome}: ${ok?'escalado(a) novamente':'não escalado(a)'} em ${hora} (escala ${key}); já estava na ${onde}`); }catch(e){}
+  if(ok) toast(`⚠️ ${nome.split(' ')[0]} escalado(a) mais uma vez no mês (decisão da coordenação).`,'warn');
+  return ok;
 }
 function _sugCalcular(key, hora, tipo){
   const H = _sugHist || { periodos:[], faltas:{} };
@@ -6453,7 +6457,7 @@ function _sugRender(recalcularMarcados){
   if(!el){ el = document.createElement('div'); el.id='modal-sug'; el.className='modal-bg'; el.onclick = e=>{ if(e.target===el) fecharSugestoes(); }; document.body.appendChild(el); }
   const tipoNome = c.tipo==='dom' ? 'Dominical' : 'Semanal';
   const hist = r.tamanhos.length ? `mediana dos últimos ${r.tamanhos.length} períodos (${r.tamanhos.join(', ')})` : 'sem histórico deste horário';
-  const linhas = r.candidatos.map(x=>{
+  const linhas = r.candidatos.slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(x=>{   // exibição em ordem alfabética (a pré-seleção continua pelos melhores)
     const m = buscarMinistroPorNome(x.nome);
     const foto = m?.foto ? `<img src="${m.foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0">`
       : `<div style="width:38px;height:38px;border-radius:50%;background:#e1f5ee;color:#085041;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${iniciais(x.nome)}</div>`;
@@ -6470,7 +6474,7 @@ function _sugRender(recalcularMarcados){
       </div></label>`;
   }).join('');
   const alertasHtml = r.alertas.length ? `<details style="margin-top:12px"><summary style="font-size:13px;font-weight:700;color:#8a5a00;cursor:pointer">⚠️ ${r.alertas.length} disponível(is) NÃO sugerido(s) — com alerta</summary>
-    ${r.alertas.map(a=>`<div style="font-size:12.5px;color:#444;padding:5px 2px;border-bottom:1px solid #f1f1f1"><strong>${a.nome}</strong> — ${a.motivo}</div>`).join('')}</details>` : '';
+    ${r.alertas.slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(a=>`<div style="font-size:12.5px;color:#444;padding:5px 2px;border-bottom:1px solid #f1f1f1"><strong>${a.nome}</strong> — ${a.motivo}</div>`).join('')}</details>` : '';
   const equipe = [...r.jaNoHorario, ...c.marcados];
   const rs = r.responsavel ? null : _sugResponsavelSugerido(r, equipe);
   const respHtml = rs ? `<div style="margin-top:12px;background:#faeeda;border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -6520,17 +6524,23 @@ window.confirmarSugestoes = function(){
   c.marcados.forEach(nome=>{
     if(g.ministros.includes(nome)) return;
     const onde = _conflitoEscala(key, hora, nome);
-    if(onde){ bloq.push(`${nome} (já na ${onde})`); return; }
+    if(onde){ bloq.push({ nome, onde }); return; }
     g.ministros.push(nome); n++;
     try{ _registrarUltimaEscalacao(nome, `${c.tipo==='dom'?'Missa Dominical':'Missa Semanal'} ${hora}`); }catch(e){}
   });
+  if(bloq.length){
+    const lista = bloq.map(b=>`• ${b.nome} (já na ${b.onde})`).join('\n');
+    if(confirm(`⚠️ AVISO — já escalados no mês\n\n${lista}\n\nDeseja escalar também em ${hora}?\n\nOK = escalar mesmo assim\nCancelar = não escalar esses`)){
+      bloq.forEach(b=>{ g.ministros.push(b.nome); n++; try{ registrarLogEscala('excecao_duplicidade', `${b.nome}: escalado(a) novamente em ${hora} (escala ${key}); já estava na ${b.onde}`); }catch(e){} });
+    }
+    bloq.length = 0;
+  }
   g.ministros.sort((a,b)=>a.localeCompare(b,'pt-BR'));
   if(resp && !g.responsavel) g.responsavel = resp.nome;
   marcarEscalaNaoSalva();
   try{ registrarLogEscala('sugestao_confirmada', `${n} ministro(s) escalado(s) por sugestão em ${hora} (escala ${key})${resp?`; responsável sugerido: ${resp.nome}`:''}`); }catch(e){}
   fecharSugestoes();
   renderEscala();
-  if(bloq.length) alert(`🚫 DUPLICIDADE BLOQUEADA\n\nNão foram escalados por já estarem escalados:\n• ${bloq.join('\n• ')}`);
   toast(`✓ ${n} ministro(s) escalado(s) em ${hora}. Confira e salve a escala.`);
 };
 // Faixa no topo da escala: avisa quais horários ainda têm vagas e abre as sugestões com 1 toque
@@ -6911,7 +6921,7 @@ window.aplicarRascunho = function(){
   try{ registrarLogEscala('rascunho_aplicado', `${n} ministro(s) escalado(s) por rascunho automático (escala ${key})`); }catch(e){}
   sugFecharModal('modal-rasc'); _rascPlano = null;
   renderEscala();
-  if(bloqRasc.length) alert(`🚫 DUPLICIDADE BLOQUEADA\n\nNão foram escalados por já estarem escalados:\n• ${bloqRasc.join('\n• ')}`);
+  if(bloqRasc.length) alert(`ℹ️ O rascunho automático não repete ministro no mês. Ficaram de fora:\n• ${bloqRasc.join('\n• ')}\n\nSe quiser escalar algum deles mesmo assim, adicione manualmente na escala.`);
   toast(`✓ Rascunho aplicado: ${n} ministro(s). Revise e salve a escala.`);
 };
 
